@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Application data (local H2 database)
+data/
+
+# Scraper output — large, regenerate with tools/eaukcija-scraper.js
+tools/aukcije.json
+tools/rezultati.json

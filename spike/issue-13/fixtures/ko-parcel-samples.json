@@ -22,7 +22,7 @@
   {
     "auction_id": 179415,
     "ko": "ČAJETINA",
-    "ko_normalized": "CAJETINA",
+    "wfs_ko_exact": "ČAJETINA",
     "parcel": "4577/337",
     "source": "issue-32 Address Registry point; not an RGZ polygon",
     "wgs84": {
@@ -43,7 +43,7 @@
   {
     "auction_id": 181466,
     "ko": "VOŽDOVAC",
-    "ko_normalized": "VOZDOVAC",
+    "wfs_ko_exact": "VOŽDOVAC",
     "parcel": "7300/1",
     "source": "issue-32 Address Registry point; not an RGZ polygon",
     "wgs84": {

@@ -1,126 +1,127 @@
-# Issue #13 — lawful RGZ parcel-geometry access decision
+# Issue #13 — RGZ parcel-geometry access decision
 
 **Issue:** [#13](https://github.com/brzivoz/aukcije_core/issues/13)
+
 **Decision date:** 2026-08-21
-**Time box:** completed inside one working day
-**Status:** **COMPLETE — outcome C**
+
+**Reopened scope:** occasional private, non-commercial use
+
+**Status:** **option B verified; live issue left open for owner review**
 
 ## Decision
 
-Select **C: view-only / unsupported / unconfirmed**.
+Select **B: public OGC WFS to a private local GeoJSON artifact**, but only for
+the owner-declared scope: a manually initiated, occasional, non-commercial
+lookup of one known cadastral municipality (KO) and parcel number.
 
-The product must not call, scrape, proxy, cache, or redistribute RGZ/GeoSrbija
-parcel geometry. Issue #21 must implement the explicit
-`PARCEL_GEOMETRY_UNAVAILABLE` capability state and hand resolution to #23.
-Address Registry points remain `ADDRESS`; KO, settlement, and municipality
-centroids retain their own coarse precision. None may be labelled `PARCEL`.
+This is not approval for a commercial product, unattended enrichment,
+scheduled access, bulk collection, a shared cache, or redistribution. It is
+also not a general legal opinion. The earlier outcome C correctly failed closed
+for a production/commercial integration; the owner subsequently narrowed the
+actual use case and explicitly requested option A or B.
 
-This is a product integration decision, not a general legal opinion. It is the
-mandatory fail-closed result of #13's time box: no official source inspected on
-2026-08-21 grants this project automated parcel-geometry reuse, caching, or
-redistribution rights.
+The repository now contains a one-shot command that makes one unauthenticated
+WFS request, requests at most two features, validates exact identity/CRS/
+geometry, drops unrecognized properties, and writes the geometry only to a
+gitignored private directory. The application itself does not call RGZ.
 
-## Why A and B were rejected
+## Why option B is technically available
 
-| Candidate | Evidence | Result |
-|---|---|---|
-| A — supported public parcel API | The guest portal exposes an undocumented application API and a WMS map proxy. RGZ documents public eKatastar as an interactive lookup and says extended registered access requires an RGZ contract. No supported parcel API contract, versioning policy, quota, or reuse license was found. | Rejected |
-| B — licensed download/OGC source | The guest map renders a weekly cadastral parcel layer through WMS. Its capabilities advertise `Fees=none` and `AccessConstraints=none`, but provide no title, contact, license, reuse/redistribution terms, retention terms, or SLA. The official fee schedule separately lists paid WMS, WFS, REST, and vector-download access; its free-download exceptions name the Address Registry and other registries, not cadastral parcel geometry. | Rejected |
-| C — unavailable with fallback | Public viewing is demonstrable; automated production reuse is not authorized by a reproducible official contract. | **Selected** |
+The public GeoSrbija host publishes a standards-shaped WFS 2.0.0 contract at
+[`regdkp/ows`](https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=GetCapabilities):
 
-`Fees=none` and `AccessConstraints=none` are service-capabilities fields, not a
-license grant. The service host also identifies itself as `ogc-tmp`; its
-availability and compatibility cannot be treated as a production contract.
+- `GetCapabilities` advertises `GetFeature`, JSON output, and the feature type
+  `dkp:dkp_parcels_weekly_only_utm` without authentication.
+- `DescribeFeatureType` exposes KO identity (`cadmun_code`,
+  `cadmun_name_lat`), `parcel_num`, polygon geometry, status, area, projection,
+  and scale fields.
+- The feature type's default CRS is `EPSG:25834`. The command explicitly asks
+  for `EPSG:4326` and rejects a response that does not declare that CRS.
+- The capabilities fields `Fees` and `AccessConstraints` are empty. That is
+  evidence that the public endpoint does not advertise a technical access
+  restriction; it is **not** treated as a broad license or redistribution
+  grant.
 
-## Sources inspected
+This selects the OGC half of option B. It does not use the portal's browser API,
+WMS proxy, cookies, sessions, credentials, or personal records.
 
-All sources were inspected on 2026-08-21.
+## Fixed private-use contract
 
-| Source | Reproducible finding |
+| Concern | Contract |
 |---|---|
-| [RGZ public map](https://portal.rgz.gov.rs/rgz-portal/map) | Guest mode provides search, visible parcel cartography, an EPSG selector, and a login control. It describes the portal as a place to view spatial data and perform basic in-application GIS operations. It does not publish a reuse license in the inspected UI. |
-| [RGZ GeoSrbija overview](https://www.rgz.gov.rs/%D0%B3%D0%B5%D0%BE-%D1%81%D1%80%D0%B1%D0%B8%D1%98%D0%B0) | Describes public access/insight into spatial data and parcel information, but does not grant automated extraction, caching, or redistribution. |
-| [RGZ electronic-service terms](https://www.rgz.gov.rs/%D1%83%D1%81%D0%BB%D0%BE%D0%B2%D0%B8-%D0%BA%D0%BE%D1%80%D0%B8%D1%88%D1%9B%D0%B5%D1%9A%D0%B0-%D0%B5%D0%BB%D0%B5%D0%BA%D1%82%D1%80%D0%BE%D0%BD%D1%81%D0%BA%D0%B8%D1%85-%D1%81%D0%B5%D1%80%D0%B2%D0%B8%D1%81%D0%B0) | Requires lawful, non-disruptive use; prohibits unauthorized collection and protected-content transfer; records access identity/IP/time and documents cookie/analytics use. Published October 2023. |
-| [RGZ eKatastar](https://www.rgz.gov.rs/%D0%B5-%D0%BA%D0%B0%D1%82%D0%B0%D1%81%D1%82%D0%B0%D1%80) | Public access supports parcel-number/address lookup. Extended registered access is only for users with an RGZ data-use contract. This is a web-application contract, not a supported API contract. |
-| [Official administrative-fee schedule](https://www.rgz.gov.rs/content/Datoteke/Dokumenta/01%20Zakoni/%D0%97%D0%B0%D0%BA%D0%BE%D0%BD%20%D0%BE%20%D1%80%D0%B5%D0%BF%D1%83%D0%B1%D0%BB%D0%B8%D1%87%D0%BA%D0%B8%D0%BC%20%D0%B0%D0%B4%D0%BC%D0%B8%D0%BD%D0%B8%D1%81%D1%82%D1%80%D0%B0%D1%82%D0%B8%D0%B2%D0%BD%D0%B8%D0%BC%20%D1%82%D0%B0%D0%BA%D1%81%D0%B0%D0%BC%D0%B0%2043_2003...138_2022-%D0%A3%D0%A1%D0%9A%D0%9B%D0%90%D0%82%D0%95%D0%9D%D0%98%20%D0%94%D0%98%D0%9D%D0%90%D0%A0%D0%A1%D0%9A%D0%98%20%D0%98%D0%97%D0%9D%D0%9E%D0%A1%D0%98%20%D0%9E%D0%94%2001.07.2023.%20%28%D0%BA%D0%BE%D0%BD%D0%B0%D1%87%D0%BD%D0%BE%29.pdf) | Tariff 215i lists annual WMS/WFS/REST/download-service fees. Public cadastral viewing is fee-free, while the named free vector downloads include the Address Registry and do not include cadastral parcels. |
-| [GKIS rulebook](https://www.rgz.gov.rs/content/docs/000/000/005/Pravilnik%20o%20geodetsko-katastarskom%20informacionom%20sistemu.pdf) | Defines WMS as georeferenced raster-image delivery and WFS as geographic features plus attributes. The guest parcel observation was WMS, not a documented WFS/download contract. |
-| [RGZ open-data organization](https://data.gov.rs/sr/organizations/republichki-geodetski-zavod/) | Lists five RGZ datasets. The official Address Registry is present; a nationwide cadastral parcel-geometry dataset is not. |
+| Invocation | Manual command only |
+| Identity | Exact `cadmun_name_lat` + exact `parcel_num`; diacritics are significant |
+| Network | One unauthenticated HTTPS request per invocation; no automatic retry |
+| Result cap | `count=2`, so ambiguity is detectable without bulk retrieval |
+| CRS | Request `EPSG:4326`; require the response CRS declaration |
+| Geometry | Accept only non-empty `Polygon` or `MultiPolygon` inside broad Serbia bounds |
+| Size/timeout | At most 5 MB; timeout is configurable from 0–60 seconds (20 default) |
+| Properties | Fixed non-personal cadastral whitelist; future unknown fields are dropped |
+| Retention | User-requested GeoJSON under `spike/issue-13/out/`, ignored by Git |
+| Product behavior | No background/scheduled request and no shared/product cache |
+| Redistribution | Outside this decision and prohibited by the repository contract |
+| Fallback | Not found, ambiguity, network/schema/CRS error: write nothing and continue through #23 |
 
-## Redacted guest-mode observation
+The machine-readable version is
+[`private-wfs-contract.json`](../spike/issue-13/fixtures/private-wfs-contract.json).
 
-No authentication was performed. No cookies, browser storage, authorization
-headers, session identifiers, tokens, personal data, raw feature responses, or
-precise parcel requests were inspected or retained.
+## Live observations
 
-The committed fixture
-[`guest-map-observation.json`](../spike/issue-13/fixtures/guest-map-observation.json)
-records only these whitelisted facts:
+All observations were made on 2026-08-21 without authentication. Raw XML and
+raw server GeoJSON were transient. The committed
+[`wfs-observations.json`](../spike/issue-13/fixtures/wfs-observations.json)
+contains only whitelisted metadata and SHA-256 fingerprints.
 
-- The guest map loaded with `Prijava` visible and displayed `EPSG:32634`.
-- A guest search for `Dimitrovgrad` returned a cadastral-municipality result.
-- At parcel-visible scale, the application requested WMS 1.3.0 `GetMap` for
-  `dkp:dkp_parcels_weekly_only_utm` through the RGZ portal proxy.
-- The response was observed only as a rendered `image/png` asset. The viewport
-  bounding box is redacted and no raster body is committed.
-- The nested service path was
-  `https://ogc-tmp.geosrbija.rs/regdkp/ows`; no query credential was present.
+| Case | Observed behavior |
+|---|---|
+| Success: DIMITROVGRAD / 1572 | One `Polygon`; KO code `713848`; area `406 m²` |
+| Success: ČAJETINA / 4577/337 | One `MultiPolygon`; KO code `743968`; area `410 m²` |
+| Success: VOŽDOVAC / 7300/1 | One `Polygon`; KO code `703621`; area `20,177 m²` |
+| Not found | ASCII-folded `CAJETINA / 4577/337` returned zero; the exact WFS name is `ČAJETINA` |
+| Ambiguous | A deliberately under-specified parcel-only query for `7300/1` matched 37 nationally and returned only the requested first two; the command never performs this query |
+| Input error | Invalid KO/parcel syntax is rejected locally before network access with exit 2 |
+| Remote/schema error | HTTP, timeout, media type, JSON, identity, CRS, area, or geometry failure exits 5 and writes nothing |
 
-The redacted capabilities fixture records HTTP 200, `text/xml`, response hash
-`dd69b6564ccc04a2843098af2799504d3e29a4da3e28d840a31a14ac08c47722`,
-WMS 1.3.0 update sequence `6441`, and the selected weekly parcel layer's
-advertised CRS values (`EPSG:25834`, `CRS:84`). The 22,038-byte raw response was
-used transiently and was not committed.
+The three precise GeoJSON results are private working artifacts and are not
+committed:
+
+- `spike/issue-13/out/dimitrovgrad-1572.geojson`
+- `spike/issue-13/out/cajetina-4577-337.geojson`
+- `spike/issue-13/out/vozdovac-7300-1.geojson`
 
 ## CRS and identity proof
 
-The portal UI's displayed/requested `EPSG:32634` is an observation, not the
-weekly layer's source-CRS guarantee. The layer capabilities advertise
-`EPSG:25834` and `CRS:84`; therefore any future licensed vector contract must
-validate CRS from its own authoritative metadata for every source version.
-
-Three KO + parcel samples from the completed #32 measurement are committed in
+The three #32 Address Registry samples remain in
 [`ko-parcel-samples.json`](../spike/issue-13/fixtures/ko-parcel-samples.json).
-They prove the transformation path only; they do **not** claim that an RGZ
-polygon was retrieved or matched.
+The WFS returned an exact KO + parcel identity for each sample. The local
+command preserves Serbian Latin diacritics because ASCII folding changes WFS
+identity semantics.
 
-| KO / parcel | WGS 84 (lon, lat) | EPSG:25834 (E, N) | EPSG:32634 (E, N) |
-|---|---|---|---|
-| DIMITROVGRAD / 1572 | `22.780484, 43.013322` | `645094.618, 4763832.342` | `645094.618, 4763832.342` |
-| ČAJETINA / 4577/337 | `19.693799, 43.734697` | `394810.562, 4843235.894` | `394810.562, 4843235.894` |
-| VOŽDOVAC / 7300/1 | `20.495631, 44.770078` | `460089.341, 4957533.212` | `460089.341, 4957533.213` |
+The service feature type advertises ETRS89 / UTM zone 34N (`EPSG:25834`), while
+the portal UI had displayed/requested WGS 84 / UTM zone 34N (`EPSG:32634`).
+`verify.py` recomputes both transforms from the samples with `pyproj==3.6.1`,
+checks the committed coordinates within 1 cm, and proves round trips within
+`1e-9` degrees. The lookup asks the server for WGS 84 longitude/latitude and
+validates the returned CRS instead of assuming either projected CRS.
 
-`verify.py` recomputes both transforms with `pyproj==3.6.1`, checks the
-committed coordinates within 1 cm, and proves round trips within `1e-9`
-degrees. The near equality of ETRS89 / UTM 34N and WGS 84 / UTM 34N at these
-samples is measured behavior, not permission to conflate their CRS identities.
+Only a feature that passes exact identity and geometry validation may be
+labelled `PARCEL`. Address Registry points remain `ADDRESS`; KO, settlement,
+and municipality centroids retain their coarse precision.
 
-## Operational, security, and legal boundary
+## Sources inspected
 
-- Production makes **zero** RGZ/GeoSrbija parcel-geometry requests.
-- No RGZ browser endpoint, WMS URL, session, or token is a production
-  dependency. There is no assumed rate limit, availability target, cache TTL,
-  or retry contract.
-- No observed RGZ imagery, feature attributes, or parcel geometry is persisted
-  or redistributed.
-- The capability state is versioned and auditable:
-  `PARCEL_GEOMETRY_UNAVAILABLE / UNCONFIRMED_REUSE_AUTHORITY / 2026-08-21`.
-- Existing #22/#23 Address Registry and coarse fallbacks remain deterministic,
-  local, and precision-labelled.
-
-Outcome C may be revisited only after written RGZ authority names the dataset
-and license/contract and specifies permitted purposes, automated access method,
-identity fields, geometry types, CRS, source versioning, quotas, availability,
-caching/retention, redistribution, security, and support. A merely reachable
-endpoint or changed capabilities document is insufficient.
-
-## Exact downstream contract
-
-The complete replacement body for #21 is committed at
-[`downstream-issue-21.md`](../spike/issue-13/downstream-issue-21.md). It narrows
-#21 to the selected unavailable-state wiring and replaces A/B-only fixtures
-with outcome-C acceptance cases.
+| Source | Reproducible finding |
+|---|---|
+| [Public WFS capabilities](https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=GetCapabilities) | WFS 2.0.0, public `GetFeature`, JSON output, parcel feature type, empty fees/access-constraints fields |
+| [Public WFS schema](https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=DescribeFeatureType&typeNames=dkp%3Adkp_parcels_weekly_only_utm) | Exact KO/parcel fields and polygon geometry contract |
+| [RGZ public map](https://portal.rgz.gov.rs/rgz-portal/map) | Guest map and parcel cartography; no authentication used |
+| [RGZ GeoSrbija overview](https://www.rgz.gov.rs/%D0%B3%D0%B5%D0%BE-%D1%81%D1%80%D0%B1%D0%B8%D1%98%D0%B0) | Public access/insight into spatial and parcel data |
+| [RGZ electronic-service terms](https://www.rgz.gov.rs/%D1%83%D1%81%D0%BB%D0%BE%D0%B2%D0%B8-%D0%BA%D0%BE%D1%80%D0%B8%D1%88%D1%9B%D0%B5%D1%9A%D0%B0-%D0%B5%D0%BB%D0%B5%D0%BA%D1%82%D1%80%D0%BE%D0%BD%D1%81%D0%BA%D0%B8%D1%85-%D1%81%D0%B5%D1%80%D0%B2%D0%B8%D1%81%D0%B0) | Requires lawful, non-disruptive use and constrains unauthorized collection/transfer |
+| [RGZ eKatastar](https://www.rgz.gov.rs/%D0%B5-%D0%BA%D0%B0%D1%82%D0%B0%D1%81%D1%82%D0%B0%D1%80) | Public parcel-number/address lookup; registered extended access is contract-based |
 
 ## Reproduction
+
+Install the pinned CRS dependency and verify all committed evidence offline:
 
 ```bash
 python3 -m venv /tmp/aukcije-issue13-venv
@@ -128,15 +129,22 @@ python3 -m venv /tmp/aukcije-issue13-venv
 /tmp/aukcije-issue13-venv/bin/python spike/issue-13/verify.py
 ```
 
-Verification is offline. It performs no RGZ/GeoSrbija requests.
+Perform one owner-initiated private lookup:
+
+```bash
+python3 spike/issue-13/fetch_parcel.py --ko 'ČAJETINA' --parcel '4577/337'
+```
+
+The verifier is offline. The fetch command is the only networked component.
 
 ## Acceptance checklist
 
 | Issue criterion | Result |
 |---|---|
-| Reproducible, reviewed decision; every assumption evidenced or C | **Met:** C selected; official sources and redacted fixture provenance recorded |
-| Guest fixtures without auth, tokens, or personal data | **Met:** whitelisted observation/capabilities fixtures; verifier scans for sensitive fields |
-| Sample KO + parcel cases and CRS transform proof | **Met:** three samples, two CRS transforms, round-trip checks |
-| Operational/security/legal constraints | **Met:** zero-request boundary and reopening conditions are explicit |
-| Exact #21 acceptance changes | **Met:** complete replacement issue body committed |
-| Two-working-day time box | **Met:** decision completed on 2026-08-21; unconfirmed reuse authority automatically selected C |
+| Reproducible decision with evidence | **Met:** option B, public WFS capabilities/schema fingerprints, and fixed private-use contract |
+| Redacted fixtures without credentials/personal data | **Met:** property-whitelisted metadata only; private GeoJSON is ignored |
+| Sample KO + parcel cases and CRS proof | **Met:** three exact live matches and six offline transform checks |
+| Success/not-found/ambiguous/error behavior | **Met:** observed and enforced fail-closed client behavior |
+| Operational/security/legal constraints | **Met:** one-shot private-use boundary; no product automation or redistribution |
+| Exact #21 acceptance changes | **Met:** replacement issue body committed and applied live |
+| Two-working-day time box | **Met:** revised scope evaluated and implemented on 2026-08-21 |

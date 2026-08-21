@@ -10,7 +10,7 @@ The GitHub plan consists of 9 epics and 25 executable implementation/decision is
 
 Both external feasibility gates now have committed outcomes:
 
-- **#13 — COMPLETE, outcome C:** lawful automated RGZ parcel-geometry reuse was not confirmed. Production makes zero RGZ parcel requests and implements an explicit unavailable capability before continuing through the address/coarse fallback.
+- **#13 — REOPENED, option B verified for private use:** the public WFS returned three exact parcel geometries. Access is restricted to an occasional owner-initiated command and private local artifact; the running application still makes zero RGZ requests.
 - **#32 — COMPLETE, feasible with a measured ceiling:** every measured auction reached some location tier, but only 16.3% reached address precision; no Address Registry point is promoted to parcel precision.
 
 Three milestones define completion:
@@ -44,7 +44,7 @@ Every figure below was verified directly against the live API on 2026-08-21.
 1. **Category ingestion was over-specified and duplicative.** Root `7` returns 622 unique records; children `47`/`48`/`49` are disjoint subsets totaling 530, leaving 92 root-only. #12 discovers by roots `7` and `8`, deduplicates stable IDs, and uses children/detail categories only for classification.
 2. **Presence is not activity.** The source includes historical auctions. #11 closes primarily from the source end instant and only uses absence after two complete successful cycles; partial runs cannot mutate lifecycle. (See correction 9 below for the revised magnitude.)
 3. **Raw payload replay is real.** #10 stores sanitized, append-only listing+detail JSONB snapshots keyed by canonical content hash. Base64 thumbnails/images and transport secrets are excluded by a versioned minimization policy.
-4. **RGZ parcel access is not an implicit dependency.** #13 selected outcome C on 2026-08-21: no supported public API or licensed offline/OGC reuse contract was confirmed. Production records `PARCEL_GEOMETRY_UNAVAILABLE` and continues through #23.
+4. **RGZ parcel access is explicit and opt-in.** After the owner narrowed the scope to occasional private non-commercial use, #13 verified option B against a public WFS 2.0.0 contract. A manual one-parcel command produces a private local artifact; application/runtime code never calls RGZ, and missing or failed imports continue through #23.
 5. **The address fallback is concrete.** The official weekly Address Registry GPKG includes house-number geometry and street, municipality, settlement, KO, and parcel identifiers. The inspected artifact used `EPSG:25834`; #22 validates and transforms it rather than relying on a live geocoder.
 6. **Spatial persistence is production-shaped.** #15 standardizes `postgis/postgis:18-3.6`, Flyway, Hibernate Spatial, `ddl-auto=validate`, loopback database binding, and a clean re-sync from H2 while preserving any old H2 file for manual archive.
 7. **The basemap is genuinely local.** #24/#25 use a checksum-verified Geofabrik Serbia extract, pinned Protomaps/Planetiler tooling, PMTiles v3, same-origin sprites/glyphs/style, HTTP byte ranges/ETags, atomic activation, and browser proof with non-local network blocked.
@@ -74,7 +74,7 @@ Every figure below was verified directly against the live API on 2026-08-21.
 
 17. **Nothing was sized and no milestone had a date.** Every executable issue now carries `size:S` (1–2 focused days), `size:M` (about a week), or `size:L` (two weeks or more; consider splitting). The current distribution is 3 S, 15 M, 7 L. Milestones still have no due dates, because setting them requires a velocity assumption the repository cannot supply.
 
-18. **The RGZ gate selected the fail-closed path.** Guest mode exposed a weekly cadastral WMS layer and public search, but neither the map UI nor the capabilities document supplied an explicit automated-reuse, caching, or redistribution license. Official RGZ terms constrain unauthorized collection, eKatastar registered access requires a contract, and the fee schedule names paid WMS/WFS/REST/download services while excluding cadastral parcels from the free vector-download list. #13 therefore selected **C**. The decision record, sanitized fixtures, three KO+parcel CRS proofs, and exact #21 replacement contract are in `documentation/2026-08-21-decision-13-rgz-parcel-access.md` and `spike/issue-13/`.
+18. **The RGZ gate was reopened for the real private-use scope.** The earlier commercial/production assumption correctly selected C. The owner clarified that use is occasional, private, and non-commercial and requested A or B. A public unauthenticated WFS 2.0.0 advertises the weekly parcel feature type and returned exact polygons for all three KO+parcel samples. #13 therefore selects **B** only as a manual one-parcel-to-private-GeoJSON workflow. It does not authorize scheduled/bulk use, product caching, or redistribution. The decision record, sanitized WFS fingerprints, failure cases, one-shot command, CRS proofs, and exact #21 replacement contract are in `documentation/2026-08-21-decision-13-rgz-parcel-access.md` and `spike/issue-13/`.
 
 ## Honest total
 
@@ -84,13 +84,13 @@ The P2/M2 work is the designated cut line. #28 and, if #32 or #13 go badly, #21 
 
 ## Implementation order
 
-Arrows are hard dependencies. The dashed #21 edge is optional precision: outcome C from #13 still permits #26 through the address fallback in #23.
+Arrows are hard dependencies. The dashed #21 edge is optional precision: absent a manually imported private WFS artifact, #26 still proceeds through the address fallback in #23.
 
 ```mermaid
 flowchart TB
     subgraph M0["M0 — Feasibility & Data Foundation"]
         I16["#16 CI + PostGIS tests"]
-        I13["#13 RGZ decision: C"]
+        I13["#13 RGZ private WFS: B"]
         I32["#32 End-to-end hit-rate spike"]
         I15["#15 PostgreSQL/PostGIS + Flyway"]
         I12["#12 Canonical source taxonomy"]
@@ -123,7 +123,7 @@ flowchart TB
         I33["#33 KO matching for extractions"]
         I20["#20 Spatial schema + bbox queries"]
         I25["#25 Range/ETag local serving"]
-        I21["#21 Parcel path or unavailable"]
+        I21["#21 Private parcel import"]
         I23["#23 Address/coarse resolver"]
         I26["#26 Bounded GeoJSON API"]
         I27["#27 MapLibre precision-aware map"]
@@ -205,7 +205,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 
 | Wave | Issues | Evidence required before advancing |
 |---|---|---|
-| 0 | #16, #13, #32 | Terminal CI foundation; #13 outcome-C decision record plus offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
+| 0 | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
 | 1 | #15, #12, #24, #34 | PostGIS migration/startup proof; taxonomy contract tests; validated PMTiles manifest; browser harness with a passing negative control |
 | 2 | #17, #22, #25 | Complete/partial sync-run tests plus source acceptable-use note; validated GPKG import with atomic promotion and rollback; Range/ETag and localhost-only browser network proof |
 | 3 | #10, #14 | Snapshot replay/hash evidence; reproducible KO dictionary with duplicate-name report |
@@ -227,7 +227,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 - No raw base64 images, credentials, browser-session tokens, or unnecessary personal data appear in storage, logs, fixtures, or CI artifacts.
 - The issue body is updated if implementation changes the contract, and closure includes exact commands, results, artifacts, and current terminal CI URL.
 
-Spike issues (#13, #32) are exempt from the test and CI requirements. Their deliverable is a committed, reproducible decision record; their code is expected to be thrown away.
+Spike issues (#13, #32) are exempt from the application test and CI requirements. Their deliverable is committed reproducible evidence. #13 additionally retains its bounded private lookup command; #32's measurement code remains disposable.
 
 ## Primary references
 
@@ -235,7 +235,7 @@ Spike issues (#13, #32) are exempt from the test and CI requirements. Their deli
 - [Official Serbian Address Registry dataset](https://data.gov.rs/sr/datasets/adresni-registar/)
 - [RGZ GeoSrbija](https://www.rgz.gov.rs/geo-srbija) and [public cadastral map](https://portal.rgz.gov.rs/rgz-portal/map)
 - [RGZ electronic-service terms](https://www.rgz.gov.rs/uslovi-kori%C5%A1%C4%87enja-elektronskih-servisa)
-- [Issue #13 outcome-C decision record](2026-08-21-decision-13-rgz-parcel-access.md)
+- [Issue #13 option-B private WFS decision record](2026-08-21-decision-13-rgz-parcel-access.md)
 - [Geofabrik Serbia extract](https://download.geofabrik.de/europe/serbia.html)
 - [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
 - [Protomaps basemap generator](https://github.com/protomaps/basemaps), [PMTiles specification/implementations](https://github.com/protomaps/PMTiles), and [MapLibre PMTiles example](https://maplibre.org/maplibre-gl-js/docs/examples/pmtiles/)

@@ -1,0 +1,80 @@
+{
+  "captured_on": "2026-08-21",
+  "authentication": "none",
+  "retention": "Only this property-whitelisted metadata is committed. Raw XML, raw GeoJSON, coordinates, bounding boxes, and private output are not committed.",
+  "capabilities": {
+    "request": "WFS 2.0.0 GetCapabilities",
+    "status": 200,
+    "media_type": "application/xml",
+    "raw_sha256": "63d2e107b0073502c5363d53dd898beab9992246e10b48bf414a0007b2d575a5",
+    "raw_size_bytes": 96493,
+    "fees": "",
+    "access_constraints": "",
+    "feature_type": "dkp:dkp_parcels_weekly_only_utm",
+    "default_crs": "EPSG:25834",
+    "json_output_advertised": true
+  },
+  "schema": {
+    "request": "WFS 2.0.0 DescribeFeatureType",
+    "status": 200,
+    "media_type": "application/gml+xml",
+    "raw_sha256": "8274f9672d6b0e244ce51113e693741cb55d558adbd2e4e40218ad5b0ba40cd6",
+    "raw_size_bytes": 3406,
+    "identity_fields": [
+      "cadmun_code",
+      "cadmun_name_lat",
+      "parcel_num"
+    ],
+    "geometry_field": "geom"
+  },
+  "success": [
+    {
+      "ko": "DIMITROVGRAD",
+      "cadmun_code": 713848,
+      "parcel": "1572",
+      "geometry_type": "Polygon",
+      "area_square_metres": 406,
+      "number_matched": 1,
+      "raw_sha256": "c4a738779164e772b22ba30418fef0093522634c14c34fe11872499feb01f3aa"
+    },
+    {
+      "ko": "ČAJETINA",
+      "cadmun_code": 743968,
+      "parcel": "4577/337",
+      "geometry_type": "MultiPolygon",
+      "area_square_metres": 410,
+      "number_matched": 1,
+      "raw_sha256": "bb12e4e75804a40ad6285c7763598beaab8530046bfe6485775e352946cdfe95"
+    },
+    {
+      "ko": "VOŽDOVAC",
+      "cadmun_code": 703621,
+      "parcel": "7300/1",
+      "geometry_type": "Polygon",
+      "area_square_metres": 20177,
+      "number_matched": 1,
+      "raw_sha256": "9e12cc12701fb0c450e6d0153915aecb910687ae2ea05d5d3eb74b356a855f85"
+    }
+  ],
+  "not_found": {
+    "ko": "CAJETINA",
+    "parcel": "4577/337",
+    "reason": "The WFS identity uses the exact Latin-script name ČAJETINA; ASCII-folding the KO is not equivalent.",
+    "number_matched": 0,
+    "number_returned": 0,
+    "raw_sha256": "2dd90740370496c96f6f5424be28362e0768f78668b69ad97fbf3dade09f6a8d"
+  },
+  "ambiguous": {
+    "lookup": "parcel_num only",
+    "parcel": "7300/1",
+    "number_matched": 37,
+    "number_returned_with_count_2": 2,
+    "raw_sha256": "45f7f48bda6e8668d7d2fb50ecd6adb3961de1c57b75d9cee22956acbb517fb0",
+    "client_behavior": "The shipped command never performs parcel-only lookup and exits 4 if an exact KO plus parcel response contains more than one feature."
+  },
+  "error": {
+    "case": "invalid parcel syntax",
+    "client_behavior": "Reject before network access with exit 2.",
+    "transport_or_schema_behavior": "Fail closed with exit 5 and do not write an output file."
+  }
+}

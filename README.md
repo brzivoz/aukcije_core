@@ -75,8 +75,9 @@ fixture builds its own scratch table, so asserting that table's SRID or index
 would just be reading back its own DDL. Schema and index assertions belong to
 #20, against the real migrated schema.
 
-Reports land in `build/reports/tests/test/index.html`. CI publishes them as the
-`test-reports` artifact when a run fails.
+Reports land in `build/reports/tests/test/index.html`. Every CI run — passing or
+failing — retains them as the `test-reports` artifact for 14 days, so a run
+stays citable as evidence after its log expires.
 
 ### Migrations
 

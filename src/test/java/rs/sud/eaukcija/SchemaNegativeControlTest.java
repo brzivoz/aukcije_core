@@ -8,6 +8,8 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.WebApplicationType;
@@ -57,8 +59,12 @@ class SchemaNegativeControlTest {
 
         // The migrations before the broken one must have committed: a partly
         // migrated database has to stay visibly partly migrated rather than
-        // rolling back to empty and hiding what happened.
-        assertThat(appliedMigrationCount(jdbcUrl, container)).isEqualTo(2);
+        // rolling back to empty and hiding what happened. Named rather than
+        // counted, so adding a real migration does not fail a control that is
+        // still behaving correctly.
+        assertThat(appliedMigrationScripts(jdbcUrl, container))
+                .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql")
+                .doesNotContain("V900__deliberately_invalid.sql");
     }
 
     @Test
@@ -96,13 +102,17 @@ class SchemaNegativeControlTest {
                 .hasStackTraceContaining("cadastral");
     }
 
-    private static int appliedMigrationCount(String jdbcUrl, PostgreSQLContainer<?> container) {
+    private static List<String> appliedMigrationScripts(String jdbcUrl, PostgreSQLContainer<?> container) {
         try (Connection connection =
                      DriverManager.getConnection(jdbcUrl, container.getUsername(), container.getPassword());
              Statement statement = connection.createStatement();
              ResultSet rs = statement.executeQuery(
-                     "SELECT count(*) FROM flyway_schema_history WHERE success")) {
-            return rs.next() ? rs.getInt(1) : 0;
+                     "SELECT script FROM flyway_schema_history WHERE success ORDER BY installed_rank")) {
+            List<String> scripts = new ArrayList<>();
+            while (rs.next()) {
+                scripts.add(rs.getString("script"));
+            }
+            return scripts;
         } catch (SQLException e) {
             throw new IllegalStateException("could not read flyway history", e);
         }

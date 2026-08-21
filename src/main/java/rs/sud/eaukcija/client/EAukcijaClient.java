@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
@@ -20,11 +21,18 @@ public class EAukcijaClient {
     private final ObjectMapper objectMapper;
     private final String baseUrl;
 
+    @Autowired
     public EAukcijaClient(
             @Value("${eaukcija.api.base-url}") String baseUrl,
             ObjectMapper objectMapper
     ) {
-        this.restTemplate = new RestTemplate();
+        this(baseUrl, objectMapper, new RestTemplate());
+    }
+
+    // Visible for testing: lets a test bind MockRestServiceServer to the exact
+    // RestTemplate this client uses, so no test reaches the live eAukcija API.
+    EAukcijaClient(String baseUrl, ObjectMapper objectMapper, RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
         this.objectMapper = objectMapper;
         this.baseUrl = baseUrl;
     }

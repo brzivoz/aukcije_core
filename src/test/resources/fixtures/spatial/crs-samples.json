@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "Issue #16 CRS transform fixture.",
+    "Coordinates are the three Address Registry sample points already committed in",
+    "spike/issue-13/fixtures/ko-parcel-samples.json, whose EPSG:25834 and EPSG:32634",
+    "values were independently proven with pyproj 3.6.1 by spike/issue-13/verify.py.",
+    "The integration test re-derives them a second time through PostGIS ST_Transform,",
+    "so a broken PROJ install or a wrong SRID in the database is caught here."
+  ],
+  "samples": [
+    {
+      "ko": "DIMITROVGRAD",
+      "parcel": "1572",
+      "longitude": 22.780484,
+      "latitude": 43.013322,
+      "epsg25834": {
+        "easting": 645094.618,
+        "northing": 4763832.342
+      },
+      "epsg32634": {
+        "easting": 645094.618,
+        "northing": 4763832.342
+      }
+    },
+    {
+      "ko": "ČAJETINA",
+      "parcel": "4577/337",
+      "longitude": 19.693799,
+      "latitude": 43.734697,
+      "epsg25834": {
+        "easting": 394810.562,
+        "northing": 4843235.894
+      },
+      "epsg32634": {
+        "easting": 394810.562,
+        "northing": 4843235.894
+      }
+    },
+    {
+      "ko": "VOŽDOVAC",
+      "parcel": "7300/1",
+      "longitude": 20.495631,
+      "latitude": 44.770078,
+      "epsg25834": {
+        "easting": 460089.341,
+        "northing": 4957533.212
+      },
+      "epsg32634": {
+        "easting": 460089.341,
+        "northing": 4957533.213
+      }
+    }
+  ]
+}

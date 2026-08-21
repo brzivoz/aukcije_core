@@ -1,0 +1,33 @@
+{
+  "ResultCode": "OK",
+  "ResultMessage": null,
+  "Data": {
+    "Id": 180466,
+    "AuctionNumber": "Н180466",
+    "StartDate": "2026-03-10T07:00:00Z",
+    "EndDate": "2026-03-10T11:00:00Z",
+    "PublicationDate": "2026-02-24T10:30:00Z",
+    "StartingPrice": 159600.00,
+    "EstimatedPrice": 228000.00,
+    "CurrentPrice": null,
+    "MaxOfferedPrice": null,
+    "BidStep": 5000.00,
+    "ShortDescription": "парц.бр.1572 К.О.Димитровград, површине 406,00 м2",
+    "Description": "Непокретност уписана у лист непокретности 3133, К.О. Димитровград, катастарска парцела број 1572.",
+    "Status": "Verified",
+    "IsFirstSale": true,
+    "PropertyType": "ImmovableProperties",
+    "ExecutorName": "Јавни извршитељ Петар Петровић",
+    "Category": {
+      "Id": 47,
+      "Name": "Земљиште"
+    },
+    "Place": {
+      "Id": 1042,
+      "Name": "Димитровград",
+      "ZipCode": "18320",
+      "Municipality": "Димитровград",
+      "Cadastral": "Димитровград"
+    }
+  }
+}

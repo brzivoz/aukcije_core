@@ -1,0 +1,55 @@
+{
+  "captured_on": "2026-08-21",
+  "page": "https://portal.rgz.gov.rs/rgz-portal/map",
+  "page_title": "RGZ Portal",
+  "authentication": "none",
+  "login_control_visible": true,
+  "visible_crs": "EPSG:32634",
+  "guest_search": {
+    "input": "Dimitrovgrad",
+    "observed_result_types": [
+      "geographic name",
+      "municipality",
+      "cadastral municipality",
+      "settlement",
+      "street"
+    ],
+    "cadastral_municipality_result_visible": true
+  },
+  "wms_observation": {
+    "request": {
+      "method": "GET",
+      "origin": "https://portal.rgz.gov.rs",
+      "path": "/rga-portal-api/gis/wms/proxy",
+      "query": {
+        "SERVICE": "WMS",
+        "REQUEST": "GetMap",
+        "VERSION": "1.3.0",
+        "CRS": "EPSG:32634",
+        "FORMAT": "image/png",
+        "LAYERS": "dkp:dkp_parcels_weekly_only_utm",
+        "STYLES": "parcels only",
+        "TRANSPARENT": "true",
+        "BBOX": "[REDACTED_VIEWPORT]"
+      },
+      "nested_service": {
+        "origin": "https://ogc-tmp.geosrbija.rs",
+        "path": "/regdkp/ows",
+        "query_keys": []
+      }
+    },
+    "response": {
+      "observed_as": "rendered browser image asset",
+      "media_type": "image/png",
+      "body_committed": false
+    }
+  },
+  "retention": {
+    "cookies": false,
+    "browser_storage": false,
+    "request_identity_headers": false,
+    "raw_bodies": false,
+    "precise_viewport": false,
+    "personal_data": false
+  }
+}

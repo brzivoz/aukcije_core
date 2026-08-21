@@ -1,0 +1,59 @@
+{
+  "captured_at": "2026-08-21T19:47:02Z",
+  "request": {
+    "method": "GET",
+    "origin": "https://ogc-tmp.geosrbija.rs",
+    "path": "/regdkp/ows",
+    "authentication": "none",
+    "query": {
+      "service": "WMS",
+      "request": "GetCapabilities",
+      "version": "1.3.0"
+    }
+  },
+  "response": {
+    "status": 200,
+    "media_type": "text/xml",
+    "raw_size_bytes": 22038,
+    "raw_sha256": "dd69b6564ccc04a2843098af2799504d3e29a4da3e28d840a31a14ac08c47722",
+    "raw_body_committed": false
+  },
+  "service": {
+    "version": "1.3.0",
+    "update_sequence": "6441",
+    "title": null,
+    "contact": null,
+    "fees": "none",
+    "access_constraints": "none",
+    "operations": [
+      "GetCapabilities",
+      "GetMap",
+      "GetFeatureInfo"
+    ]
+  },
+  "selected_layer": {
+    "name": "dkp:dkp_parcels_weekly_only_utm",
+    "title": "dkp_parcels_weekly_only_utm",
+    "queryable": true,
+    "crs": [
+      "EPSG:25834",
+      "CRS:84"
+    ],
+    "crs84_bounds": [
+      18.804429324050005,
+      42.21530481496364,
+      23.112446862296466,
+      46.197885934984676
+    ],
+    "epsg25834_bounds": [
+      330535.84,
+      4675722.3100000005,
+      663043.77,
+      5116035.2
+    ],
+    "style": "parcels only",
+    "max_scale_denominator": 15000.0
+  },
+  "license_interpretation": "NOT_A_REUSE_LICENSE",
+  "interpretation_reason": "Technical capabilities fields do not state a named license, permitted automated purpose, caching or redistribution rights, retention, quota, SLA, or support contact; official RGZ terms and the fee schedule govern the decision."
+}

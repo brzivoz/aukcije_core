@@ -8,10 +8,10 @@ GitHub repository: [brzivoz/aukcije_core](https://github.com/brzivoz/aukcije_cor
 
 The GitHub plan consists of 9 epics and 25 executable implementation/decision issues. Every issue has a priority, a size estimate, a milestone, explicit dependencies, testable acceptance criteria, and required completion evidence.
 
-Two external unknowns are handled as time-boxed gates rather than open-ended risks:
+Both external feasibility gates now have committed outcomes:
 
-- **#13** — lawful automated RGZ parcel-geometry reuse. Two working days; default outcome is a documented address-based fallback.
-- **#32** — whether a KO name plus a parcel number parsed from free text actually resolves to a location at all. Five working days; default outcome is to proceed with address-and-coarse precision and record the measured ceiling as the product's honest limit.
+- **#13 — COMPLETE, outcome C:** lawful automated RGZ parcel-geometry reuse was not confirmed. Production makes zero RGZ parcel requests and implements an explicit unavailable capability before continuing through the address/coarse fallback.
+- **#32 — COMPLETE, feasible with a measured ceiling:** every measured auction reached some location tier, but only 16.3% reached address precision; no Address Registry point is promoted to parcel precision.
 
 Three milestones define completion:
 
@@ -44,7 +44,7 @@ Every figure below was verified directly against the live API on 2026-08-21.
 1. **Category ingestion was over-specified and duplicative.** Root `7` returns 622 unique records; children `47`/`48`/`49` are disjoint subsets totaling 530, leaving 92 root-only. #12 discovers by roots `7` and `8`, deduplicates stable IDs, and uses children/detail categories only for classification.
 2. **Presence is not activity.** The source includes historical auctions. #11 closes primarily from the source end instant and only uses absence after two complete successful cycles; partial runs cannot mutate lifecycle. (See correction 9 below for the revised magnitude.)
 3. **Raw payload replay is real.** #10 stores sanitized, append-only listing+detail JSONB snapshots keyed by canonical content hash. Base64 thumbnails/images and transport secrets are excluded by a versioned minimization policy.
-4. **RGZ parcel access is not an implicit dependency.** #13 must choose supported API, licensed offline/OGC source, or explicit unavailable/fallback. Lack of confirmed authority selects fallback after two working days.
+4. **RGZ parcel access is not an implicit dependency.** #13 selected outcome C on 2026-08-21: no supported public API or licensed offline/OGC reuse contract was confirmed. Production records `PARCEL_GEOMETRY_UNAVAILABLE` and continues through #23.
 5. **The address fallback is concrete.** The official weekly Address Registry GPKG includes house-number geometry and street, municipality, settlement, KO, and parcel identifiers. The inspected artifact used `EPSG:25834`; #22 validates and transforms it rather than relying on a live geocoder.
 6. **Spatial persistence is production-shaped.** #15 standardizes `postgis/postgis:18-3.6`, Flyway, Hibernate Spatial, `ddl-auto=validate`, loopback database binding, and a clean re-sync from H2 while preserving any old H2 file for manual archive.
 7. **The basemap is genuinely local.** #24/#25 use a checksum-verified Geofabrik Serbia extract, pinned Protomaps/Planetiler tooling, PMTiles v3, same-origin sprites/glyphs/style, HTTP byte ranges/ETags, atomic activation, and browser proof with non-local network blocked.
@@ -74,6 +74,8 @@ Every figure below was verified directly against the live API on 2026-08-21.
 
 17. **Nothing was sized and no milestone had a date.** Every executable issue now carries `size:S` (1–2 focused days), `size:M` (about a week), or `size:L` (two weeks or more; consider splitting). The current distribution is 3 S, 15 M, 7 L. Milestones still have no due dates, because setting them requires a velocity assumption the repository cannot supply.
 
+18. **The RGZ gate selected the fail-closed path.** Guest mode exposed a weekly cadastral WMS layer and public search, but neither the map UI nor the capabilities document supplied an explicit automated-reuse, caching, or redistribution license. Official RGZ terms constrain unauthorized collection, eKatastar registered access requires a contract, and the fee schedule names paid WMS/WFS/REST/download services while excluding cadastral parcels from the free vector-download list. #13 therefore selected **C**. The decision record, sanitized fixtures, three KO+parcel CRS proofs, and exact #21 replacement contract are in `documentation/2026-08-21-decision-13-rgz-parcel-access.md` and `spike/issue-13/`.
+
 ## Honest total
 
 Summing the size labels at 1.5 / 5 / 12 focused days gives roughly **165 focused days** to complete all three milestones as written. For one developer working evenings and weekends that is a **6–12 month** programme, with M1 — the first point at which the product does the thing it exists to do — arriving somewhere past the midpoint.
@@ -88,7 +90,7 @@ Arrows are hard dependencies. The dashed #21 edge is optional precision: outcome
 flowchart TB
     subgraph M0["M0 — Feasibility & Data Foundation"]
         I16["#16 CI + PostGIS tests"]
-        I13["#13 RGZ lawful-access gate"]
+        I13["#13 RGZ decision: C"]
         I32["#32 End-to-end hit-rate spike"]
         I15["#15 PostgreSQL/PostGIS + Flyway"]
         I12["#12 Canonical source taxonomy"]
@@ -203,7 +205,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 
 | Wave | Issues | Evidence required before advancing |
 |---|---|---|
-| 0 | #16, #13, #32 | Terminal CI foundation; reviewed RGZ A/B/C decision record; committed hit-rate measurement with hand spot-checks |
+| 0 | #16, #13, #32 | Terminal CI foundation; #13 outcome-C decision record plus offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
 | 1 | #15, #12, #24, #34 | PostGIS migration/startup proof; taxonomy contract tests; validated PMTiles manifest; browser harness with a passing negative control |
 | 2 | #17, #22, #25 | Complete/partial sync-run tests plus source acceptable-use note; validated GPKG import with atomic promotion and rollback; Range/ETag and localhost-only browser network proof |
 | 3 | #10, #14 | Snapshot replay/hash evidence; reproducible KO dictionary with duplicate-name report |
@@ -233,6 +235,7 @@ Spike issues (#13, #32) are exempt from the test and CI requirements. Their deli
 - [Official Serbian Address Registry dataset](https://data.gov.rs/sr/datasets/adresni-registar/)
 - [RGZ GeoSrbija](https://www.rgz.gov.rs/geo-srbija) and [public cadastral map](https://portal.rgz.gov.rs/rgz-portal/map)
 - [RGZ electronic-service terms](https://www.rgz.gov.rs/uslovi-kori%C5%A1%C4%87enja-elektronskih-servisa)
+- [Issue #13 outcome-C decision record](2026-08-21-decision-13-rgz-parcel-access.md)
 - [Geofabrik Serbia extract](https://download.geofabrik.de/europe/serbia.html)
 - [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
 - [Protomaps basemap generator](https://github.com/protomaps/basemaps), [PMTiles specification/implementations](https://github.com/protomaps/PMTiles), and [MapLibre PMTiles example](https://maplibre.org/maplibre-gl-js/docs/examples/pmtiles/)

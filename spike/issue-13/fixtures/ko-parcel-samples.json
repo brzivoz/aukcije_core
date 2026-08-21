@@ -1,0 +1,64 @@
+[
+  {
+    "auction_id": 180466,
+    "ko": "DIMITROVGRAD",
+    "parcel": "1572",
+    "source": "issue-32 Address Registry point; not an RGZ polygon",
+    "wgs84": {
+      "longitude": 22.780484,
+      "latitude": 43.013322
+    },
+    "expected": {
+      "EPSG:25834": {
+        "easting": 645094.618,
+        "northing": 4763832.342
+      },
+      "EPSG:32634": {
+        "easting": 645094.618,
+        "northing": 4763832.342
+      }
+    }
+  },
+  {
+    "auction_id": 179415,
+    "ko": "ČAJETINA",
+    "ko_normalized": "CAJETINA",
+    "parcel": "4577/337",
+    "source": "issue-32 Address Registry point; not an RGZ polygon",
+    "wgs84": {
+      "longitude": 19.693799,
+      "latitude": 43.734697
+    },
+    "expected": {
+      "EPSG:25834": {
+        "easting": 394810.562,
+        "northing": 4843235.894
+      },
+      "EPSG:32634": {
+        "easting": 394810.562,
+        "northing": 4843235.894
+      }
+    }
+  },
+  {
+    "auction_id": 181466,
+    "ko": "VOŽDOVAC",
+    "ko_normalized": "VOZDOVAC",
+    "parcel": "7300/1",
+    "source": "issue-32 Address Registry point; not an RGZ polygon",
+    "wgs84": {
+      "longitude": 20.495631,
+      "latitude": 44.770078
+    },
+    "expected": {
+      "EPSG:25834": {
+        "easting": 460089.341,
+        "northing": 4957533.212
+      },
+      "EPSG:32634": {
+        "easting": 460089.341,
+        "northing": 4957533.213
+      }
+    }
+  }
+]

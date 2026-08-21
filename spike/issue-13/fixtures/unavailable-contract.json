@@ -1,0 +1,25 @@
+{
+  "decision": "C",
+  "decision_date": "2026-08-21",
+  "capability": "PARCEL_GEOMETRY_UNAVAILABLE",
+  "reason": "UNCONFIRMED_REUSE_AUTHORITY",
+  "production_rgz_request_count": 0,
+  "fallback_issue": 23,
+  "precision_rules": {
+    "verified_parcel_geometry": "PARCEL",
+    "address_registry_point": "ADDRESS",
+    "street_point": "STREET",
+    "ko_centroid": "KO",
+    "settlement_centroid": "SETTLEMENT",
+    "municipality_centroid": "MUNICIPALITY",
+    "unresolved": "NONE"
+  },
+  "reopen_only_with": [
+    "written RGZ reuse authority",
+    "named dataset and license or contract",
+    "supported automated access method",
+    "identity, geometry, and CRS contract",
+    "version, quota, availability, and retry contract",
+    "caching, retention, and redistribution terms"
+  ]
+}

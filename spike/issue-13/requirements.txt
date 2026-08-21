@@ -1,0 +1,2 @@
+# Issue #13 only. Used for offline CRS proof; not part of the application build.
+pyproj==3.6.1

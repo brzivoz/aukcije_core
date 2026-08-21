@@ -1,0 +1,27 @@
+{
+  "checked_at": "2026-08-21",
+  "public_map": "OpenStreetMap reverse-geocoded public-map context",
+  "method": "The deterministic seed-32 sample selects the observed Address Registry point nearest the candidate cluster centre. Each public-map result was manually compared with the auction's KO, settlement, or municipality. This validates placement context, not cadastral boundary geometry.",
+  "checks": [
+    {"auction_id": 180466, "lat": 43.013322, "lon": 22.780484, "verdict": "correct", "note": "Dimitrovgrad; Hrista Boteva 23."},
+    {"auction_id": 179413, "lat": 46.100755, "lon": 19.650804, "verdict": "correct", "note": "Subotica, Novo Selo; municipality Subotica."},
+    {"auction_id": 179421, "lat": 45.532121, "lon": 19.141174, "verdict": "correct", "note": "Bogojevo; municipality Odzaci."},
+    {"auction_id": 179415, "lat": 43.734697, "lon": 19.693799, "verdict": "correct", "note": "Zlatibor; municipality Cajetina."},
+    {"auction_id": 179051, "lat": 44.268211, "lon": 19.876412, "verdict": "correct", "note": "Valjevo; Partizanska 10."},
+    {"auction_id": 181466, "lat": 44.770078, "lon": 20.495631, "verdict": "correct", "note": "Belgrade-Vozdovac, Brace Jerkovic; 6 candidates, 343.3 m spread."},
+    {"auction_id": 180636, "lat": 42.534055, "lon": 21.906373, "verdict": "correct", "note": "Vranje, Donje Vranje."},
+    {"auction_id": 181103, "lat": 45.287522, "lon": 21.174921, "verdict": "correct", "note": "Veliki Gaj; municipality Plandiste."},
+    {"auction_id": 181101, "lat": 45.513740, "lon": 19.261358, "verdict": "correct", "note": "Odzaci; Vase Stajica 16."},
+    {"auction_id": 181256, "lat": 42.905370, "lon": 21.925273, "verdict": "correct", "note": "Strojkovce; municipality Leskovac."},
+    {"auction_id": 181464, "lat": 45.263897, "lon": 19.814008, "verdict": "correct", "note": "Novi Sad, Detelinara."},
+    {"auction_id": 181281, "lat": 43.284084, "lon": 19.996639, "verdict": "correct", "note": "Sjenica; Valterova 5."},
+    {"auction_id": 181034, "lat": 44.884178, "lon": 20.639317, "verdict": "correct", "note": "Pancevo, Gornji grad."},
+    {"auction_id": 180848, "lat": 44.877546, "lon": 19.775884, "verdict": "correct", "note": "Hrtkovci; municipality Ruma."},
+    {"auction_id": 179036, "lat": 44.029365, "lon": 20.959133, "verdict": "correct", "note": "Kragujevac, Marsic."},
+    {"auction_id": 180309, "lat": 44.842922, "lon": 19.469263, "verdict": "correct", "note": "Bogatic; Nebojse Jerkovica 103."},
+    {"auction_id": 181681, "lat": 44.784833, "lon": 20.526257, "verdict": "correct", "note": "Belgrade-Zvezdara, Zeleno brdo; KO Mirijevo context."},
+    {"auction_id": 179985, "lat": 44.816630, "lon": 20.504999, "verdict": "correct", "note": "Belgrade-Palilula; 13 candidates, 157.8 m spread."},
+    {"auction_id": 179002, "lat": 44.675548, "lon": 19.695412, "verdict": "correct", "note": "Gornja Vranjska; municipality Sabac."},
+    {"auction_id": 181327, "lat": 44.842848, "lon": 20.380975, "verdict": "correct", "note": "Belgrade-Zemun; Novi grad."}
+  ]
+}

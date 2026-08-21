@@ -68,7 +68,12 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `PostgisSchemaIntegrationTest` | Flyway migrating an empty database, Hibernate starting with `ddl-auto=validate`, entity round-trip |
 | `SchemaNegativeControlTest` | context must fail on an invalid migration, on a database without PostGIS, and on a schema that drifted from the entity |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
-| `SpatialQueryIntegrationTest` | SRID registration, bbox filtering, GiST index use, metre-based distance ordering |
+| `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
+
+`SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
+fixture builds its own scratch table, so asserting that table's SRID or index
+would just be reading back its own DDL. Schema and index assertions belong to
+#20, against the real migrated schema.
 
 Reports land in `build/reports/tests/test/index.html`. CI publishes them as the
 `test-reports` artifact when a run fails.

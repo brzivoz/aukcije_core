@@ -22,3 +22,7 @@ data/
 # Scraper output — large, regenerate with tools/eaukcija-scraper.js
 tools/aukcije.json
 tools/rezultati.json
+
+# spike #32 scratch output
+spike/issue-32/out/
+spike/issue-32/__pycache__/

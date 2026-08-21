@@ -50,7 +50,11 @@ jobs:
         run: ./gradlew --no-daemon clean test
 
       - name: Upload test reports
-        if: failure()
+        # Always, not just on failure: #16 requires a terminal CI result with
+        # retained reports, and later issues cite that artifact as their
+        # completion evidence. A green run with no artifact proves nothing
+        # after the log expires.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-reports

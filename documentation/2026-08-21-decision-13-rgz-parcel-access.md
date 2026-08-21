@@ -54,8 +54,8 @@ WMS proxy, cookies, sessions, credentials, or personal records.
 | Network | One unauthenticated HTTPS request per invocation; no automatic retry |
 | Result cap | `count=2`, so ambiguity is detectable without bulk retrieval |
 | CRS | Request `EPSG:4326`; require the response CRS declaration |
-| Geometry | Accept only non-empty `Polygon` or `MultiPolygon` inside broad Serbia bounds |
-| Size/timeout | At most 5 MB; timeout is configurable from 0–60 seconds (20 default) |
+| Geometry | Accept only correctly nested `Polygon` or `MultiPolygon`; every ring has at least four 2D positions, is closed, has three distinct vertices and non-zero area, and remains inside broad Serbia bounds |
+| Size/timeout | At most 5 MB; timeout is configurable over `(0, 60]` seconds (20 default) |
 | Properties | Fixed non-personal cadastral whitelist; future unknown fields are dropped |
 | Retention | User-requested GeoJSON under `spike/issue-13/out/`, ignored by Git |
 | Product behavior | No background/scheduled request and no shared/product cache |
@@ -80,14 +80,17 @@ contains only whitelisted metadata and SHA-256 fingerprints.
 | Not found | ASCII-folded `CAJETINA / 4577/337` returned zero; the exact WFS name is `ČAJETINA` |
 | Ambiguous | A deliberately under-specified parcel-only query for `7300/1` matched 37 nationally and returned only the requested first two; the command never performs this query |
 | Input error | Invalid KO/parcel syntax is rejected locally before network access with exit 2 |
-| Remote/schema error | HTTP, timeout, media type, JSON, identity, CRS, area, or geometry failure exits 5 and writes nothing |
+| Remote/schema error | HTTP/open/read/TLS, timeout, media type, JSON depth/shape, identity, CRS, area, or geometry failure exits 5 and writes nothing |
 
 The three precise GeoJSON results are private working artifacts and are not
 committed:
 
-- `spike/issue-13/out/dimitrovgrad-1572.geojson`
-- `spike/issue-13/out/cajetina-4577-337.geojson`
-- `spike/issue-13/out/vozdovac-7300-1.geojson`
+- `spike/issue-13/out/dimitrovgrad-1572-4299cc6bf4efc9b7.geojson`
+- `spike/issue-13/out/cajetina-4577-337-5540556af3738788.geojson`
+- `spike/issue-13/out/vozdovac-7300-1-b122a3ae8a2e84f4.geojson`
+
+The suffix is derived from the exact KO + parcel identity and disambiguates the
+otherwise-colliding readable names without exposing additional data.
 
 ## CRS and identity proof
 

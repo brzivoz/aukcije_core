@@ -16,7 +16,7 @@ This scope does not authorize scheduled/background access, bulk collection, brow
 ## Deliverables
 
 - Committed decision record with dated WFS capabilities/schema fingerprints and the revised legal/operational boundary.
-- One-shot `fetch_parcel.py` command: one exact request, `count=2`, no automatic retry, 5 MB response cap, strict identity/CRS/geometry/property validation, and stable failure exits.
+- One-shot `fetch_parcel.py` command: one exact request, `count=2`, no automatic retry, 5 MB response cap, strict identity/CRS/geometry/property validation, collision-resistant output identity, and stable failure exits including mid-read transport failures.
 - Private precise GeoJSON under a gitignored output directory.
 - Redacted success/not-found/ambiguous/error evidence with no coordinates, credentials, personal data, or raw responses committed.
 - Three KO + parcel cases and CRS transform proof.
@@ -25,7 +25,7 @@ This scope does not authorize scheduled/background access, bulk collection, brow
 ## Acceptance criteria
 
 - DIMITROVGRAD/1572, ČAJETINA/4577/337, and VOŽDOVAC/7300/1 each produce exactly one validated private GeoJSON feature.
-- Success, not found, ambiguity, invalid input, HTTP/schema/identity/CRS/geometry errors, response limits, and no-write-on-failure behavior are characterized and tested offline.
+- Success, not found, ambiguity, invalid input, HTTP/open/read/TLS/schema/identity/CRS/geometry errors, excessive JSON nesting, response limits, structurally malformed or degenerate rings, and no-write-on-failure behavior are characterized and tested offline, including with Python optimization enabled.
 - Only exact validated WFS polygons receive `PARCEL` precision; #23 remains the deterministic fallback.
 - Application/runtime code makes no RGZ request. Retrieval remains an explicit owner command and private artifact.
 - Raw XML/GeoJSON captures are deleted after redacted fingerprints are recorded; private outputs remain ignored by Git.

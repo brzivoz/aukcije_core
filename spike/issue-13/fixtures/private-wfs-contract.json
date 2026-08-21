@@ -22,12 +22,15 @@
     "maximum_returned_features": 2,
     "automatic_retry_count": 0,
     "maximum_response_bytes": 5000000,
+    "timeout_seconds_minimum_exclusive": 0,
     "timeout_seconds_maximum": 60,
     "exact_identity_match_required": true,
     "accepted_geometry_types": [
       "Polygon",
       "MultiPolygon"
-    ]
+    ],
+    "geometry_rings": "correct nesting, 2D finite positions, at least four positions, closed, at least three distinct vertices, non-zero area, Serbia bounds",
+    "output_filename_identity": "readable KO and parcel plus 16-hex SHA-256 identity prefix"
   },
   "boundaries": {
     "manual_invocation_only": true,

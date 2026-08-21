@@ -18,7 +18,8 @@ The command performs one exact KO + parcel request, asks for at most two
 features, validates the response, and writes a property-whitelisted GeoJSON to
 `spike/issue-13/out/`. That directory is ignored by Git. Serbian Latin
 diacritics are significant: `ČAJETINA` and `CAJETINA` are not the same WFS
-identity.
+identity. A short SHA-256 suffix derived from the exact KO + parcel pair
+disambiguates otherwise identical readable slugs.
 
 Stable exits are:
 
@@ -28,7 +29,7 @@ Stable exits are:
 | 2 | Invalid local input; no request made |
 | 3 | Not found |
 | 4 | Ambiguous (at least two exact matches) |
-| 5 | HTTP, timeout, media-type, JSON, identity, CRS, area, or geometry failure |
+| 5 | HTTP/open/read/TLS, timeout, media-type, JSON depth/shape, identity, CRS, area, geometry, or private-output write failure |
 
 This is not a batch tool. Do not put it in a scheduler, loop it over a corpus,
 or redistribute its output under this decision.

@@ -17,7 +17,7 @@ This decision does not authorize scheduled/background access, bulk retrieval, br
 ## Requirements
 
 - Consume only a user-selected GeoJSON artifact produced by `spike/issue-13/fetch_parcel.py`; the application must not call RGZ/GeoSrbija.
-- Validate the artifact contract before persistence: one feature, exact KO + parcel, numeric KO code, declared `EPSG:4326`, positive area, and a non-empty `Polygon` or `MultiPolygon` within broad Serbia bounds.
+- Validate the artifact contract before persistence: one feature, exact KO + parcel, numeric KO code, declared `EPSG:4326`, positive finite area, and a correctly nested `Polygon` or `MultiPolygon` whose rings are closed, non-degenerate, and within broad Serbia bounds.
 - Record provenance: capability/version, retrieval time, exact KO + parcel, KO code, geometry type, source projection/scale when present, and raw-response SHA-256. Never record cookies, credentials, browser state, or personal data.
 - Make import idempotent by stable KO code + parcel number + response hash. Re-importing the same artifact must not duplicate a resolution or audit event.
 - Reserve `PARCEL` for a validated exact WFS geometry. Address Registry house-number points remain `ADDRESS`; KO/settlement/municipality centroids remain explicitly coarse.
@@ -28,7 +28,7 @@ This decision does not authorize scheduled/background access, bulk retrieval, br
 ## Acceptance criteria
 
 - Fixtures cover exact success for DIMITROVGRAD/1572 (`Polygon`), ČAJETINA/4577/337 (`MultiPolygon`), and VOŽDOVAC/7300/1 (`Polygon`).
-- Fixtures cover not found, at least-two-feature ambiguity, invalid input, response/schema error, exact-identity mismatch, wrong CRS, invalid geometry, and response-size limit.
+- Fixtures cover not found, at least-two-feature ambiguity, invalid input, open/read/TLS and response/schema errors, excessive JSON nesting, exact-identity mismatch, wrong CRS, malformed/degenerate geometry, output-name collisions, and response-size limit.
 - A negative-control test fails if application startup, scheduled work, request handling, or reprocessing attempts an RGZ/GeoSrbija network call.
 - Importing the same valid artifact twice produces one current resolution and stable provenance; importing a different valid hash creates auditable supersession without erasing the prior evidence.
 - Failed or absent imports continue through #23 and never label a registry point or centroid as `PARCEL`.

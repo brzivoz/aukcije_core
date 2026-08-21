@@ -1,0 +1,49 @@
+{
+  "ResultCode": "OK",
+  "ResultMessage": null,
+  "Data": {
+    "TotalCount": 3,
+    "Auctions": [
+      {
+        "Id": 180466,
+        "AuctionNumber": "Н180466",
+        "StartDate": "2026-03-10T07:00:00Z",
+        "EndDate": "2026-03-10T11:00:00Z",
+        "StartingPrice": 159600.00,
+        "CurrentPrice": null,
+        "MaxOfferedPrice": null,
+        "ShortDescription": "парц.бр.1572 К.О.Димитровград, површине 406,00 м2",
+        "Status": "Verified",
+        "IsFirstSale": true,
+        "PropertyType": "ImmovableProperties",
+        "UnmappedFutureField": "must be ignored, not fatal"
+      },
+      {
+        "Id": 179415,
+        "AuctionNumber": "Н179415",
+        "StartDate": "2026-04-02T08:00:00Z",
+        "EndDate": "2026-04-02T12:00:00Z",
+        "StartingPrice": 2450000.00,
+        "CurrentPrice": 2450000.00,
+        "MaxOfferedPrice": 2695000.00,
+        "ShortDescription": "парц.бр.4577/337 К.О.Чајетина",
+        "Status": "Published",
+        "IsFirstSale": false,
+        "PropertyType": "ImmovableProperties"
+      },
+      {
+        "Id": 181466,
+        "AuctionNumber": "Н181466",
+        "StartDate": "2026-05-19T09:00:00Z",
+        "EndDate": "2026-05-19T13:00:00Z",
+        "StartingPrice": 18900000.00,
+        "CurrentPrice": null,
+        "MaxOfferedPrice": null,
+        "ShortDescription": "парц.бр.7300/1 К.О.Вождовац",
+        "Status": "Verified",
+        "IsFirstSale": true,
+        "PropertyType": "ImmovableProperties"
+      }
+    ]
+  }
+}

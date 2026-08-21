@@ -1,0 +1,8 @@
+{
+  "ResultCode": "OK",
+  "ResultMessage": null,
+  "Data": {
+    "TotalCount": 0,
+    "Auctions": []
+  }
+}

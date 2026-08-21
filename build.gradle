@@ -19,11 +19,31 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+
+    // Migrations are authored here from #16 onwards. They are disabled on the
+    // default H2 profile until #15 moves the application onto PostgreSQL.
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+
     runtimeOnly 'com.h2database:h2'
+    runtimeOnly 'org.postgresql:postgresql'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+
+    // Testcontainers falls back to Docker API 1.32 when no version is configured,
+    // and Docker Engine 29 rejects anything below its 1.40 minimum. Pin a version
+    // both a modern Docker Desktop and the CI runner's engine accept. Override
+    // with -Dapi.version=... if a future engine moves the floor again.
+    systemProperty 'api.version', System.getProperty('api.version', '1.43')
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'short'
+    }
 }

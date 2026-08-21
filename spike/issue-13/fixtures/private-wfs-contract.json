@@ -1,0 +1,56 @@
+{
+  "decision": "B",
+  "decision_date": "2026-08-21",
+  "capability": "PARCEL_GEOMETRY_PRIVATE_ON_DEMAND",
+  "usage_scope": "OCCASIONAL_PRIVATE_NON_COMMERCIAL",
+  "service": {
+    "type": "OGC_WFS",
+    "version": "2.0.0",
+    "endpoint": "https://ogc-tmp.geosrbija.rs/regdkp/ows",
+    "feature_type": "dkp:dkp_parcels_weekly_only_utm",
+    "authentication": "none",
+    "request_crs": "EPSG:4326",
+    "advertised_default_crs": "EPSG:25834",
+    "output_format": "application/json"
+  },
+  "request_contract": {
+    "lookup_key": [
+      "cadmun_name_lat",
+      "parcel_num"
+    ],
+    "requests_per_invocation": 1,
+    "maximum_returned_features": 2,
+    "automatic_retry_count": 0,
+    "maximum_response_bytes": 5000000,
+    "timeout_seconds_minimum_exclusive": 0,
+    "timeout_seconds_maximum": 60,
+    "exact_identity_match_required": true,
+    "accepted_geometry_types": [
+      "Polygon",
+      "MultiPolygon"
+    ],
+    "geometry_rings": "correct nesting, 2D finite positions, at least four positions, closed, at least three distinct vertices, non-zero area, Serbia bounds",
+    "output_filename_identity": "readable KO and parcel plus 16-hex SHA-256 identity prefix"
+  },
+  "boundaries": {
+    "manual_invocation_only": true,
+    "background_or_scheduled_access": false,
+    "bulk_access": false,
+    "authenticated_access": false,
+    "browser_session_reuse": false,
+    "personal_data": false,
+    "shared_or_product_cache": false,
+    "redistribution": false,
+    "private_local_output_is_gitignored": true
+  },
+  "fallback_issue": 23,
+  "precision_rules": {
+    "validated_exact_wfs_geometry": "PARCEL",
+    "address_registry_point": "ADDRESS",
+    "street_point": "STREET",
+    "ko_centroid": "KO",
+    "settlement_centroid": "SETTLEMENT",
+    "municipality_centroid": "MUNICIPALITY",
+    "unresolved": "NONE"
+  }
+}

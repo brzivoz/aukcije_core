@@ -26,3 +26,7 @@ tools/rezultati.json
 # spike #32 scratch output
 spike/issue-32/out/
 spike/issue-32/__pycache__/
+
+# issue #13 private, user-requested parcel lookups
+spike/issue-13/out/
+spike/issue-13/__pycache__/

@@ -19,6 +19,7 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | Local filtering / list UI | working |
 | Property reference extraction | planned (EPIC-02) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
+| Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
 | Official Address Registry full snapshots | working (points + centroids, #22) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
@@ -74,6 +75,9 @@ backup/restore, legacy-H2 archive, clean re-sync, and failure-recovery commands.
 See [Centroid extract operations](documentation/CENTROID_EXTRACT_OPERATIONS.md)
 for the database-free coarse-location artifact, reviewed checksums,
 reproducible publication, status, and failure recovery.
+See [KO dictionary operations](documentation/KO_DICTIONARY_OPERATIONS.md) for
+the shared Serbian-name normalizer, reviewed alias records, deterministic
+dictionary/index publication, duplicate-name evidence, and status commands.
 See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
 for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
 rollback.
@@ -97,13 +101,14 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V3, Hibernate `validate`, entity round-trip, PostGIS and filter indexes |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V4, Hibernate `validate`, entity round-trip, PostGIS and filter indexes |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
+| `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, reviewed aliases, duplicate-name report, byte-identical replay, immutable publication, and failure-safe activation |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
@@ -193,6 +198,9 @@ src/test/java/rs/sud/eaukcija/
 src/main/resources/db/migration/  Flyway migrations (PostgreSQL/PostGIS)
 
 data/address-registry-centroids/  ignored runtime #36 versions, ACTIVE pointer, and run evidence
+data/address-registry-ko-dictionary/  ignored runtime #14 versions, ACTIVE pointer, and run evidence
+
+config/address-registry/ko-alias-overrides.json  reviewed, versioned KO alias source
 
 src/test/resources/fixtures/
 ├── auctions-sample.json         86-record sample, thumbnails stripped

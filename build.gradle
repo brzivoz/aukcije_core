@@ -75,3 +75,10 @@ tasks.register('buildAddressRegistryCentroids', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'rs.sud.eaukcija.addressregistry.AddressRegistryCentroidExtractCli'
 }
+
+tasks.register('buildKoDictionary', JavaExec) {
+    group = 'application'
+    description = 'Build and atomically publish the canonical KO dictionary from the active centroid extract'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.addressregistry.KoDictionaryCli'
+}

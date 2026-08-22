@@ -258,7 +258,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 |---|---|---|
 | 0 ✅ | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
 | 1 | **#15 ✅, #36 ✅**, #24, #34 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
-| 2 | #14, #20, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
+| 2 | **#14 ✅**, #20, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
 | 3 | #37, #38 | Zero exact-match false positives matching structured `Place.Cadastral`, ambiguity left unresolved; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
 | 4 | #26 | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |
 | 5 | #27 | Accessible offline map browser suite, including multi-auction handling at a shared centroid (correction 22) and localhost-only network proof |

@@ -28,5 +28,10 @@ class AddressRegistryNormalizerTest {
         assertThat(AddressRegistryNormalizer.houseNumber("12Ђ"))
                 .isEqualTo(AddressRegistryNormalizer.houseNumber("12Đ"))
                 .isEqualTo("12DJ");
+        assertThat(SerbianNameNormalizer.normalize("  Сремска–Митровица,  град  "))
+                .isEqualTo("SREMSKA MITROVICA GRAD");
+        assertThat(SerbianNameNormalizer.normalize("C\u030Cajetina"))
+                .isEqualTo(SerbianNameNormalizer.normalize("Чајетина"));
+        assertThat(SerbianNameNormalizer.CONTRACT_VERSION).isEqualTo("serbian-name-v1");
     }
 }

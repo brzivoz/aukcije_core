@@ -181,7 +181,7 @@ final class AddressRegistryCentroidExtractor {
         for (Level level : Level.values()) {
             aggregates.put(level, new TreeMap<>());
         }
-        Map<String, Long> rejectedByReason = new TreeMap<>();
+        NavigableMap<String, Long> rejectedByReason = new TreeMap<>();
         long seen = 0;
         long active = 0;
         try (Connection sqlite = GeoPackageInspector.openReadOnly(gpkg);
@@ -254,7 +254,7 @@ final class AddressRegistryCentroidExtractor {
         }
         List<DuplicateNameGroup> duplicateNames = duplicateNames(centroids);
         return new Extraction(
-                List.copyOf(centroids), Collections.unmodifiableMap(new TreeMap<>(rejectedByReason)),
+                List.copyOf(centroids), Collections.unmodifiableNavigableMap(new TreeMap<>(rejectedByReason)),
                 List.copyOf(duplicateNames),
                 seen, active, rejected);
     }
@@ -291,24 +291,12 @@ final class AddressRegistryCentroidExtractor {
     }
 
     private static List<DuplicateNameGroup> duplicateNames(List<Centroid> centroids) {
-        UnionFind union = new UnionFind(centroids.size());
-        Map<String, Integer> firstByNormalizedName = new TreeMap<>();
-        for (int index = 0; index < centroids.size(); index++) {
-            Centroid centroid = centroids.get(index);
-            for (String normalized : normalizedNameVariants(centroid)) {
-                String key = centroid.level() + "|" + normalized;
-                Integer first = firstByNormalizedName.putIfAbsent(key, index);
-                if (first != null) {
-                    union.join(first, index);
-                }
-            }
-        }
-        Map<Integer, List<Centroid>> groups = new TreeMap<>();
-        for (int index = 0; index < centroids.size(); index++) {
-            groups.computeIfAbsent(union.root(index), ignored -> new ArrayList<>()).add(centroids.get(index));
-        }
         List<DuplicateNameGroup> duplicates = new ArrayList<>();
-        for (List<Centroid> group : groups.values()) {
+        for (List<Centroid> group : NormalizedNameGroups.connectedComponents(
+                centroids,
+                centroid -> normalizedNameVariants(centroid).stream()
+                        .map(normalized -> centroid.level() + "|" + normalized)
+                        .toList())) {
             TreeSet<String> officialCodes = new TreeSet<>();
             TreeSet<String> municipalityCodes = new TreeSet<>();
             TreeSet<String> normalizedNames = new TreeSet<>();
@@ -984,38 +972,6 @@ final class AddressRegistryCentroidExtractor {
         }
     }
 
-    private static final class UnionFind {
-
-        private final int[] parent;
-
-        private UnionFind(int size) {
-            parent = new int[size];
-            for (int index = 0; index < size; index++) {
-                parent[index] = index;
-            }
-        }
-
-        private int root(int value) {
-            int current = value;
-            while (parent[current] != current) {
-                parent[current] = parent[parent[current]];
-                current = parent[current];
-            }
-            return current;
-        }
-
-        private void join(int left, int right) {
-            int leftRoot = root(left);
-            int rightRoot = root(right);
-            if (leftRoot == rightRoot) {
-                return;
-            }
-            int lower = Math.min(leftRoot, rightRoot);
-            int higher = Math.max(leftRoot, rightRoot);
-            parent[higher] = lower;
-        }
-    }
-
     private static final class KahanSum {
 
         private double sum;
@@ -1057,7 +1013,7 @@ final class AddressRegistryCentroidExtractor {
 
     private record Extraction(
             List<Centroid> centroids,
-            Map<String, Long> rejectedByReason,
+            NavigableMap<String, Long> rejectedByReason,
             List<DuplicateNameGroup> duplicateNames,
             long sourceRows,
             long activeRows,

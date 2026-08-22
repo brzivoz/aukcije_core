@@ -20,6 +20,7 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | Property reference extraction | planned (EPIC-02) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
+| Structured auction KO matching | working (auditable PostgreSQL results, #37) |
 | Official Address Registry full snapshots | working (points + centroids, #22) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
@@ -78,6 +79,9 @@ reproducible publication, status, and failure recovery.
 See [KO dictionary operations](documentation/KO_DICTIONARY_OPERATIONS.md) for
 the shared Serbian-name normalizer, reviewed alias records, deterministic
 dictionary/index publication, duplicate-name evidence, and status commands.
+See [structured KO matching operations](documentation/STRUCTURED_KO_MATCH_OPERATIONS.md)
+for the transactional population matcher, ambiguity/review semantics,
+idempotent reprocessing, retained provenance, and match-rate reports.
 See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
 for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
 rollback.
@@ -101,7 +105,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V4, Hibernate `validate`, entity round-trip, PostGIS and filter indexes |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V5, Hibernate `validate`, entity round-trip, PostGIS, filter, and KO-match evidence indexes |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
@@ -109,6 +113,8 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
 | `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, reviewed aliases, duplicate-name report, byte-identical replay, immutable publication, and failure-safe activation |
+| `StructuredKoMatcherTest` | scripts/diacritics, exact-code precedence, duplicate names, municipality disambiguation, reviewed aliases, malformed inputs, fuzzy-review-only behavior, and shared query/index normalization |
+| `StructuredKoMatchIntegrationTest` | V5 persistence, immutable snapshot/alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
@@ -122,10 +128,10 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V4 it
+`src/main/resources/db/migration/` is the only schema authority. Through V5 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
-evidence. The dev, test,
+evidence, plus current structured-KO results and population-run reports. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
 Migration validation, Hibernate validation, and an explicit PostGIS startup
 probe make checksum drift, schema drift, and a missing extension fatal.

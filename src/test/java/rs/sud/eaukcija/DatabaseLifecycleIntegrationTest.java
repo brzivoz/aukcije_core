@@ -50,7 +50,8 @@ class DatabaseLifecycleIntegrationTest {
         assertThat(queryStrings(jdbcUrl, container,
                 "SELECT script FROM flyway_schema_history WHERE success ORDER BY installed_rank"))
                 .containsExactly("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
-                        "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql");
+                        "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
+                        "V5__structured_ko_matches.sql");
     }
 
     @Test

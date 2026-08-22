@@ -82,3 +82,10 @@ tasks.register('buildKoDictionary', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'rs.sud.eaukcija.addressregistry.KoDictionaryCli'
 }
+
+tasks.register('matchStructuredKo', JavaExec) {
+    group = 'application'
+    description = 'Match structured auction KO fields against the active canonical dictionary'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.komatching.StructuredKoMatchCli'
+}

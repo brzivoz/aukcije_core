@@ -81,7 +81,8 @@ class PostgisSchemaIntegrationTest {
 
         assertThat(applied)
                 .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
-                        "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql")
+                        "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
+                        "V5__structured_ko_matches.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -138,6 +139,28 @@ class PostgisSchemaIntegrationTest {
                 "idx_auctions_category_name",
                 "idx_auctions_status",
                 "idx_auctions_starting_price");
+    }
+
+    @Test
+    void flywayOwnsTheStructuredKoMatchEvidenceAndReportContract() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name IN ('auction_structured_ko_matches', 'structured_ko_match_runs')
+                ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "auction_structured_ko_matches", "structured_ko_match_runs");
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'auction_structured_ko_matches'
+                ORDER BY indexname
+                """, String.class)).contains(
+                        "idx_structured_ko_matches_status",
+                        "idx_structured_ko_matches_ko_code",
+                        "idx_structured_ko_matches_dictionary",
+                        "idx_structured_ko_matches_candidates");
     }
 
     @Test

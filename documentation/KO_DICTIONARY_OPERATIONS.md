@@ -32,16 +32,20 @@ data/address-registry-ko-dictionary/
 ```
 
 Every dictionary and index row repeats the dictionary version, source dataset
-date, and official GPKG SHA-256. `manifest.json` additionally records the
+date, and official GPKG SHA-256. `manifest.json` format version 2 additionally records the
 source ZIP/GPKG/schema hashes, hashes of the #36 manifest and centroid file,
-source row accounting, alias-data version/hash, content counts, normalizer
-contract, and the size/hash of every immutable output file.
+source row accounting, the complete alias-data version/hash, an independently
+reproducible municipality-alias hash, separate record-kind counts, content
+counts, normalizer contract, and the size/hash of every immutable output file.
+The publisher status path and runtime loader reject legacy manifest format 1
+explicitly rather than interpreting missing format-2 fields as corruption.
 
 `ko-dictionary.ndjson` is ordered by KO code. Each entry retains the official
 Cyrillic and Latin name forms, all normalized forms, resolved municipality
-records, resolved settlement records and their municipality relationships,
-and any reviewed alias records. Multiple official parent relationships remain
-explicit arrays; publication never chooses one by row order.
+records and their reviewed municipality-alias ids, resolved settlement records
+and their municipality relationships, and any reviewed KO-alias records.
+Multiple official parent relationships remain explicit arrays; publication
+never chooses one by row order.
 
 `normalized-index.ndjson` is ordered by normalized name. Each candidate lists
 the KO code, all municipality codes, whether the match is an official name,
@@ -62,18 +66,23 @@ normalizes examples such as `Чајетина` and `Čajetina` to the same key.
 The manifest names the normalizer contract. Copying this logic into #33 or #37
 would create a divergent index/query contract and is a defect.
 
-## Reviewed alias data
+## Reviewed KO and municipality alias data
 
 The version-controlled source is
-`config/address-registry/ko-alias-overrides.json`. The initial dataset contains
-no aliases: an empty reviewed dataset is safer than inventing historical or
-colloquial names. Every future entry must have this complete shape:
+`config/address-registry/ko-alias-overrides.json`. Format version 2 keeps KO
+names and municipality identities in separate arrays. A municipality
+equivalence is never converted into one alias per KO and is never implemented
+as a generic suffix rule.
+
+KO-name records live under `koAliases`:
 
 ```json
 {
+  "recordKind": "KO_ALIAS",
   "id": "stable-review-record-id",
   "koCode": "official KO code",
   "name": "historical or colloquial name",
+  "normalizedName": "SHARED NORMALIZER OUTPUT",
   "kind": "HISTORICAL",
   "provenance": "what establishes this alias",
   "sourceReference": "stable document, URL, or archive reference",
@@ -82,12 +91,37 @@ colloquial names. Every future entry must have this complete shape:
 }
 ```
 
-`kind` is `HISTORICAL` or `COLLOQUIAL`. Missing review/provenance fields,
-future review dates, duplicate ids, unusable names, and unknown KO targets fail
-before publication. The publisher canonicalizes and hashes the reviewed data;
-an alias change therefore creates a new immutable dictionary version even when
-the Address Registry snapshot is unchanged. The canonical alias file and each
-applicable dictionary entry retain the full review record.
+Municipality records live under `municipalityAliases`:
+
+```json
+{
+  "recordKind": "MUNICIPALITY_ALIAS",
+  "id": "stable-review-record-id",
+  "municipalityCode": "official municipality code",
+  "name": "portal municipality form",
+  "normalizedName": "SHARED NORMALIZER OUTPUT",
+  "provenance": "what establishes this equivalence",
+  "sourceReference": "stable evidence reference",
+  "reviewer": "accountable reviewer identity",
+  "reviewedAt": "2026-08-22"
+}
+```
+
+`kind` on a KO alias is `HISTORICAL` or `COLLOQUIAL`. Missing review/provenance
+fields, future review dates, duplicate ids across either record kind, unusable
+names, stored normalization drift, and unknown KO or municipality targets fail
+before publication. A municipality alias target must also be referenced by at
+least one KO row, because only those municipality records are emitted. If a
+normalized alias denotes multiple official municipalities across reviewed
+aliases, or conflicts with an official municipality name belonging to another
+code, publication retains the complete collision and #37 refuses to use it for
+automatic selection.
+
+The publisher hashes the complete review dataset and the canonical
+municipality-alias subset independently. An alias change creates a new
+immutable dictionary version even when the Address Registry snapshot is
+unchanged. The manifest, report, canonical alias file, and applicable
+dictionary relationships keep the two record kinds distinct.
 
 ## Build from a reviewed active centroid extract
 
@@ -125,8 +159,9 @@ export ADDRESS_REGISTRY_KO_DICTIONARY_PUBLISH_DIRECTORY="$PWD/data/address-regis
 ```
 
 The deterministic report lists total KO entries, all cross-municipality
-duplicate official-name groups and their exact codes, aliases applied, source
-rows rejected by reason, and the named validation gates passed. Runtime ids,
+duplicate official-name groups and their exact codes, separate KO and
+municipality alias counts, municipality-alias collisions, source rows rejected
+by reason, and the named validation gates passed. Runtime ids,
 timestamps, durations, outcomes, and stable failure codes live only under
 `runs/`, so operational evidence does not make the immutable artifact
 nondeterministic.
@@ -142,7 +177,10 @@ counts. It then validates:
 - one unique output entry per official KO code;
 - usable official names and normalized keys;
 - every KO→settlement, KO→municipality, and settlement→municipality reference;
-- reviewed alias schema, provenance, reviewer, date, unique id, and target; and
+- reviewed KO and municipality alias schema, stored normalization, provenance,
+  reviewer, date, globally unique id, target, and an emitted KO relationship;
+- explicit retention of municipality-alias collisions across reviewed aliases
+  and official municipality names; and
 - the deterministic duplicate-name and normalized-index output.
 
 Publication takes a separate dictionary lock, prunes abandoned staging,

@@ -1,5 +1,6 @@
 package rs.sud.eaukcija.komatching;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -17,7 +18,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -32,6 +35,7 @@ final class KoDictionarySnapshotLoader {
 
     private static final String HASH = "[0-9a-f]{64}";
     private static final String VERSION = "[0-9]{4}-[0-9]{2}-[0-9]{2}-" + HASH + "-aliases-" + HASH;
+    private static final int DICTIONARY_MANIFEST_FORMAT_VERSION = 2;
     private static final Set<String> REQUIRED_FILES = Set.of(
             "ko-dictionary.ndjson", "normalized-index.ndjson", "report.json",
             "alias-overrides.json", "ATTRIBUTION.md");
@@ -63,8 +67,14 @@ final class KoDictionarySnapshotLoader {
             Path manifestFile = directory.resolve("manifest.json");
             requireRegularFile(manifestFile);
             JsonNode manifest = objectMapper.readTree(manifestFile.toFile());
-            if (manifest.path("formatVersion").asInt(-1) != 1
-                    || !active.equals(requiredText(manifest, "dictionaryVersion"))) {
+            int formatVersion = manifest.path("formatVersion").asInt(-1);
+            if (formatVersion != DICTIONARY_MANIFEST_FORMAT_VERSION) {
+                throw new KoStructuredMatchException(
+                        "DICTIONARY_FORMAT_VERSION_MISMATCH",
+                        "dictionary manifest formatVersion " + formatVersion
+                                + " is unsupported; expected " + DICTIONARY_MANIFEST_FORMAT_VERSION);
+            }
+            if (!active.equals(requiredText(manifest, "dictionaryVersion"))) {
                 throw corrupt("manifest version does not match ACTIVE");
             }
             String normalizer = requiredText(manifest, "normalizerContract");
@@ -80,28 +90,43 @@ final class KoDictionarySnapshotLoader {
             JsonNode aliasesNode = manifest.path("aliases");
             String aliasDatasetVersion = requiredText(aliasesNode, "datasetVersion");
             String aliasSha256 = requiredHash(aliasesNode, "sha256");
+            JsonNode municipalityAliasesNode = manifest.path("municipalityAliases");
+            String municipalityAliasDatasetVersion = requiredText(municipalityAliasesNode, "datasetVersion");
+            String municipalityAliasSha256 = requiredHash(municipalityAliasesNode, "sha256");
+            if (!aliasDatasetVersion.equals(municipalityAliasDatasetVersion)) {
+                throw corrupt("municipality alias dataset version differs from the review dataset");
+            }
             if (!active.equals(sourceDate + "-" + gpkgSha256 + "-aliases-" + aliasSha256)) {
                 throw corrupt("dictionary version does not match source and alias provenance");
             }
 
             verifyManifestFiles(directory, manifest.path("files"));
-            Map<String, KoDictionarySnapshot.AliasReview> aliases = readAliases(
-                    directory.resolve("alias-overrides.json"), aliasDatasetVersion, aliasSha256);
+            ParsedAliases parsedAliases = readAliases(
+                    directory.resolve("alias-overrides.json"), aliasDatasetVersion, aliasSha256,
+                    municipalityAliasSha256);
+            Map<String, KoDictionarySnapshot.AliasReview> aliases = parsedAliases.koAliases();
+            Map<String, KoDictionarySnapshot.MunicipalityAliasReview> municipalityAliases =
+                    parsedAliases.municipalityAliases();
             Map<String, KoDictionarySnapshot.KoEntry> entries = readDictionary(
-                    directory.resolve("ko-dictionary.ndjson"), active, sourceDate, gpkgSha256, aliases);
+                    directory.resolve("ko-dictionary.ndjson"), active, sourceDate, gpkgSha256,
+                    aliases, municipalityAliases);
             Map<String, List<KoDictionarySnapshot.IndexCandidate>> index = readIndex(
                     directory.resolve("normalized-index.ndjson"), active, sourceDate, gpkgSha256, entries, aliases);
 
             JsonNode content = manifest.path("content");
             if (requiredLong(content, "koEntries") != entries.size()
                     || requiredLong(content, "normalizedIndexKeys") != index.size()
-                    || requiredLong(aliasesNode, "count") != aliases.size()) {
+                    || requiredLong(aliasesNode, "koAliasCount") != aliases.size()
+                    || requiredLong(aliasesNode, "municipalityAliasCount") != municipalityAliases.size()
+                    || requiredLong(municipalityAliasesNode, "count") != municipalityAliases.size()) {
                 throw corrupt("manifest content counts do not match dictionary files");
             }
             validateIndex(entries, aliases, index);
             return new KoDictionarySnapshot(
                     active, sourceDate, gpkgSha256, normalizer, aliasDatasetVersion, aliasSha256,
-                    Map.copyOf(entries), Map.copyOf(index), Map.copyOf(aliases));
+                    municipalityAliasSha256, Map.copyOf(entries), Map.copyOf(index),
+                    municipalityCodesByNormalizedName(entries), Map.copyOf(aliases),
+                    Map.copyOf(municipalityAliases), municipalityAliasesByNormalizedName(municipalityAliases));
         } catch (KoStructuredMatchException e) {
             throw e;
         } catch (IOException e) {
@@ -137,27 +162,43 @@ final class KoDictionarySnapshotLoader {
         }
     }
 
-    private Map<String, KoDictionarySnapshot.AliasReview> readAliases(
-            Path file, String expectedDatasetVersion, String expectedHash) throws IOException {
+    private ParsedAliases readAliases(
+            Path file,
+            String expectedDatasetVersion,
+            String expectedHash,
+            String expectedMunicipalityAliasHash) throws IOException {
         if (!sha256(file).equals(expectedHash)) {
             throw new KoStructuredMatchException(
                     "DICTIONARY_FILE_CHECKSUM_MISMATCH", "alias file hash does not match manifest");
         }
         JsonNode root = objectMapper.readTree(file.toFile());
-        if (root.path("formatVersion").asInt(-1) != 1
+        if (root.path("formatVersion").asInt(-1) != 2
                 || !expectedDatasetVersion.equals(requiredText(root, "datasetVersion"))
                 || !SerbianNameNormalizer.CONTRACT_VERSION.equals(requiredText(root, "normalizerContract"))
-                || !root.path("aliases").isArray()) {
+                || !root.path("koAliases").isArray()
+                || !root.path("municipalityAliases").isArray()) {
             throw corrupt("alias data does not match the manifest contract");
         }
         TreeMap<String, KoDictionarySnapshot.AliasReview> aliases = new TreeMap<>();
-        for (JsonNode row : root.path("aliases")) {
+        Set<String> allIds = new HashSet<>();
+        for (JsonNode row : root.path("koAliases")) {
             KoDictionarySnapshot.AliasReview alias = alias(row);
-            if (aliases.putIfAbsent(alias.id(), alias) != null) {
+            if (!allIds.add(alias.id()) || aliases.putIfAbsent(alias.id(), alias) != null) {
                 throw corrupt("duplicate alias review id " + alias.id());
             }
         }
-        return aliases;
+        TreeMap<String, KoDictionarySnapshot.MunicipalityAliasReview> municipalityAliases = new TreeMap<>();
+        for (JsonNode row : root.path("municipalityAliases")) {
+            KoDictionarySnapshot.MunicipalityAliasReview alias = municipalityAlias(row);
+            if (!allIds.add(alias.id()) || municipalityAliases.putIfAbsent(alias.id(), alias) != null) {
+                throw corrupt("duplicate alias review id " + alias.id());
+            }
+        }
+        if (!sha256(canonicalMunicipalityAliasBytes(expectedDatasetVersion, municipalityAliases))
+                .equals(expectedMunicipalityAliasHash)) {
+            throw corrupt("municipality alias semantic hash does not match the manifest");
+        }
+        return new ParsedAliases(Map.copyOf(aliases), Map.copyOf(municipalityAliases));
     }
 
     private Map<String, KoDictionarySnapshot.KoEntry> readDictionary(
@@ -165,9 +206,18 @@ final class KoDictionarySnapshotLoader {
             String version,
             LocalDate sourceDate,
             String gpkgSha256,
-            Map<String, KoDictionarySnapshot.AliasReview> aliases) throws IOException {
+            Map<String, KoDictionarySnapshot.AliasReview> aliases,
+            Map<String, KoDictionarySnapshot.MunicipalityAliasReview> municipalityAliases) throws IOException {
         TreeMap<String, KoDictionarySnapshot.KoEntry> entries = new TreeMap<>();
         Set<String> seenAliases = new TreeSet<>();
+        Set<String> seenMunicipalityAliasTargets = new TreeSet<>();
+        Map<String, List<String>> municipalityAliasIdsByTarget = municipalityAliases.values().stream()
+                .collect(Collectors.groupingBy(
+                        KoDictionarySnapshot.MunicipalityAliasReview::municipalityCode,
+                        TreeMap::new,
+                        Collectors.mapping(
+                                KoDictionarySnapshot.MunicipalityAliasReview::id,
+                                Collectors.collectingAndThen(Collectors.toCollection(TreeSet::new), List::copyOf))));
         long lineNumber = 0;
         for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
             lineNumber++;
@@ -200,9 +250,19 @@ final class KoDictionarySnapshotLoader {
                 TreeSet<String> municipalityNames = new TreeSet<>();
                 addNormalized(municipalityNames, municipalityCyrillic);
                 addNormalized(municipalityNames, municipalityLatin);
+                List<String> municipalityAliasIds = stringList(municipality, "aliasIds");
+                List<String> expectedAliasIds = municipalityAliasIdsByTarget.getOrDefault(
+                        municipalityCode, List.of());
+                if (!municipalityAliasIds.equals(expectedAliasIds)) {
+                    throw corrupt("municipality alias links differ from the reviewed records at line "
+                            + lineNumber);
+                }
+                if (!municipalityAliasIds.isEmpty()) {
+                    seenMunicipalityAliasTargets.add(municipalityCode);
+                }
                 municipalities.add(new KoDictionarySnapshot.Municipality(
                         municipalityCode, municipalityCyrillic, municipalityLatin,
-                        List.copyOf(municipalityNames)));
+                        List.copyOf(municipalityNames), municipalityAliasIds));
             }
             municipalities.sort(Comparator.comparing(KoDictionarySnapshot.Municipality::code));
 
@@ -248,6 +308,12 @@ final class KoDictionarySnapshotLoader {
         }
         if (entries.isEmpty() || !seenAliases.equals(aliases.keySet())) {
             throw corrupt("dictionary is empty or does not embed every reviewed alias");
+        }
+        Set<String> expectedMunicipalityAliasTargets = municipalityAliases.values().stream()
+                .map(KoDictionarySnapshot.MunicipalityAliasReview::municipalityCode)
+                .collect(Collectors.toSet());
+        if (!seenMunicipalityAliasTargets.equals(expectedMunicipalityAliasTargets)) {
+            throw corrupt("dictionary does not link every reviewed municipality alias target");
         }
         return entries;
     }
@@ -329,6 +395,9 @@ final class KoDictionarySnapshotLoader {
     }
 
     private KoDictionarySnapshot.AliasReview alias(JsonNode row) {
+        if (!"KO_ALIAS".equals(requiredText(row, "recordKind"))) {
+            throw corrupt("KO alias recordKind must be KO_ALIAS");
+        }
         String name = requiredText(row, "name");
         String normalizedName = requiredText(row, "normalizedName");
         if (!normalizedName.equals(SerbianNameNormalizer.normalize(name))) {
@@ -339,6 +408,91 @@ final class KoDictionarySnapshotLoader {
                 requiredText(row, "kind"), requiredText(row, "provenance"),
                 requiredText(row, "sourceReference"), requiredText(row, "reviewer"),
                 requiredDate(row, "reviewedAt"));
+    }
+
+    private KoDictionarySnapshot.MunicipalityAliasReview municipalityAlias(JsonNode row) {
+        if (!"MUNICIPALITY_ALIAS".equals(requiredText(row, "recordKind"))) {
+            throw corrupt("municipality alias recordKind must be MUNICIPALITY_ALIAS");
+        }
+        String name = requiredText(row, "name");
+        String normalizedName = requiredText(row, "normalizedName");
+        if (!normalizedName.equals(SerbianNameNormalizer.normalize(name))) {
+            throw corrupt("municipality alias normalization differs from the shared implementation");
+        }
+        return new KoDictionarySnapshot.MunicipalityAliasReview(
+                requiredText(row, "id"), requiredText(row, "municipalityCode"), name, normalizedName,
+                requiredText(row, "provenance"), requiredText(row, "sourceReference"),
+                requiredText(row, "reviewer"), requiredDate(row, "reviewedAt"));
+    }
+
+    private byte[] canonicalMunicipalityAliasBytes(
+            String datasetVersion,
+            Map<String, KoDictionarySnapshot.MunicipalityAliasReview> aliases) throws IOException {
+        // Must stay byte-identical with KoDictionaryPublisher's independent canonical serialization.
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (JsonGenerator json = objectMapper.getFactory().createGenerator(output)) {
+            json.writeStartObject();
+            json.writeNumberField("formatVersion", 1);
+            json.writeStringField("datasetVersion", datasetVersion);
+            json.writeStringField("normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION);
+            json.writeArrayFieldStart("municipalityAliases");
+            for (KoDictionarySnapshot.MunicipalityAliasReview alias : aliases.values().stream()
+                    .sorted(Comparator.comparing(KoDictionarySnapshot.MunicipalityAliasReview::municipalityCode)
+                            .thenComparing(KoDictionarySnapshot.MunicipalityAliasReview::id))
+                    .toList()) {
+                json.writeStartObject();
+                json.writeStringField("recordKind", "MUNICIPALITY_ALIAS");
+                json.writeStringField("id", alias.id());
+                json.writeStringField("municipalityCode", alias.municipalityCode());
+                json.writeStringField("name", alias.name());
+                json.writeStringField("normalizedName", alias.normalizedName());
+                json.writeStringField("provenance", alias.provenance());
+                json.writeStringField("sourceReference", alias.sourceReference());
+                json.writeStringField("reviewer", alias.reviewer());
+                json.writeStringField("reviewedAt", alias.reviewedAt().toString());
+                json.writeEndObject();
+            }
+            json.writeEndArray();
+            json.writeEndObject();
+            json.writeRaw('\n');
+        }
+        return output.toByteArray();
+    }
+
+    private static Map<String, List<String>> municipalityCodesByNormalizedName(
+            Map<String, KoDictionarySnapshot.KoEntry> entries) {
+        TreeMap<String, TreeSet<String>> codesByName = new TreeMap<>();
+        for (KoDictionarySnapshot.KoEntry entry : entries.values()) {
+            for (KoDictionarySnapshot.Municipality municipality : entry.municipalities()) {
+                String normalizedCode = SerbianNameNormalizer.normalize(municipality.code());
+                if (normalizedCode != null) {
+                    codesByName.computeIfAbsent(normalizedCode, ignored -> new TreeSet<>())
+                            .add(municipality.code());
+                }
+                for (String normalizedName : municipality.normalizedNames()) {
+                    codesByName.computeIfAbsent(normalizedName, ignored -> new TreeSet<>())
+                            .add(municipality.code());
+                }
+            }
+        }
+        TreeMap<String, List<String>> completed = new TreeMap<>();
+        codesByName.forEach((name, codes) -> completed.put(name, List.copyOf(codes)));
+        return Map.copyOf(completed);
+    }
+
+    private static Map<String, List<KoDictionarySnapshot.MunicipalityAliasReview>>
+            municipalityAliasesByNormalizedName(
+                    Map<String, KoDictionarySnapshot.MunicipalityAliasReview> aliases) {
+        TreeMap<String, List<KoDictionarySnapshot.MunicipalityAliasReview>> byName = new TreeMap<>();
+        aliases.values().stream()
+                .collect(Collectors.groupingBy(
+                        KoDictionarySnapshot.MunicipalityAliasReview::normalizedName, TreeMap::new,
+                        Collectors.toList()))
+                .forEach((name, reviews) -> byName.put(name, reviews.stream()
+                        .sorted(Comparator.comparing(KoDictionarySnapshot.MunicipalityAliasReview::municipalityCode)
+                                .thenComparing(KoDictionarySnapshot.MunicipalityAliasReview::id))
+                        .toList()));
+        return Map.copyOf(byName);
     }
 
     private void requireProvenance(
@@ -461,6 +615,14 @@ final class KoDictionarySnapshotLoader {
         }
     }
 
+    private static String sha256(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("JVM has no SHA-256 implementation", e);
+        }
+    }
+
     private static KoStructuredMatchException corrupt(String message) {
         return new KoStructuredMatchException("DICTIONARY_CORRUPT", message);
     }
@@ -481,5 +643,10 @@ final class KoDictionarySnapshotLoader {
                     officialName,
                     List.copyOf(aliasIds));
         }
+    }
+
+    private record ParsedAliases(
+            Map<String, KoDictionarySnapshot.AliasReview> koAliases,
+            Map<String, KoDictionarySnapshot.MunicipalityAliasReview> municipalityAliases) {
     }
 }

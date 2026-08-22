@@ -51,6 +51,7 @@ class StructuredKoMatchIntegrationTest {
         insertAuction(37003, "Caribrod", "Димитровград", "Димитровград");
         insertAuction(37004, "Cajetinaa", "Naselje A", "Opština A");
         insertAuction(37005, null, "Naselje A", "Opština A");
+        insertAuction(37006, "GRAD", "Naselje B", "Opština B-grad");
     }
 
     @AfterEach
@@ -63,31 +64,32 @@ class StructuredKoMatchIntegrationTest {
     void persistsPopulationResultsProvenanceCandidatesAndIdempotentReplay() {
         StructuredKoMatchService.RunResult first = service.run();
 
-        assertThat(first.populationCount()).isEqualTo(5);
-        assertThat(first.processedCount()).isEqualTo(5);
+        assertThat(first.populationCount()).isEqualTo(6);
+        assertThat(first.processedCount()).isEqualTo(6);
         assertThat(first.unchangedCount()).isZero();
-        assertThat(first.matchedCount()).isEqualTo(2);
+        assertThat(first.matchedCount()).isEqualTo(3);
         assertThat(first.ambiguousCount()).isEqualTo(1);
         assertThat(first.notFoundCount()).isEqualTo(1);
         assertThat(first.invalidCount()).isEqualTo(1);
-        assertThat(first.matchRatePercent()).isEqualByComparingTo("40.00");
+        assertThat(first.matchRatePercent()).isEqualByComparingTo("50.00");
         assertThat(first.normalizerVersion()).isEqualTo("serbian-name-v1");
 
         List<Map<String, Object>> persisted = jdbc.queryForList("""
                 SELECT auction_id, status, method, matched_ko_code,
                        dictionary_version, dictionary_source_sha256,
                        normalizer_version, alias_dataset_version, alias_sha256,
+                       municipality_alias_dataset_version, municipality_alias_sha256,
                        candidates::text AS candidates
                 FROM auction_structured_ko_matches
                 ORDER BY auction_id
                 """);
-        assertThat(persisted).hasSize(5);
+        assertThat(persisted).hasSize(6);
         assertThat(persisted).extracting(row -> row.get("status"))
-                .containsExactly("MATCHED", "AMBIGUOUS", "MATCHED", "NOT_FOUND", "INVALID");
+                .containsExactly("MATCHED", "AMBIGUOUS", "MATCHED", "NOT_FOUND", "INVALID", "MATCHED");
         assertThat(persisted).extracting(row -> row.get("method"))
                 .containsExactly(
                         "EXACT_NORMALIZED_NAME", "EXACT_NORMALIZED_NAME", "REVIEWED_ALIAS",
-                        "FUZZY_REVIEW", "NONE");
+                        "FUZZY_REVIEW", "NONE", "MUNICIPALITY_CONTEXT");
         assertThat(persisted.get(1).get("matched_ko_code")).isNull();
         assertThat(persisted.get(1).get("candidates").toString())
                 .contains("300001", "300002", "municipalityContextMatch");
@@ -95,12 +97,17 @@ class StructuredKoMatchIntegrationTest {
                 .contains("caribrod-1930", "fixture-reviewer", "fixture://gazette/1930");
         assertThat(persisted.get(3).get("candidates").toString())
                 .contains("editDistance", "similarityBasisPoints");
+        assertThat(persisted.get(5).get("candidates").toString())
+                .contains("opstina-b-grad", "Reviewed municipality fixture", "municipalityAliasReviews");
         assertThat(persisted).allSatisfy(row -> {
             assertThat(row.get("dictionary_version")).isEqualTo(first.dictionaryVersion());
             assertThat(row.get("dictionary_source_sha256")).isEqualTo(first.sourceGpkgSha256());
             assertThat(row.get("normalizer_version")).isEqualTo(first.normalizerVersion());
             assertThat(row.get("alias_dataset_version")).isEqualTo(first.aliasDatasetVersion());
             assertThat(row.get("alias_sha256")).isEqualTo(first.aliasSha256());
+            assertThat(row.get("municipality_alias_dataset_version"))
+                    .isEqualTo(first.municipalityAliasDatasetVersion());
+            assertThat(row.get("municipality_alias_sha256")).isEqualTo(first.municipalityAliasSha256());
         });
 
         Instant originalResolvedAt = jdbc.queryForObject("""
@@ -113,7 +120,7 @@ class StructuredKoMatchIntegrationTest {
         StructuredKoMatchService.RunResult replay = service.run();
 
         assertThat(replay.processedCount()).isZero();
-        assertThat(replay.unchangedCount()).isEqualTo(5);
+        assertThat(replay.unchangedCount()).isEqualTo(6);
         assertThat(replay.matchedCount()).isEqualTo(first.matchedCount());
         assertThat(jdbc.queryForObject("""
                 SELECT resolved_at FROM auction_structured_ko_matches WHERE auction_id = 37001
@@ -124,7 +131,7 @@ class StructuredKoMatchIntegrationTest {
         StructuredKoMatchService.RunResult changed = service.run();
 
         assertThat(changed.processedCount()).isEqualTo(1);
-        assertThat(changed.unchangedCount()).isEqualTo(4);
+        assertThat(changed.unchangedCount()).isEqualTo(5);
         assertThat(jdbc.queryForObject("""
                 SELECT input_fingerprint FROM auction_structured_ko_matches WHERE auction_id = 37001
                 """, String.class)).isNotEqualTo(originalFingerprint);

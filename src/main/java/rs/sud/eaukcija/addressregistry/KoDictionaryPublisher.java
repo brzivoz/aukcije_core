@@ -46,6 +46,7 @@ final class KoDictionaryPublisher {
     private static final String ALIASES_FILE = "alias-overrides.json";
     private static final String ATTRIBUTION_FILE = "ATTRIBUTION.md";
     private static final String HASH_PATTERN = "[0-9a-f]{64}";
+    private static final int DICTIONARY_MANIFEST_FORMAT_VERSION = 2;
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -84,11 +85,14 @@ final class KoDictionaryPublisher {
                 Dictionary dictionary = buildDictionary(source, aliases, properties);
                 byte[] aliasBytes = canonicalAliasBytes(aliases);
                 String aliasSha256 = sha256(aliasBytes);
+                byte[] municipalityAliasBytes = canonicalMunicipalityAliasBytes(aliases);
+                String municipalityAliasSha256 = sha256(municipalityAliasBytes);
                 String version = source.version() + "-aliases-" + aliasSha256;
                 validationMillis = Duration.between(validationStarted, Instant.now()).toMillis();
 
                 stagedVersion = Files.createTempDirectory(publishRoot.resolve(".staging"), "version-");
-                writeVersion(stagedVersion, version, source, aliases, aliasBytes, aliasSha256, dictionary);
+                writeVersion(stagedVersion, version, source, aliases, aliasBytes, aliasSha256,
+                        municipalityAliasSha256, dictionary);
                 long publishedBytes = directoryBytes(stagedVersion);
 
                 Instant publicationStarted = Instant.now();
@@ -99,8 +103,9 @@ final class KoDictionaryPublisher {
                 BuildResult result = new BuildResult(
                         publication.outcome(), runId, version, publication.activeVersionBeforeBuild(),
                         source.version(), source.sourceDate().toString(), source.gpkgSha256(),
-                        aliases.datasetVersion(), aliasSha256, dictionary.kos().size(),
-                        dictionary.duplicateNames().size(), aliases.aliases().size(),
+                        aliases.datasetVersion(), aliasSha256, municipalityAliasSha256, dictionary.kos().size(),
+                        dictionary.duplicateNames().size(), aliases.koAliases().size(),
+                        aliases.municipalityAliases().size(),
                         source.rejectedSourceRows(), publishedBytes, validationMillis,
                         publicationMillis, Duration.between(started, Instant.now()).toMillis(),
                         publication.versionDirectory().toString());
@@ -128,7 +133,7 @@ final class KoDictionaryPublisher {
         Path publishRoot = configuredPublishDirectory.toAbsolutePath().normalize();
         String active = readActiveVersion(publishRoot, true);
         if (active == null) {
-            return new Status(null, null, null, null, 0, 0, 0, null);
+            return new Status(null, null, null, null, 0, 0, 0, 0, null);
         }
         Path directory = safeDictionaryVersionDirectory(publishRoot, active);
         requireDirectory(directory, "ACTIVE_VERSION_CORRUPT");
@@ -136,8 +141,15 @@ final class KoDictionaryPublisher {
         requireRegularFile(manifest, "ACTIVE_VERSION_CORRUPT");
         try {
             JsonNode root = objectMapper.readTree(manifest.toFile());
+            int formatVersion = root.path("formatVersion").asInt(-1);
+            if (formatVersion != DICTIONARY_MANIFEST_FORMAT_VERSION) {
+                throw new AddressRegistryImportException(
+                        "ACTIVE_VERSION_UNSUPPORTED",
+                        "active dictionary manifest formatVersion " + formatVersion
+                                + " is unsupported; expected " + DICTIONARY_MANIFEST_FORMAT_VERSION);
+            }
             String declaredVersion = requiredText(root, "dictionaryVersion", "ACTIVE_VERSION_CORRUPT");
-            if (root.path("formatVersion").asInt(-1) != 1 || !active.equals(declaredVersion)) {
+            if (!active.equals(declaredVersion)) {
                 throw new AddressRegistryImportException(
                         "ACTIVE_VERSION_CORRUPT", "active dictionary manifest version does not match ACTIVE");
             }
@@ -148,7 +160,8 @@ final class KoDictionaryPublisher {
                     requiredText(root.path("source"), "gpkgSha256", "ACTIVE_VERSION_CORRUPT"),
                     requiredLong(root.path("content"), "koEntries", "ACTIVE_VERSION_CORRUPT"),
                     requiredLong(root.path("content"), "duplicateNameGroups", "ACTIVE_VERSION_CORRUPT"),
-                    requiredLong(root.path("aliases"), "count", "ACTIVE_VERSION_CORRUPT"),
+                    requiredLong(root.path("aliases"), "koAliasCount", "ACTIVE_VERSION_CORRUPT"),
+                    requiredLong(root.path("aliases"), "municipalityAliasCount", "ACTIVE_VERSION_CORRUPT"),
                     directory.toString());
         } catch (IOException e) {
             throw new AddressRegistryImportException(
@@ -344,26 +357,42 @@ final class KoDictionaryPublisher {
         Path file = configuredPath.toAbsolutePath().normalize();
         requireRegularFile(file, "ALIAS_DATA_INVALID");
         JsonNode root = objectMapper.readTree(file.toFile());
-        if (root.path("formatVersion").asInt(-1) != 1) {
-            throw aliasInvalid("alias data formatVersion must be 1");
+        int formatVersion = root.path("formatVersion").asInt(-1);
+        if (formatVersion != 1 && formatVersion != 2) {
+            throw aliasInvalid("alias data formatVersion must be 1 or 2");
         }
         String datasetVersion = requiredText(root, "datasetVersion", "ALIAS_DATA_INVALID");
         if (!datasetVersion.matches("[A-Za-z0-9._-]{1,64}")) {
             throw aliasInvalid("alias datasetVersion contains unsupported characters");
         }
-        JsonNode entries = root.path("aliases");
-        if (!entries.isArray()) {
-            throw aliasInvalid("aliases must be an array");
+        JsonNode entries = formatVersion == 1 ? root.path("aliases") : root.path("koAliases");
+        JsonNode municipalityEntries = formatVersion == 1
+                ? objectMapper.createArrayNode()
+                : root.path("municipalityAliases");
+        if (!entries.isArray() || !municipalityEntries.isArray()) {
+            throw aliasInvalid(formatVersion == 1
+                    ? "aliases must be an array"
+                    : "koAliases and municipalityAliases must be arrays");
         }
         List<Alias> aliases = new ArrayList<>();
+        List<MunicipalityAlias> municipalityAliases = new ArrayList<>();
         Set<String> ids = new TreeSet<>();
         for (JsonNode entry : entries) {
             String id = requiredText(entry, "id", "ALIAS_DATA_INVALID");
+            if (formatVersion == 2
+                    && !"KO_ALIAS".equals(requiredText(entry, "recordKind", "ALIAS_DATA_INVALID"))) {
+                throw aliasInvalid("KO alias " + id + " recordKind must be KO_ALIAS");
+            }
             String koCode = requiredText(entry, "koCode", "ALIAS_DATA_INVALID");
             String name = requiredText(entry, "name", "ALIAS_DATA_INVALID");
             String normalizedName = SerbianNameNormalizer.normalize(name);
             if (normalizedName == null) {
                 throw aliasInvalid("alias " + id + " has no usable name characters");
+            }
+            if (formatVersion == 2
+                    && !normalizedName.equals(requiredText(entry, "normalizedName", "ALIAS_DATA_INVALID"))) {
+                throw aliasInvalid("alias " + id + " normalizedName differs from "
+                        + SerbianNameNormalizer.CONTRACT_VERSION);
             }
             String kind = requiredText(entry, "kind", "ALIAS_DATA_INVALID");
             if (!Set.of("HISTORICAL", "COLLOQUIAL").contains(kind)) {
@@ -384,7 +413,38 @@ final class KoDictionaryPublisher {
                     sourceReference, reviewer, reviewedAt));
         }
         aliases.sort(Comparator.comparing(Alias::koCode).thenComparing(Alias::id));
-        return new AliasDataset(datasetVersion, List.copyOf(aliases));
+        for (JsonNode entry : municipalityEntries) {
+            String id = requiredText(entry, "id", "ALIAS_DATA_INVALID");
+            if (!"MUNICIPALITY_ALIAS".equals(requiredText(entry, "recordKind", "ALIAS_DATA_INVALID"))) {
+                throw aliasInvalid("municipality alias " + id + " recordKind must be MUNICIPALITY_ALIAS");
+            }
+            String municipalityCode = requiredText(entry, "municipalityCode", "ALIAS_DATA_INVALID");
+            String name = requiredText(entry, "name", "ALIAS_DATA_INVALID");
+            String normalizedName = SerbianNameNormalizer.normalize(name);
+            if (normalizedName == null) {
+                throw aliasInvalid("municipality alias " + id + " has no usable name characters");
+            }
+            if (!normalizedName.equals(requiredText(entry, "normalizedName", "ALIAS_DATA_INVALID"))) {
+                throw aliasInvalid("municipality alias " + id + " normalizedName differs from "
+                        + SerbianNameNormalizer.CONTRACT_VERSION);
+            }
+            String provenance = requiredText(entry, "provenance", "ALIAS_DATA_INVALID");
+            String sourceReference = requiredText(entry, "sourceReference", "ALIAS_DATA_INVALID");
+            String reviewer = requiredText(entry, "reviewer", "ALIAS_DATA_INVALID");
+            LocalDate reviewedAt = parseAliasDate(entry, "reviewedAt", id);
+            if (reviewedAt.isAfter(LocalDate.now(clock))) {
+                throw aliasInvalid("municipality alias " + id + " reviewedAt cannot be in the future");
+            }
+            if (!ids.add(id)) {
+                throw aliasInvalid("duplicate alias id " + id);
+            }
+            municipalityAliases.add(new MunicipalityAlias(
+                    id, municipalityCode, name, normalizedName, provenance,
+                    sourceReference, reviewer, reviewedAt));
+        }
+        municipalityAliases.sort(Comparator.comparing(MunicipalityAlias::municipalityCode)
+                .thenComparing(MunicipalityAlias::id));
+        return new AliasDataset(datasetVersion, List.copyOf(aliases), List.copyOf(municipalityAliases));
     }
 
     private Dictionary buildDictionary(
@@ -403,6 +463,7 @@ final class KoDictionaryPublisher {
                         "settlement " + settlement.code() + " municipality");
             }
         }
+        TreeSet<String> koReferencedMunicipalityCodes = new TreeSet<>();
         for (Centroid ko : source.kos().values()) {
             if (ko.settlementCodes().isEmpty() || ko.municipalityCodes().isEmpty()) {
                 throw new AddressRegistryImportException(
@@ -410,6 +471,7 @@ final class KoDictionaryPublisher {
             }
             for (String municipalityCode : ko.municipalityCodes()) {
                 requireReference(source.municipalities(), municipalityCode, "KO " + ko.code() + " municipality");
+                koReferencedMunicipalityCodes.add(municipalityCode);
             }
             for (String settlementCode : ko.settlementCodes()) {
                 Centroid settlement = requireReference(
@@ -423,18 +485,61 @@ final class KoDictionaryPublisher {
         }
 
         TreeMap<String, List<Alias>> aliasesByKo = new TreeMap<>();
-        for (Alias alias : aliases.aliases()) {
+        for (Alias alias : aliases.koAliases()) {
             if (!source.kos().containsKey(alias.koCode())) {
                 throw aliasInvalid("alias " + alias.id() + " targets unknown KO code " + alias.koCode());
             }
             aliasesByKo.computeIfAbsent(alias.koCode(), ignored -> new ArrayList<>()).add(alias);
         }
         aliasesByKo.replaceAll((ignored, values) -> List.copyOf(values));
+        TreeMap<String, List<MunicipalityAlias>> aliasesByMunicipality = new TreeMap<>();
+        for (MunicipalityAlias alias : aliases.municipalityAliases()) {
+            if (!source.municipalities().containsKey(alias.municipalityCode())) {
+                throw aliasInvalid("municipality alias " + alias.id()
+                        + " targets unknown municipality code " + alias.municipalityCode());
+            }
+            if (!koReferencedMunicipalityCodes.contains(alias.municipalityCode())) {
+                throw aliasInvalid("municipality alias " + alias.id()
+                        + " targets municipality code " + alias.municipalityCode()
+                        + " that is not referenced by any KO entry");
+            }
+            aliasesByMunicipality.computeIfAbsent(alias.municipalityCode(), ignored -> new ArrayList<>()).add(alias);
+        }
+        aliasesByMunicipality.replaceAll((ignored, values) -> List.copyOf(values));
         List<DuplicateNameGroup> duplicates = duplicateOfficialNames(source.kos());
         NavigableMap<String, List<IndexCandidate>> index = buildIndex(source.kos(), aliasesByKo);
         return new Dictionary(
                 source.kos(), source.settlements(), source.municipalities(),
-                java.util.Collections.unmodifiableNavigableMap(aliasesByKo), duplicates, index);
+                java.util.Collections.unmodifiableNavigableMap(aliasesByKo),
+                java.util.Collections.unmodifiableNavigableMap(aliasesByMunicipality),
+                municipalityAliasCollisions(aliases.municipalityAliases(), source.municipalities()), duplicates, index);
+    }
+
+    private List<MunicipalityAliasCollision> municipalityAliasCollisions(
+            List<MunicipalityAlias> aliases,
+            NavigableMap<String, Centroid> municipalities) {
+        TreeMap<String, TreeSet<String>> codesByName = new TreeMap<>();
+        TreeMap<String, TreeSet<String>> idsByName = new TreeMap<>();
+        for (MunicipalityAlias alias : aliases) {
+            codesByName.computeIfAbsent(alias.normalizedName(), ignored -> new TreeSet<>())
+                    .add(alias.municipalityCode());
+            idsByName.computeIfAbsent(alias.normalizedName(), ignored -> new TreeSet<>()).add(alias.id());
+        }
+        for (Centroid municipality : municipalities.values()) {
+            for (String normalizedName : municipality.normalizedNames()) {
+                if (codesByName.containsKey(normalizedName)) {
+                    codesByName.get(normalizedName).add(municipality.code());
+                }
+            }
+        }
+        List<MunicipalityAliasCollision> collisions = new ArrayList<>();
+        codesByName.forEach((name, codes) -> {
+            if (codes.size() > 1) {
+                collisions.add(new MunicipalityAliasCollision(
+                        name, List.copyOf(codes), List.copyOf(idsByName.get(name))));
+            }
+        });
+        return List.copyOf(collisions);
     }
 
     private List<DuplicateNameGroup> duplicateOfficialNames(NavigableMap<String, Centroid> kos) {
@@ -492,10 +597,12 @@ final class KoDictionaryPublisher {
             AliasDataset aliases,
             byte[] aliasBytes,
             String aliasSha256,
+            String municipalityAliasSha256,
             Dictionary dictionary) throws IOException {
         writeDictionary(directory.resolve(DICTIONARY_FILE), version, source, dictionary);
         writeIndex(directory.resolve(INDEX_FILE), version, source, dictionary.index());
-        writeReport(directory.resolve(REPORT_FILE), version, source, aliases, aliasSha256, dictionary);
+        writeReport(directory.resolve(REPORT_FILE), version, source, aliases, aliasSha256,
+                municipalityAliasSha256, dictionary);
         Files.write(directory.resolve(ALIASES_FILE), aliasBytes, StandardOpenOption.CREATE_NEW);
         Files.writeString(directory.resolve(ATTRIBUTION_FILE), attribution(source), StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE_NEW);
@@ -505,7 +612,8 @@ final class KoDictionaryPublisher {
                 evidence(directory.resolve(REPORT_FILE)),
                 evidence(directory.resolve(ALIASES_FILE)),
                 evidence(directory.resolve(ATTRIBUTION_FILE)));
-        writeManifest(directory.resolve(MANIFEST_FILE), version, source, aliases, aliasSha256, dictionary, evidence);
+        writeManifest(directory.resolve(MANIFEST_FILE), version, source, aliases, aliasSha256,
+                municipalityAliasSha256, dictionary, evidence);
     }
 
     private void writeDictionary(Path target, String version, SourceArtifact source, Dictionary dictionary)
@@ -520,7 +628,10 @@ final class KoDictionaryPublisher {
                 writeStringArray(json, "normalizedNames", ko.normalizedNames());
                 json.writeArrayFieldStart("municipalities");
                 for (String code : ko.municipalityCodes()) {
-                    writeRelationship(json, dictionary.municipalities().get(code));
+                    writeMunicipalityRelationship(
+                            json,
+                            dictionary.municipalities().get(code),
+                            dictionary.municipalityAliasesByMunicipality().getOrDefault(code, List.of()));
                 }
                 json.writeEndArray();
                 json.writeArrayFieldStart("settlements");
@@ -577,6 +688,7 @@ final class KoDictionaryPublisher {
             SourceArtifact source,
             AliasDataset aliases,
             String aliasSha256,
+            String municipalityAliasSha256,
             Dictionary dictionary) throws IOException {
         try (JsonGenerator json = generator(target)) {
             json.writeStartObject();
@@ -592,11 +704,27 @@ final class KoDictionaryPublisher {
                 json.writeEndObject();
             }
             json.writeEndArray();
-            json.writeObjectFieldStart("aliasOverrides");
+            json.writeObjectFieldStart("koAliasOverrides");
             json.writeStringField("datasetVersion", aliases.datasetVersion());
             json.writeStringField("sha256", aliasSha256);
-            json.writeNumberField("applied", aliases.aliases().size());
-            writeStringArray(json, "aliasIds", aliases.aliases().stream().map(Alias::id).sorted().toList());
+            json.writeNumberField("applied", aliases.koAliases().size());
+            writeStringArray(json, "aliasIds", aliases.koAliases().stream().map(Alias::id).sorted().toList());
+            json.writeEndObject();
+            json.writeObjectFieldStart("municipalityAliasOverrides");
+            json.writeStringField("datasetVersion", aliases.datasetVersion());
+            json.writeStringField("sha256", municipalityAliasSha256);
+            json.writeNumberField("applied", aliases.municipalityAliases().size());
+            writeStringArray(json, "aliasIds",
+                    aliases.municipalityAliases().stream().map(MunicipalityAlias::id).sorted().toList());
+            json.writeArrayFieldStart("collisions");
+            for (MunicipalityAliasCollision collision : dictionary.municipalityAliasCollisions()) {
+                json.writeStartObject();
+                json.writeStringField("normalizedName", collision.normalizedName());
+                writeStringArray(json, "municipalityCodes", collision.municipalityCodes());
+                writeStringArray(json, "aliasIds", collision.aliasIds());
+                json.writeEndObject();
+            }
+            json.writeEndArray();
             json.writeEndObject();
             json.writeObjectFieldStart("sourceRows");
             json.writeNumberField("total", source.sourceRows());
@@ -614,7 +742,9 @@ final class KoDictionaryPublisher {
             json.writeString("UNIQUE_KO_CODES");
             json.writeString("REQUIRED_OFFICIAL_NAMES");
             json.writeString("REFERENTIAL_CONSISTENCY");
-            json.writeString("REVIEWED_ALIAS_RECORDS");
+            json.writeString("REVIEWED_KO_ALIAS_RECORDS");
+            json.writeString("REVIEWED_MUNICIPALITY_ALIAS_RECORDS");
+            json.writeString("MUNICIPALITY_ALIAS_COLLISIONS_PRESERVED");
             json.writeEndArray();
             json.writeEndObject();
             json.writeRaw('\n');
@@ -625,12 +755,36 @@ final class KoDictionaryPublisher {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         try (JsonGenerator json = objectMapper.getFactory().createGenerator(output)) {
             json.writeStartObject();
+            json.writeNumberField("formatVersion", 2);
+            json.writeStringField("datasetVersion", aliases.datasetVersion());
+            json.writeStringField("normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION);
+            json.writeArrayFieldStart("koAliases");
+            for (Alias alias : aliases.koAliases()) {
+                writeAlias(json, alias);
+            }
+            json.writeEndArray();
+            json.writeArrayFieldStart("municipalityAliases");
+            for (MunicipalityAlias alias : aliases.municipalityAliases()) {
+                writeMunicipalityAlias(json, alias);
+            }
+            json.writeEndArray();
+            json.writeEndObject();
+            json.writeRaw('\n');
+        }
+        return output.toByteArray();
+    }
+
+    private byte[] canonicalMunicipalityAliasBytes(AliasDataset aliases) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try (JsonGenerator json = objectMapper.getFactory().createGenerator(output)) {
+            json.writeStartObject();
+            // Must stay byte-identical with KoDictionarySnapshotLoader's independent rebuild.
             json.writeNumberField("formatVersion", 1);
             json.writeStringField("datasetVersion", aliases.datasetVersion());
             json.writeStringField("normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION);
-            json.writeArrayFieldStart("aliases");
-            for (Alias alias : aliases.aliases()) {
-                writeAlias(json, alias);
+            json.writeArrayFieldStart("municipalityAliases");
+            for (MunicipalityAlias alias : aliases.municipalityAliases()) {
+                writeMunicipalityAlias(json, alias);
             }
             json.writeEndArray();
             json.writeEndObject();
@@ -645,11 +799,12 @@ final class KoDictionaryPublisher {
             SourceArtifact source,
             AliasDataset aliases,
             String aliasSha256,
+            String municipalityAliasSha256,
             Dictionary dictionary,
             List<FileEvidence> files) throws IOException {
         try (JsonGenerator json = generator(target)) {
             json.writeStartObject();
-            json.writeNumberField("formatVersion", 1);
+            json.writeNumberField("formatVersion", DICTIONARY_MANIFEST_FORMAT_VERSION);
             json.writeStringField("dictionaryVersion", version);
             json.writeStringField("normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION);
             json.writeObjectFieldStart("source");
@@ -668,7 +823,15 @@ final class KoDictionaryPublisher {
             json.writeObjectFieldStart("aliases");
             json.writeStringField("datasetVersion", aliases.datasetVersion());
             json.writeStringField("sha256", aliasSha256);
-            json.writeNumberField("count", aliases.aliases().size());
+            json.writeNumberField("count", aliases.koAliases().size() + aliases.municipalityAliases().size());
+            json.writeNumberField("koAliasCount", aliases.koAliases().size());
+            json.writeNumberField("municipalityAliasCount", aliases.municipalityAliases().size());
+            json.writeEndObject();
+            json.writeObjectFieldStart("municipalityAliases");
+            json.writeStringField("datasetVersion", aliases.datasetVersion());
+            json.writeStringField("sha256", municipalityAliasSha256);
+            json.writeNumberField("count", aliases.municipalityAliases().size());
+            json.writeNumberField("collisionCount", dictionary.municipalityAliasCollisions().size());
             json.writeEndObject();
             json.writeObjectFieldStart("content");
             json.writeNumberField("koEntries", dictionary.kos().size());
@@ -798,7 +961,7 @@ final class KoDictionaryPublisher {
             AddressRegistryImportException failure) {
         BuildResult failed = new BuildResult(
                 "FAILED", runId, null, readActiveVersionIfPossible(publishRoot), null, null, null,
-                null, null, 0, 0, 0, 0, 0, validationMillis, publicationMillis,
+                null, null, null, 0, 0, 0, 0, 0, 0, validationMillis, publicationMillis,
                 Duration.between(started, Instant.now()).toMillis(), null);
         writeRunReport(publishRoot, failed, started, Instant.now(), failure);
     }
@@ -809,21 +972,38 @@ final class KoDictionaryPublisher {
         json.writeStringField("sourceGpkgSha256", source.gpkgSha256());
     }
 
-    private static void writeRelationship(JsonGenerator json, Centroid relationship) throws IOException {
+    private static void writeMunicipalityRelationship(
+            JsonGenerator json, Centroid relationship, List<MunicipalityAlias> aliases) throws IOException {
         json.writeStartObject();
         json.writeStringField("code", relationship.code());
         json.writeStringField("nameCyrillic", relationship.nameCyrillic());
         writeNullableString(json, "nameLatin", relationship.nameLatin());
+        writeStringArray(json, "aliasIds", aliases.stream().map(MunicipalityAlias::id).sorted().toList());
         json.writeEndObject();
     }
 
     private static void writeAlias(JsonGenerator json, Alias alias) throws IOException {
         json.writeStartObject();
+        json.writeStringField("recordKind", "KO_ALIAS");
         json.writeStringField("id", alias.id());
         json.writeStringField("koCode", alias.koCode());
         json.writeStringField("name", alias.name());
         json.writeStringField("normalizedName", alias.normalizedName());
         json.writeStringField("kind", alias.kind());
+        json.writeStringField("provenance", alias.provenance());
+        json.writeStringField("sourceReference", alias.sourceReference());
+        json.writeStringField("reviewer", alias.reviewer());
+        json.writeStringField("reviewedAt", alias.reviewedAt().toString());
+        json.writeEndObject();
+    }
+
+    private static void writeMunicipalityAlias(JsonGenerator json, MunicipalityAlias alias) throws IOException {
+        json.writeStartObject();
+        json.writeStringField("recordKind", "MUNICIPALITY_ALIAS");
+        json.writeStringField("id", alias.id());
+        json.writeStringField("municipalityCode", alias.municipalityCode());
+        json.writeStringField("name", alias.name());
+        json.writeStringField("normalizedName", alias.normalizedName());
         json.writeStringField("provenance", alias.provenance());
         json.writeStringField("sourceReference", alias.sourceReference());
         json.writeStringField("reviewer", alias.reviewer());
@@ -1241,7 +1421,27 @@ final class KoDictionaryPublisher {
             LocalDate reviewedAt) {
     }
 
-    private record AliasDataset(String datasetVersion, List<Alias> aliases) {
+    private record MunicipalityAlias(
+            String id,
+            String municipalityCode,
+            String name,
+            String normalizedName,
+            String provenance,
+            String sourceReference,
+            String reviewer,
+            LocalDate reviewedAt) {
+    }
+
+    private record AliasDataset(
+            String datasetVersion,
+            List<Alias> koAliases,
+            List<MunicipalityAlias> municipalityAliases) {
+    }
+
+    private record MunicipalityAliasCollision(
+            String normalizedName,
+            List<String> municipalityCodes,
+            List<String> aliasIds) {
     }
 
     private record DuplicateNameGroup(
@@ -1289,6 +1489,8 @@ final class KoDictionaryPublisher {
             NavigableMap<String, Centroid> settlements,
             NavigableMap<String, Centroid> municipalities,
             NavigableMap<String, List<Alias>> aliasesByKo,
+            NavigableMap<String, List<MunicipalityAlias>> municipalityAliasesByMunicipality,
+            List<MunicipalityAliasCollision> municipalityAliasCollisions,
             List<DuplicateNameGroup> duplicateNames,
             NavigableMap<String, List<IndexCandidate>> index) {
     }
@@ -1309,9 +1511,11 @@ final class KoDictionaryPublisher {
             String gpkgSha256,
             String aliasDatasetVersion,
             String aliasSha256,
+            String municipalityAliasSha256,
             long koEntries,
             long duplicateNameGroups,
             long aliasOverridesApplied,
+            long municipalityAliasOverridesApplied,
             long rejectedSourceRows,
             long publishedArtifactBytes,
             long validationMillis,
@@ -1328,6 +1532,7 @@ final class KoDictionaryPublisher {
             long koEntries,
             long duplicateNameGroups,
             long aliasOverrides,
+            long municipalityAliasOverrides,
             String versionDirectory) {
     }
 }

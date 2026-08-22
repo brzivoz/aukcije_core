@@ -47,7 +47,7 @@ class StructuredKoMatcherTest {
         StructuredKoMatcher.Match cyrillic = matcher.match(
                 new StructuredKoMatcher.Input(1, "  чАЈЕТИНА. ", "Насеље А", "Општина А"));
         StructuredKoMatcher.Match latin = matcher.match(
-                new StructuredKoMatcher.Input(2, "Čajetina", "Naselje A", "Opština A"));
+                new StructuredKoMatcher.Input(2, "Čajetina", "Naselje A", "M1"));
 
         assertThat(cyrillic.status()).isEqualTo(StructuredKoMatcher.Status.MATCHED);
         assertThat(cyrillic.method()).isEqualTo(StructuredKoMatcher.Method.EXACT_NORMALIZED_NAME);
@@ -95,6 +95,86 @@ class StructuredKoMatcherTest {
         assertThat(result.candidates()).filteredOn(StructuredKoMatcher.Candidate::municipalityContextMatch)
                 .extracting(StructuredKoMatcher.Candidate::koCode)
                 .containsExactly("300002");
+    }
+
+    @Test
+    void reviewedMunicipalityAliasDisambiguatesAcrossCyrillicAndLatinWithEvidence() {
+        StructuredKoMatcher.Match cyrillic = matcher.match(
+                new StructuredKoMatcher.Input(13, "ГРАД", "Насеље Б", "Општина Б-град"));
+        StructuredKoMatcher.Match latin = matcher.match(
+                new StructuredKoMatcher.Input(14, "Grad", "Naselje B", "Opština B-grad"));
+
+        assertThat(cyrillic.status()).isEqualTo(StructuredKoMatcher.Status.MATCHED);
+        assertThat(cyrillic.method()).isEqualTo(StructuredKoMatcher.Method.MUNICIPALITY_CONTEXT);
+        assertThat(cyrillic.matchedKoCode()).isEqualTo("300002");
+        assertThat(cyrillic.rationale()).contains("REVIEWED_ALIAS");
+        assertThat(cyrillic.candidates()).filteredOn(StructuredKoMatcher.Candidate::municipalityContextMatch)
+                .singleElement().satisfies(candidate ->
+                        assertThat(candidate.municipalityAliasReviews()).singleElement().satisfies(alias -> {
+                            assertThat(alias.id()).isEqualTo("opstina-b-grad");
+                            assertThat(alias.municipalityCode()).isEqualTo("M2");
+                            assertThat(alias.provenance()).isEqualTo("Reviewed municipality fixture");
+                        }));
+        assertThat(latin.status()).isEqualTo(StructuredKoMatcher.Status.MATCHED);
+        assertThat(latin.matchedKoCode()).isEqualTo("300002");
+    }
+
+    @Test
+    void collidingReviewedMunicipalityAliasCannotSelectEvenOneCandidate() {
+        StructuredKoMatcher.Match result = matcher.match(
+                new StructuredKoMatcher.Input(15, "ГРАД", "Насеље Б", "Заједничка-портал"));
+
+        assertThat(result.status()).isEqualTo(StructuredKoMatcher.Status.AMBIGUOUS);
+        assertThat(result.matchedKoCode()).isNull();
+        assertThat(result.rationale()).contains("ALIAS_COLLISION");
+        assertThat(result.candidates()).allMatch(StructuredKoMatcher.Candidate::municipalityIdentityCollision)
+                .allMatch(candidate -> !candidate.municipalityContextMatch());
+        assertThat(result.candidates()).flatExtracting(StructuredKoMatcher.Candidate::municipalityAliasReviews)
+                .extracting(StructuredKoMatcher.MunicipalityAliasEvidence::id)
+                .containsExactlyInAnyOrder("shared-portal-m1", "shared-portal-m2");
+        assertThat(result.rationale()).contains("M1, M2");
+        assertThat(result.candidates()).allSatisfy(candidate ->
+                assertThat(candidate.collidingMunicipalityCodes()).containsExactly("M1", "M2"));
+    }
+
+    @Test
+    void reviewedAliasCollidingWithAnOfficialMunicipalityNameRemainsAmbiguousWithEvidence() {
+        StructuredKoMatcher.Match result = matcher.match(
+                new StructuredKoMatcher.Input(16, "ГРАД", "Насеље А", "Општина А"));
+
+        assertThat(result.status()).isEqualTo(StructuredKoMatcher.Status.AMBIGUOUS);
+        assertThat(result.matchedKoCode()).isNull();
+        assertThat(result.rationale()).contains("ALIAS_COLLISION");
+        assertThat(result.candidates()).allMatch(StructuredKoMatcher.Candidate::municipalityIdentityCollision)
+                .allMatch(candidate -> !candidate.municipalityContextMatch());
+        assertThat(result.candidates()).filteredOn(candidate -> candidate.koCode().equals("300002"))
+                .singleElement().satisfies(candidate ->
+                        assertThat(candidate.municipalityAliasReviews())
+                                .extracting(StructuredKoMatcher.MunicipalityAliasEvidence::id)
+                                .containsExactly("official-name-collision-m2"));
+        assertThat(result.rationale()).contains("M1, M2");
+    }
+
+    @Test
+    void officialMunicipalityNamesThatCollideAreNotBlamedOnAReviewedAlias() {
+        StructuredKoMatcher.Match result = matcher.match(
+                new StructuredKoMatcher.Input(17, "Поље", "Насеље В", "Општина В"));
+
+        assertThat(result.status()).isEqualTo(StructuredKoMatcher.Status.AMBIGUOUS);
+        assertThat(result.matchedKoCode()).isNull();
+        assertThat(result.rationale()).startsWith("AMBIGUOUS_MUNICIPALITY_IDENTITY_COLLISION:")
+                .contains("M4, M5")
+                .doesNotContain("alias");
+        assertThat(result.candidates()).allMatch(StructuredKoMatcher.Candidate::municipalityIdentityCollision)
+                .allMatch(candidate -> !candidate.municipalityContextMatch())
+                .allMatch(candidate -> candidate.municipalityAliasReviews().isEmpty());
+    }
+
+    @Test
+    void loaderPrecomputesOfficialMunicipalityNamesAndCodesForConstantTimeContextLookup() {
+        assertThat(dictionary.municipalityCodesByNormalizedName())
+                .containsEntry("OPSTINA A", java.util.List.of("M1"))
+                .containsEntry("M1", java.util.List.of("M1"));
     }
 
     @Test
@@ -160,13 +240,20 @@ class StructuredKoMatcherTest {
         assertThat(baseline).isNotEqualTo(StructuredKoMatcher.fingerprint(changed, dictionary));
         assertThat(baseline).isNotEqualTo(StructuredKoMatcher.fingerprint(
                 first, copyDictionary("different-dictionary", dictionary.normalizerVersion(),
-                        dictionary.aliasDatasetVersion(), dictionary.aliasSha256())));
+                        dictionary.aliasDatasetVersion(), dictionary.aliasSha256(),
+                        dictionary.municipalityAliasSha256())));
         assertThat(baseline).isNotEqualTo(StructuredKoMatcher.fingerprint(
                 first, copyDictionary(dictionary.version(), "serbian-name-v2",
-                        dictionary.aliasDatasetVersion(), dictionary.aliasSha256())));
+                        dictionary.aliasDatasetVersion(), dictionary.aliasSha256(),
+                        dictionary.municipalityAliasSha256())));
         assertThat(baseline).isNotEqualTo(StructuredKoMatcher.fingerprint(
                 first, copyDictionary(dictionary.version(), dictionary.normalizerVersion(),
-                        "reviewed-aliases-v2", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")));
+                        "reviewed-aliases-v2", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                        dictionary.municipalityAliasSha256())));
+        assertThat(baseline).isNotEqualTo(StructuredKoMatcher.fingerprint(
+                first, copyDictionary(dictionary.version(), dictionary.normalizerVersion(),
+                        dictionary.aliasDatasetVersion(), dictionary.aliasSha256(),
+                        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")));
     }
 
     @Test
@@ -180,6 +267,23 @@ class StructuredKoMatcherTest {
         assertThatThrownBy(() -> new KoDictionarySnapshotLoader(objectMapper).load(root))
                 .isInstanceOfSatisfying(KoStructuredMatchException.class,
                         error -> assertThat(error.code()).isEqualTo("DICTIONARY_FILE_CHECKSUM_MISMATCH"));
+    }
+
+    @Test
+    void legacyManifestFormatIsRejectedAsAVersionMismatchBeforeFieldValidation() throws Exception {
+        Path root = KoDictionaryTestArtifact.create(tempDirectory.resolve("legacy-manifest"), objectMapper);
+        String active = Files.readString(root.resolve("ACTIVE")).trim();
+        Path manifestFile = root.resolve("versions").resolve(active).resolve("manifest.json");
+        com.fasterxml.jackson.databind.node.ObjectNode manifest =
+                (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(manifestFile.toFile());
+        manifest.put("formatVersion", 1);
+        Files.writeString(manifestFile, objectMapper.writeValueAsString(manifest) + "\n", StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> new KoDictionarySnapshotLoader(objectMapper).load(root))
+                .isInstanceOfSatisfying(KoStructuredMatchException.class, error -> {
+                    assertThat(error.code()).isEqualTo("DICTIONARY_FORMAT_VERSION_MISMATCH");
+                    assertThat(error.getMessage()).contains("formatVersion 1", "expected 2");
+                });
     }
 
     @Test
@@ -198,7 +302,11 @@ class StructuredKoMatcherTest {
     }
 
     private KoDictionarySnapshot copyDictionary(
-            String version, String normalizer, String aliasVersion, String aliasSha256) {
+            String version,
+            String normalizer,
+            String aliasVersion,
+            String aliasSha256,
+            String municipalityAliasSha256) {
         return new KoDictionarySnapshot(
                 version,
                 dictionary.sourceDate(),
@@ -206,8 +314,12 @@ class StructuredKoMatcherTest {
                 normalizer,
                 aliasVersion,
                 aliasSha256,
+                municipalityAliasSha256,
                 dictionary.entriesByCode(),
                 dictionary.normalizedIndex(),
-                dictionary.aliasesById());
+                dictionary.municipalityCodesByNormalizedName(),
+                dictionary.aliasesById(),
+                dictionary.municipalityAliasesById(),
+                dictionary.municipalityAliasesByNormalizedName());
     }
 }

@@ -25,7 +25,7 @@ class KoDictionaryPublisherCompatibilityTest {
                 dictionary, StructuredKoMatcher.DEFAULT_FUZZY_CANDIDATE_LIMIT);
 
         StructuredKoMatcher.Match disambiguated = matcher.match(
-                new StructuredKoMatcher.Input(1, "Димитровград", "Златибор", "Čajetina"));
+                new StructuredKoMatcher.Input(1, "Димитровград", "Златибор", "Čajetina-grad"));
         StructuredKoMatcher.Match alias = matcher.match(
                 new StructuredKoMatcher.Input(2, "Цариброд", "Димитровград", "Димитровград"));
 
@@ -34,6 +34,10 @@ class KoDictionaryPublisherCompatibilityTest {
         assertThat(disambiguated.matchedKoCode()).isEqualTo("746312");
         assertThat(disambiguated.candidates()).extracting(StructuredKoMatcher.Candidate::koCode)
                 .containsExactly("702013", "746312");
+        assertThat(disambiguated.candidates()).filteredOn(StructuredKoMatcher.Candidate::municipalityContextMatch)
+                .singleElement().satisfies(candidate ->
+                        assertThat(candidate.municipalityAliasReviews()).singleElement()
+                                .satisfies(review -> assertThat(review.id()).isEqualTo("portal-cajetina-grad")));
         assertThat(alias.status()).isEqualTo(StructuredKoMatcher.Status.MATCHED);
         assertThat(alias.method()).isEqualTo(StructuredKoMatcher.Method.REVIEWED_ALIAS);
         assertThat(alias.candidates().get(0).aliasReviews()).singleElement()

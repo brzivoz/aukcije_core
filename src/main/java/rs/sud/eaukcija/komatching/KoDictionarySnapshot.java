@@ -12,9 +12,13 @@ record KoDictionarySnapshot(
         String normalizerVersion,
         String aliasDatasetVersion,
         String aliasSha256,
+        String municipalityAliasSha256,
         Map<String, KoEntry> entriesByCode,
         Map<String, List<IndexCandidate>> normalizedIndex,
-        Map<String, AliasReview> aliasesById) {
+        Map<String, List<String>> municipalityCodesByNormalizedName,
+        Map<String, AliasReview> aliasesById,
+        Map<String, MunicipalityAliasReview> municipalityAliasesById,
+        Map<String, List<MunicipalityAliasReview>> municipalityAliasesByNormalizedName) {
 
     record KoEntry(
             String code,
@@ -29,7 +33,8 @@ record KoDictionarySnapshot(
             String code,
             String nameCyrillic,
             String nameLatin,
-            List<String> normalizedNames) {
+            List<String> normalizedNames,
+            List<String> aliasIds) {
     }
 
     record Settlement(
@@ -53,6 +58,17 @@ record KoDictionarySnapshot(
             String name,
             String normalizedName,
             String kind,
+            String provenance,
+            String sourceReference,
+            String reviewer,
+            LocalDate reviewedAt) {
+    }
+
+    record MunicipalityAliasReview(
+            String id,
+            String municipalityCode,
+            String name,
+            String normalizedName,
             String provenance,
             String sourceReference,
             String reviewer,

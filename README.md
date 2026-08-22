@@ -105,17 +105,17 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V5, Hibernate `validate`, entity round-trip, PostGIS, filter, and KO-match evidence indexes |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V6, Hibernate `validate`, entity round-trip, PostGIS, filter, and KO-match evidence indexes |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
-| `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, reviewed aliases, duplicate-name report, byte-identical replay, immutable publication, and failure-safe activation |
-| `StructuredKoMatcherTest` | scripts/diacritics, exact-code precedence, duplicate names, municipality disambiguation, reviewed aliases, malformed inputs, fuzzy-review-only behavior, and shared query/index normalization |
-| `KoDictionaryPublisherCompatibilityTest` | real #36 extractor -> #14 publisher -> #37 loader compatibility for duplicate names, reviewed aliases, and multi-parent relationships |
-| `StructuredKoMatchIntegrationTest` | V5 persistence, immutable snapshot/alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
+| `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, manifest-v2 compatibility, distinct reviewed KO/municipality aliases, orphan-target rejection, alias/official collision retention, byte-identical replay, immutable publication, and failure-safe activation |
+| `StructuredKoMatcherTest` | scripts/diacritics, exact-code precedence, duplicate names, collision-safe municipality alias disambiguation (including official-name conflicts and alias-free official collisions), retained review evidence, precomputed municipality context, malformed inputs, fuzzy-review-only behavior, and shared query/index normalization |
+| `KoDictionaryPublisherCompatibilityTest` | real #36 extractor -> #14 publisher -> #37 loader compatibility for duplicate names, reviewed KO/municipality aliases, and multi-parent relationships |
+| `StructuredKoMatchIntegrationTest` | V6 persistence, immutable snapshot/KO/municipality-alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
@@ -129,10 +129,11 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V5 it
+`src/main/resources/db/migration/` is the only schema authority. Through V6 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
-evidence, plus current structured-KO results and population-run reports. The dev, test,
+evidence, plus current structured-KO results, reviewed municipality-alias
+provenance, and population-run reports. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
 Migration validation, Hibernate validation, and an explicit PostGIS startup
 probe make checksum drift, schema drift, and a missing extension fatal.

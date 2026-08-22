@@ -1,5 +1,95 @@
 {
-  "formatVersion": 1,
-  "datasetVersion": "2026-08-22.1",
-  "aliases": []
+  "formatVersion": 2,
+  "datasetVersion": "2026-08-22.3",
+  "koAliases": [],
+  "municipalityAliases": [
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-vranje-grad-2026-08-22",
+      "municipalityCode": "70432",
+      "name": "Врање-град",
+      "normalizedName": "VRANJE GRAD",
+      "provenance": "Reviewed portal municipality used by auctions 179106, 180244, and 180245 against official Address Registry municipality 70432 ВРАЊЕ.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-zajecar-grad-2026-08-22",
+      "municipalityCode": "70556",
+      "name": "Зајечар-град",
+      "normalizedName": "ZAJECAR GRAD",
+      "provenance": "Reviewed portal municipality used by auctions 179168 through 179172 against official Address Registry municipality 70556 ЗАЈЕЧАР.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-kraljevo-grad-2026-08-22",
+      "municipalityCode": "70653",
+      "name": "Краљево-град",
+      "normalizedName": "KRALJEVO GRAD",
+      "provenance": "Reviewed portal municipality used by auctions 179403 through 179407 against official Address Registry municipality 70653 КРАЉЕВО.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-leskovac-grad-2026-08-22",
+      "municipalityCode": "70726",
+      "name": "Лесковац-град",
+      "normalizedName": "LESKOVAC GRAD",
+      "provenance": "Reviewed portal municipality used by auctions 180696, 180702, 180849, 181489, 181490, and 181521 against official Address Registry municipality 70726 ЛЕСКОВАЦ.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-sabac-grad-2026-08-22",
+      "municipalityCode": "71269",
+      "name": "Шабац-град",
+      "normalizedName": "SABAC GRAD",
+      "provenance": "Reviewed portal municipality used by auction 179670 against official Address Registry municipality 71269 ШАБАЦ.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-palilula-2026-08-22",
+      "municipalityCode": "70203",
+      "name": "Палилула",
+      "normalizedName": "PALILULA",
+      "provenance": "Reviewed auction 179985 portal municipality and KO identity against official KO 703907 under municipality 70203 ПАЛИЛУЛА (БЕОГРАД); the same-name official KO 739090 is under СВРЉИГ. In the reviewed snapshot both official Palilula municipality names are qualified, and any future unqualified official-name collision is preserved fail-closed.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-pancevo-grad-2026-08-22",
+      "municipalityCode": "80314",
+      "name": "Панчево-град",
+      "normalizedName": "PANCEVO GRAD",
+      "provenance": "Reviewed portal municipality used by auction 181017 against official Address Registry municipality 80314 ПАНЧЕВО.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    },
+    {
+      "recordKind": "MUNICIPALITY_ALIAS",
+      "id": "eaukcija-subotica-grad-2026-08-22",
+      "municipalityCode": "80438",
+      "name": "Суботица-град",
+      "normalizedName": "SUBOTICA GRAD",
+      "provenance": "Reviewed portal municipality used by auction 179413 against official Address Registry municipality 80438 СУБОТИЦА.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/39; https://data.gov.rs/sr/datasets/r/be7c80e3-206b-46af-b31d-4b9f6ae596f9",
+      "reviewer": "brzivoz/aukcije_core issue #39 implementation review",
+      "reviewedAt": "2026-08-22"
+    }
+  ]
 }

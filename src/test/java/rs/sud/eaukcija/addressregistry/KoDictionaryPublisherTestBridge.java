@@ -51,15 +51,28 @@ public final class KoDictionaryPublisherTestBridge {
         Path aliases = root.resolve("aliases.json");
         Files.writeString(aliases, """
                 {
-                  "formatVersion": 1,
+                  "formatVersion": 2,
                   "datasetVersion": "publisher-loader-fixture-1",
-                  "aliases": [{
+                  "koAliases": [{
+                    "recordKind": "KO_ALIAS",
                     "id": "historical-caribrod",
                     "koCode": "702013",
                     "name": "Caribrod",
+                    "normalizedName": "CARIBROD",
                     "kind": "HISTORICAL",
                     "provenance": "Publisher-loader compatibility fixture",
                     "sourceReference": "fixture://history/caribrod",
+                    "reviewer": "fixture-reviewer",
+                    "reviewedAt": "2026-08-22"
+                  }],
+                  "municipalityAliases": [{
+                    "recordKind": "MUNICIPALITY_ALIAS",
+                    "id": "portal-cajetina-grad",
+                    "municipalityCode": "74631",
+                    "name": "Чајетина-град",
+                    "normalizedName": "CAJETINA GRAD",
+                    "provenance": "Publisher-loader municipality compatibility fixture",
+                    "sourceReference": "fixture://municipality/cajetina",
                     "reviewer": "fixture-reviewer",
                     "reviewedAt": "2026-08-22"
                   }]

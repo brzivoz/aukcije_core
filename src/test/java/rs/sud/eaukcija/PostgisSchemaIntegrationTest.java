@@ -27,15 +27,17 @@ import rs.sud.eaukcija.testsupport.PostgisTestContainer;
  * own repository round-trips through the migrated schema.
  *
  * <p>The asserted properties are declared in
- * {@code src/test/resources/application-postgis.properties} and read back out of
+ * {@code src/test/resources/application-test.properties} and read back out of
  * the {@link Environment}. Nothing here sets them inline; a test that injected
  * {@code validate} and then asserted {@code validate} would prove nothing.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@ActiveProfiles("postgis")
+@ActiveProfiles("test")
 class PostgisSchemaIntegrationTest {
 
-    @ServiceConnection
+    // Explicit name avoids Spring Boot trying to infer a repository name from
+    // the tag+digest form, which Testcontainers otherwise parses ambiguously.
+    @ServiceConnection(name = "postgresql")
     static final PostgreSQLContainer<?> POSTGIS = PostgisTestContainer.shared();
 
     @Autowired
@@ -49,7 +51,8 @@ class PostgisSchemaIntegrationTest {
 
     @Test
     void theContextStartsOnTheProductionPostgisImage() {
-        assertThat(POSTGIS.getDockerImageName()).isEqualTo("postgis/postgis:18-3.6");
+        assertThat(POSTGIS.getDockerImageName())
+                .isEqualTo("postgis/postgis:18-3.6@sha256:db8c151a4e1f4686b1a985a3490cf96f9f8c8c2725f58a46ef7a57e52f167cc3");
 
         String postgisVersion = new JdbcTemplate(dataSource)
                 .queryForObject("SELECT postgis_version()", String.class);
@@ -62,7 +65,7 @@ class PostgisSchemaIntegrationTest {
 
     @Test
     void hibernateValidatesRatherThanGeneratingTheSchema() {
-        // Read from the profile, not from this test. If application-postgis.properties
+        // Read from the profile, not from this test. If application-test.properties
         // ever regressed to update/create-drop, the context would still start and
         // only this assertion would catch it.
         assertThat(environment.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
@@ -77,12 +80,30 @@ class PostgisSchemaIntegrationTest {
                 "SELECT script FROM flyway_schema_history WHERE success ORDER BY installed_rank", String.class);
 
         assertThat(applied)
-                .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql")
+                .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
+                        "V3__auction_filter_indexes.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
         assertThat(failures).isZero();
+    }
+
+    @Test
+    void flywayOwnsTheAuctionFilterIndexes() {
+        List<String> indexes = new JdbcTemplate(dataSource).queryForList("""
+                SELECT indexname
+                FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'auctions'
+                ORDER BY indexname
+                """, String.class);
+
+        assertThat(indexes).contains(
+                "idx_auctions_municipality",
+                "idx_auctions_place_name",
+                "idx_auctions_category_name",
+                "idx_auctions_status",
+                "idx_auctions_starting_price");
     }
 
     @Test

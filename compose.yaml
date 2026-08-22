@@ -1,0 +1,33 @@
+name: aukcije-core
+
+services:
+  db:
+    image: postgis/postgis:18-3.6@sha256:db8c151a4e1f4686b1a985a3490cf96f9f8c8c2725f58a46ef7a57e52f167cc3
+    environment:
+      POSTGRES_DB: ${AUKCIJE_DB_NAME:-aukcije}
+      POSTGRES_USER: ${AUKCIJE_DB_USER:-aukcije}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    ports:
+      - "127.0.0.1:${AUKCIJE_DB_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18+ deliberately mounts the version-aware parent directory.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    shm_size: 256mb
+    cpus: 2.0
+    mem_limit: 2g
+    restart: unless-stopped
+
+secrets:
+  postgres_password:
+    file: ${AUKCIJE_DB_PASSWORD_FILE:-./.secrets/postgres-password}
+
+volumes:
+  postgres-data:

@@ -16,7 +16,13 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Application data (local H2 database)
+# Local configuration and database artifacts
+.env
+.env.*
+!.env.example
+.secrets/
+*.dump
+*.sql.gz
 data/
 
 # Scraper output — large, regenerate with tools/eaukcija-scraper.js

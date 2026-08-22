@@ -2,6 +2,7 @@
 
 First audited: 2026-08-21
 Re-audited and rewired: 2026-08-21
+Reordered for a coarse-map-first MVP: 2026-08-22
 GitHub repository: [brzivoz/aukcije_core](https://github.com/brzivoz/aukcije_core)
 
 ## Executive summary
@@ -20,6 +21,12 @@ Three milestones define completion:
 | `M0 — Feasibility & Data Foundation` | Verified source contract, tests, PostGIS, resilient sync, immutable snapshots, measurable parser, both feasibility gates answered | Source can be replayed and reprocessed deterministically with complete-run evidence |
 | `M1 — Geospatial Map MVP` | Lawful location resolution, spatial model, offline Serbia basemap, bounded GeoJSON, accessible map | Map works with network restricted to localhost and represents location precision honestly |
 | `M2 — Operational Daily Use` | Deterministic reprocessing, status/metrics, unified filters/list-map workflow, hardened private release | Fresh-machine release/backup/restore checklist passes with retained evidence |
+
+The 2026-08-22 reorder acts on the second of those outcomes. #32 measured that
+the structured `Place.Cadastral` field carries an official KO name on 100% of
+auctions and that 83.7% of all placements are settlement or KO centroids. The
+coarse map therefore does not depend on the extraction parser, and the waves
+below put it first. See third-audit corrections 19–22.
 
 ## Measured source facts
 
@@ -76,15 +83,43 @@ Every figure below was verified directly against the live API on 2026-08-21.
 
 18. **The RGZ gate was reopened for the real private-use scope.** The earlier commercial/production assumption correctly selected C. The owner clarified that use is occasional, private, and non-commercial and requested A or B. A public unauthenticated WFS 2.0.0 advertises the weekly parcel feature type and returned exact polygons for all three KO+parcel samples. #13 therefore selects **B** only as a manual one-parcel-to-private-GeoJSON workflow. It does not authorize scheduled/bulk use, product caching, or redistribution. The decision record, sanitized WFS fingerprints, failure cases, one-shot command, CRS proofs, and exact #21 replacement contract are in `documentation/2026-08-21-decision-13-rgz-parcel-access.md` and `spike/issue-13/`.
 
+## Third-audit corrections (2026-08-22)
+
+Corrections 1-18 are retained as dated record. Wave numbers they cite refer to the
+superseded 2026-08-21 wave table; the current ordering is the one under Execution
+waves below.
+
+19. **The coarse map does not need the parser.** #32 measured that `Place.Cadastral` carries an official KO name on **589/589 auctions (100%)** and that **493/589 placements (83.7%)** are settlement or KO centroids. The structured `Place` fields — KO, settlement, municipality — are already persisted by #15 in `V2__baseline_auctions.sql`. Tier 4 of #23's resolution order is therefore reachable with no corpus, no parser, and no extraction. The chain `#12 → #17 → #10 → #18 → #19` buys the remaining **16.3%** address tier; it does not buy the map. The spike also confirms the other half: `Place.ParcelNumber` is null throughout, so parcel numbers really do exist only in description text.
+
+20. **#20 inherited the same false dependency #22 did.** #20 declares `Depends on #15, #16, and #19`. It models geometry, CRS, precision, provenance, and bbox queries — none of which requires parser output to exist. Correction 13 removed exactly this kind of edge from #22. The #19 edge is dropped and #20 moves from wave 6 to **wave 2**. This edge is what actually blocks the reorder; without removing it nothing else here helps.
+
+21. **Two issues need splitting along the same seam.**
+    - **#22** is size L and the plan's longest-lead artifact. The coarse map consumes a few thousand KO/settlement/municipality centroids, not 2,488,492 house-number points. New **#36** derives and versions the centroid extract from the official snapshot (S); **#22** keeps the streaming import, atomic promotion, and first-class parcel identifiers (L), needed only when the address tier arrives. #32 already loaded the full GPKG and built every index in 116 seconds, which retires most of the risk that justified front-loading it.
+    - **#33** was already split once from #14 on the dictionary-versus-matching seam; it needs splitting again on the structured-versus-extracted seam. New **#37** matches the structured `Place.Cadastral` against the #14 dictionary and depends only on #14 (S); **#33** keeps parser-extracted names and its #19 dependency (M), and owns reconciling the 51 structured-versus-text KO conflicts #32 found. Both consume the single shared normalizer #14 owns, and both keep #33's rule that ambiguity stays ambiguous.
+    - **#23** correspondingly delivers in two passes: New **#38** implements tiers 4–5 — KO centroid, settlement centroid, municipality centroid, then `NONE` — on #37 (M); **#23** adds tiers 1–3 once #22 and #33 land and keeps its L label, since the parcel join and the held-out address evaluation are the larger half. The `LocationPrecision` vocabulary and the honesty rules in #23's acceptance criteria are unchanged and apply from #38 onward.
+
+22. **Coarse placement makes marker stacking the dominant case, not an edge case.** In the committed 83-auction fixture, **66 auctions (80%) share a cadastral municipality with at least one other**, and the largest single KO holds **19**. At a KO centroid those render as 19 markers on one identical coordinate. Multi-auction point handling — cluster, or a "N auctions here" list — is therefore a first-pass **#27** requirement rather than #28 polish. This is the one place the reorder makes an issue larger, and it should be weighed before committing to the order.
+
 ## Honest total
 
-Summing the size labels at 1.5 / 5 / 12 focused days gives roughly **165 focused days** to complete all three milestones as written. For one developer working evenings and weekends that is a **6–12 month** programme, with M1 — the first point at which the product does the thing it exists to do — arriving somewhere past the midpoint.
+Summing the size labels at 1.5 / 5 / 12 focused days gives roughly **165 focused days** to complete all three milestones as written. For one developer working evenings and weekends that is a **6–12 month** programme.
 
-The P2/M2 work is the designated cut line. #28 and, if #32 or #13 go badly, #21 are the items to drop first if the schedule needs to give.
+The reorder does not change that total — it changes when the product becomes usable. Time to a working map (#27):
+
+| Order | Issues on the path | Focused days |
+|---|---|---:|
+| As originally wired | #12, #17, #10, #18, #19, #20, #22, #14, #33, #23, #26, #24, #34, #25, #27 | **~103** |
+| Coarse-map-first | #36, #14, #37, #20, #38, #26, #24, #34, #25, #27 | **~47** |
+
+The originally-wired row uses the pre-split #22/#33/#23; the coarse row uses #36/#37/#38.
+
+Deferred rather than cut: #12, #17, #10, #18, #19, #22, #33, #23 — about 64 focused days that still have to happen for the 16.3% address tier, now behind a shipped map instead of in front of it.
+
+The P2/M2 work remains the designated cut line. #28 and, if #13 goes badly, #21 are the items to drop first if the schedule needs to give.
 
 ## Implementation order
 
-Arrows are hard dependencies. The dashed #21 edge is optional precision: absent a manually imported private WFS artifact, #26 still proceeds through the address fallback in #23.
+Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. The dashed #21 edge is optional precision: absent a manually imported private WFS artifact, #23 still proceeds through the address fallback.
 
 ```mermaid
 flowchart TB
@@ -115,42 +150,54 @@ flowchart TB
         I15 --> I19
     end
 
-    subgraph M1["M1 — Geospatial Map MVP"]
-        I22["#22 Address Registry import"]
+    subgraph M1A["M1a — Coarse Map MVP (first usable product)"]
+        I36["#36 Registry centroid extract"]
         I24["#24 Reproducible Serbia PMTiles"]
         I34["#34 Browser harness + frontend"]
-        I14["#14 Canonical KO dictionary"]
-        I33["#33 KO matching for extractions"]
         I20["#20 Spatial schema + bbox queries"]
+        I14["#14 Canonical KO dictionary"]
+        I37["#37 Structured KO matching"]
+        I38["#38 Coarse location resolver"]
         I25["#25 Range/ETag local serving"]
-        I21["#21 Private parcel import"]
-        I23["#23 Address/coarse resolver"]
         I26["#26 Bounded GeoJSON API"]
         I27["#27 MapLibre precision-aware map"]
 
-        I15 --> I22
-        I16 --> I22
+        I15 --> I36
+        I16 --> I36
         I16 --> I24
         I16 --> I34
-        I22 --> I14
-        I14 --> I33
-        I19 --> I33
-        I19 --> I20
         I15 --> I20
+        I16 --> I20
+        I36 --> I14
+        I14 --> I37
+        I37 --> I38
+        I20 --> I38
+        I36 --> I38
+        I20 --> I26
+        I38 --> I26
         I24 --> I25
         I34 --> I25
-        I13 --> I21
-        I33 --> I21
-        I20 --> I21
-        I33 --> I23
-        I20 --> I23
-        I22 --> I23
-        I20 --> I26
-        I23 --> I26
-        I21 -. "optional parcel precision" .-> I26
         I25 --> I27
         I26 --> I27
         I34 --> I27
+    end
+
+    subgraph M1B["M1b — Address & Parcel Precision"]
+        I22["#22 Full Address Registry import"]
+        I33["#33 Extracted KO matching"]
+        I21["#21 Private parcel import"]
+        I23["#23 Address/parcel resolver"]
+
+        I36 --> I22
+        I14 --> I33
+        I19 --> I33
+        I13 --> I21
+        I33 --> I21
+        I20 --> I21
+        I38 --> I23
+        I22 --> I23
+        I33 --> I23
+        I21 -. "optional parcel precision" .-> I23
     end
 
     subgraph M2["M2 — Operational Daily Use"]
@@ -176,10 +223,12 @@ flowchart TB
 
     I32 -. "informs thresholds" .-> I19
     I32 -. "informs indexing" .-> I22
-    I32 -. "informs resolution order" .-> I23
+    I32 -. "informs resolution order" .-> I38
 ```
 
-The critical path is the parser chain: `#16 → #15 → #17 → #10 → #18 → #19 → #33 → #23 → #26 → #27 → #28 → #31`. That chain is real and largely irreducible. What the rewiring removes is everything that was needlessly attached to it — the GPKG import, the basemap build, the KO dictionary, and the browser harness now all run alongside it rather than behind it.
+The critical path to a **usable map** is now the coarse-location chain: `#15 → #36 → #14 → #37 → #38 → #26 → #27`, with `#24 → #25` and `#34` running alongside it. Nothing on that path reads a description.
+
+The parser chain `#12 → #17 → #10 → #18 → #19 → #33 → #23` is still real and still largely irreducible, but #32 measured what it buys: the 16.3% address tier, not the map. It now runs after the map ships rather than in front of it. Everything that was needlessly attached to it — the GPKG import, the basemap build, the KO dictionary, the spatial schema, and the browser harness — runs alongside or ahead of it.
 
 ## Issue hierarchy
 
@@ -188,7 +237,9 @@ The critical path is the parser chain: `#16 → #15 → #17 → #10 → #18 → 
 | [#1 Auction Data Foundation](https://github.com/brzivoz/aukcije_core/issues/1) | P0 / M0 | #16, #15 (cross-epic), #12, #17, #10, #11 |
 | [#2 Property Reference Extraction](https://github.com/brzivoz/aukcije_core/issues/2) | P0 / M0 | #18, #19 |
 | [#3 Lawful RGZ Parcel Resolution](https://github.com/brzivoz/aukcije_core/issues/3) | P1 / M1 | #13 (P0 gate), #21 |
-| [#4 Official Address Resolution](https://github.com/brzivoz/aukcije_core/issues/4) | P1 / M1 | #32 (P0 spike), #22, #14, #33, #23 |
+| [#4 Official Address Resolution](https://github.com/brzivoz/aukcije_core/issues/4) | P1 / M1 | #32 (P0 spike), #36, #14, #37, #38, then #22, #33, #23 |
+
+The correction-21 splits are [#36 centroid extract](https://github.com/brzivoz/aukcije_core/issues/36), [#37 structured KO matching](https://github.com/brzivoz/aukcije_core/issues/37), and [#38 coarse resolver](https://github.com/brzivoz/aukcije_core/issues/38). Their parents #22, #33, and #23 retain the address/parcel half of each and keep their original size labels.
 | [#5 PostgreSQL/PostGIS Spatial Store](https://github.com/brzivoz/aukcije_core/issues/5) | P1 / M1 | #15 (P0 prerequisite), #20 |
 | [#6 Reproducible Local Serbia Basemap](https://github.com/brzivoz/aukcije_core/issues/6) | P1 / M1 | #24, #25 |
 | [#7 Auction Map MVP](https://github.com/brzivoz/aukcije_core/issues/7) | P1 / M1 | #34, #26, #27 |
@@ -205,18 +256,26 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 
 | Wave | Issues | Evidence required before advancing |
 |---|---|---|
-| 0 | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
-| 1 | #15, #12, #24, #34 | PostGIS migration/startup proof; taxonomy contract tests; validated PMTiles manifest; browser harness with a passing negative control |
-| 2 | #17, #22, #25 | Complete/partial sync-run tests plus source acceptable-use note; validated GPKG import with atomic promotion and rollback; Range/ETag and localhost-only browser network proof |
-| 3 | #10, #14 | Snapshot replay/hash evidence; reproducible KO dictionary with duplicate-name report |
-| 4 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
-| 5 | #19 | Held-out parser thresholds met, or a reviewed threshold revision citing #32 |
-| 6 | #20, #33 | Migrated spatial model with indexed bbox plan; zero exact-match KO false positives, ambiguity left unresolved |
-| 7 | #21, #23 | Selected parcel/fallback contract; held-out address-resolution results with zero false-positive exact matches |
-| 8 | #26, #29 | GeoJSON contract evidence; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
-| 9 | #27, #30 | Accessible offline map browser suite; persisted freshness/backlog/precision status |
-| 10 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
-| 11 | #31 | Fresh-machine private release, backup/restore, and dependency/secret scan evidence |
+| 0 ✅ | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
+| 1 | **#15 ✅**, #36, #24, #34 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
+| 2 | #14, #20, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
+| 3 | #37, #38 | Zero exact-match false positives matching structured `Place.Cadastral`, ambiguity left unresolved; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
+| 4 | #26 | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |
+| 5 | #27 | Accessible offline map browser suite, including multi-auction handling at a shared centroid (correction 22) and localhost-only network proof |
+
+**← First usable product ships here.** Everything below raises precision and hardens operations; none of it gates a working map.
+
+| Wave | Issues | Evidence required before advancing |
+|---|---|---|
+| 6 | #12, #17 | Taxonomy contract tests; complete/partial sync-run tests plus source acceptable-use note |
+| 7 | #10, #22 | Snapshot replay/hash evidence; validated full GPKG import with atomic promotion and rollback |
+| 8 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
+| 9 | #19 | Held-out parser thresholds met, or a reviewed threshold revision citing #32 |
+| 10 | #33, #21 | Zero exact-match false positives on extracted names; selected parcel/fallback contract |
+| 11 | #23, #29 | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
+| 12 | #30 | Persisted freshness/backlog/precision status |
+| 13 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
+| 14 | #31 | Fresh-machine private release, backup/restore, and dependency/secret scan evidence |
 
 ## Definition of done for every issue
 

@@ -44,6 +44,7 @@ The default fail-closed limits are:
 | Source CRS | EPSG:25834 |
 | Geometry | two-dimensional `POINT` |
 | Source rows | 2,000,000–3,500,000 |
+| Minimum active fraction | 90% of inspected source rows |
 | GPKG size | at most 2 GiB |
 | Working free space | at least 4 GiB |
 | JDBC batch | 5,000 rows |
@@ -89,9 +90,16 @@ hash. `ADDRESS_REGISTRY_IMPORT_CANONICAL_URL` should only be changed when the
 official data.gov.rs resource identity changes after review.
 
 The command returns JSON with source/GPKG/schema hashes, byte and row counts,
-active/inactive/retired counts, centroid count, phase durations, current and
-previous snapshot ids, and retained-snapshot count. Progress is logged every
-100,000 active rows. A non-zero process result means no promotion occurred.
+active/inactive/retired counts, parcel-normalization loss, centroid count,
+phase durations (including retention), current and previous snapshot ids, and
+retained-snapshot count. Progress is logged every 100,000 source rows. A
+non-zero process result means no promotion occurred.
+
+Configuration is validated before an import-run id is created. Therefore a
+missing source date/hash or an invalid safety limit is rejected as an operator
+invocation error and intentionally creates no `address_registry_import_runs`
+row. Once configuration is valid, every staging, validation, load, and
+promotion failure is recorded.
 
 ## Status, evidence, and unchanged imports
 
@@ -113,13 +121,14 @@ SELECT * FROM address_registry_active_snapshot;
 SELECT id, source_date, source_sha256, gpkg_sha256, schema_sha256,
        source_bytes, gpkg_bytes, source_row_count, imported_row_count,
        inactive_source_row_count, retired_source_row_count,
-       duplicate_parcel_identities, ambiguous_parent_identities, imported_at
+       duplicate_parcel_identities, unnormalized_parcel_rows,
+       ambiguous_parent_identities, imported_at
 FROM address_registry_snapshots
 ORDER BY imported_at DESC;
 
 SELECT action, outcome, started_at, finished_at, snapshot_id,
        download_millis, validation_millis, load_millis,
-       centroid_millis, total_millis, error_code
+       centroid_millis, retention_millis, total_millis, error_code
 FROM address_registry_import_runs
 ORDER BY started_at DESC;
 ```
@@ -130,11 +139,12 @@ use explicit rollback rather than disguising a downgrade as a refresh.
 
 ## Atomic failure and rollback
 
-The point load, centroid build, validation, pointer change, and retention
-cleanup are one PostgreSQL transaction guarded by an advisory lock. Checksum,
-schema, CRS, row-count, malformed/null geometry, required-value, duplicate
-source-key, conflicting official names, or Serbia-bounds failures abort the
-transaction. The previous active pointer and all of its rows remain intact.
+The point load, active-fraction gate, centroid build, validation, and pointer
+change are one PostgreSQL transaction guarded by an advisory lock. Checksum,
+schema, CRS, source/active-row-count, malformed/null geometry, required-value,
+duplicate source-key, conflicting official names, or Serbia-bounds failures
+abort the transaction. The previous active pointer and all of its rows remain
+intact.
 
 Rollback atomically swaps current and previous:
 
@@ -146,16 +156,26 @@ export ADDRESS_REGISTRY_IMPORT_ACTION=ROLLBACK
 Rollback refuses to run when no previous good snapshot exists. It does not
 delete either side. A later import may rotate them again.
 
-Retention runs only after a successful promotion. The default keeps three
-complete snapshots. `ADDRESS_REGISTRY_IMPORT_RETAINED_SNAPSHOTS` is
-configurable but cannot be lower than two, and cleanup always explicitly keeps
-the active and previous ids before deleting anything else.
+Retention runs in a separate transaction only after promotion commits, so a
+large cascading delete cannot extend or roll back the promotion transaction.
+It reacquires the advisory lock and re-reads the pointer `FOR UPDATE` before
+choosing deletions. A cleanup failure is logged, leaves the successful snapshot
+active, and is retried by a later successful import or can be handled by an
+operator. The default keeps three complete snapshots.
+`ADDRESS_REGISTRY_IMPORT_RETAINED_SNAPSHOTS` is configurable but cannot be
+lower than two, and cleanup always explicitly keeps the current active and
+previous ids before deleting anything else. `retention_millis` makes the
+steady-state deletion cost visible separately from the promotion phases.
 
 ## Source-row treatment
 
 - A row is active only when `retired` is null/blank and the Cyrillic or Latin
   `vrsta_stanja` normalizes exactly to `AKTIVAN`. Other rows contribute to
-  source/inactive/retired metrics but are not promoted into lookup tables.
+  source/inactive/retired metrics but are not promoted into lookup tables. At
+  least `ADDRESS_REGISTRY_IMPORT_MINIMUM_ACTIVE_FRACTION` (default `0.90`) of
+  inspected rows must be active, preventing a changed upstream status or
+  retirement vocabulary from promoting an empty or implausibly sparse
+  snapshot.
 - Null or malformed geometry, source primary key/fid, KO id/name, settlement
   id/name, or municipality id/name aborts the snapshot. Optional street,
   house-number, and parcel fields remain null and are excluded from the
@@ -166,6 +186,10 @@ the active and previous ids before deleting anything else.
 - `broj_dela_parcele` is retained in `parcel_part` as the source's
   building/object-part ordinal. It is never appended to `broj_parcele` and is
   never presented as a cadastral sub-parcel.
+- A nonblank `broj_parcele` outside the accepted `digits` or `digits/digits`
+  grammar remains preserved as source evidence, receives no normalized join
+  key, and increments `unnormalized_parcel_rows` in both snapshot and run
+  metrics.
 - Official identifiers and Cyrillic/Latin names are retained byte-for-byte as
   text. Separate normalized keys support matching without replacing source
   evidence.

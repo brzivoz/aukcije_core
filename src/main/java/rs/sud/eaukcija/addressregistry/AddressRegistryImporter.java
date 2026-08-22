@@ -11,7 +11,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -115,6 +114,9 @@ public class AddressRegistryImporter {
             if (result == null) {
                 throw new AddressRegistryImportException("IMPORT_FAILED", "transaction returned no import result");
             }
+            if ("SUCCEEDED".equals(result.outcome())) {
+                result = cleanupAfterPromotion(result, properties.getRetainedSnapshots());
+            }
             return result;
         } catch (RuntimeException e) {
             AddressRegistryImportException failure = classify(e);
@@ -149,7 +151,7 @@ public class AddressRegistryImporter {
                 SnapshotSummary active = snapshot(pointer.previousSnapshotId());
                 ImportResult rolledBack = result(
                         "ROLLED_BACK", runId, active, pointer.snapshotId(), 0, 0, 0, 0,
-                        Duration.between(started, Instant.now()).toMillis(), retainedSnapshotCount());
+                        0, Duration.between(started, Instant.now()).toMillis(), retainedSnapshotCount());
                 finishSuccessfulRun(rolledBack);
                 return rolledBack;
             });
@@ -197,7 +199,7 @@ public class AddressRegistryImporter {
                 SnapshotSummary existing = snapshot(existingId);
                 return result(
                         "UNCHANGED", runId, existing, pointer.previousSnapshotId(), artifact.downloadMillis(),
-                        validationMillis, 0, 0, Duration.between(started, Instant.now()).toMillis(),
+                        validationMillis, 0, 0, 0, Duration.between(started, Instant.now()).toMillis(),
                         retainedSnapshotCount());
             }
             throw new AddressRegistryImportException(
@@ -211,8 +213,9 @@ public class AddressRegistryImporter {
         Instant loadStarted = Instant.now();
         SourceCounts counts = streamPoints(artifact.gpkg(), snapshotId, schema.rowCount(), properties.getBatchSize());
         long loadMillis = Duration.between(loadStarted, Instant.now()).toMillis();
-        validateLoadedSnapshot(snapshotId, schema.rowCount(), counts);
+        validateLoadedSnapshot(snapshotId, schema.rowCount(), counts, properties.getMinimumActiveFraction());
         long duplicateIdentities = duplicateParcelIdentityCount(snapshotId);
+        long unnormalizedParcels = unnormalizedParcelRowCount(snapshotId);
 
         Instant centroidStarted = Instant.now();
         validateOfficialNameConsistency(snapshotId);
@@ -224,11 +227,12 @@ public class AddressRegistryImporter {
                 UPDATE address_registry_snapshots
                 SET imported_row_count = ?, active_source_row_count = ?,
                     inactive_source_row_count = ?, retired_source_row_count = ?,
-                    duplicate_parcel_identities = ?, ambiguous_parent_identities = ?
+                    duplicate_parcel_identities = ?, unnormalized_parcel_rows = ?,
+                    ambiguous_parent_identities = ?
                 WHERE id = ?
                 """,
                 counts.active(), counts.active(), counts.inactive(), counts.retired(),
-                duplicateIdentities, ambiguousParents, snapshotId);
+                duplicateIdentities, unnormalizedParcels, ambiguousParents, snapshotId);
 
         ActivePointer pointer = activePointer(true);
         UUID previous = pointer == null ? null : pointer.snapshotId();
@@ -247,11 +251,10 @@ public class AddressRegistryImporter {
                     """, snapshotId);
         }
 
-        cleanupRetainedSnapshots(properties.getRetainedSnapshots());
         SnapshotSummary summary = snapshot(snapshotId);
         return result(
                 "SUCCEEDED", runId, summary, previous, artifact.downloadMillis(), validationMillis,
-                loadMillis, centroidMillis, Duration.between(started, Instant.now()).toMillis(),
+                loadMillis, centroidMillis, 0, Duration.between(started, Instant.now()).toMillis(),
                 retainedSnapshotCount());
     }
 
@@ -298,6 +301,8 @@ public class AddressRegistryImporter {
             throw e;
         } catch (SQLException e) {
             throw new AddressRegistryImportException("DATABASE_IMPORT", "could not stream GPKG rows into PostGIS", e);
+        } finally {
+            DataSourceUtils.releaseConnection(postgres, dataSource);
         }
         if (seen != expectedRows) {
             throw new AddressRegistryImportException(
@@ -356,24 +361,36 @@ public class AddressRegistryImporter {
         target.setString(index++, koId);
         target.setString(index++, koName);
         nullable(target, index++, koLatin);
-        target.setString(index++, Objects.requireNonNull(AddressRegistryNormalizer.name(koLatin == null ? koName : koLatin)));
+        target.setString(index++, requiredNormalized(koLatin == null ? koName : koLatin, "kat_opstina_ime"));
         target.setString(index++, settlementId);
         target.setString(index++, settlementName);
         nullable(target, index++, settlementLatin);
-        target.setString(index++, Objects.requireNonNull(AddressRegistryNormalizer.name(
-                settlementLatin == null ? settlementName : settlementLatin)));
+        target.setString(index++, requiredNormalized(
+                settlementLatin == null ? settlementName : settlementLatin, "naselje_ime"));
         target.setString(index++, municipalityId);
         target.setString(index++, municipalityName);
         nullable(target, index++, municipalityLatin);
-        target.setString(index++, Objects.requireNonNull(AddressRegistryNormalizer.name(
-                municipalityLatin == null ? municipalityName : municipalityLatin)));
+        target.setString(index++, requiredNormalized(
+                municipalityLatin == null ? municipalityName : municipalityLatin, "opstina_ime"));
         target.setDouble(index++, point.easting());
         target.setDouble(index, point.northing());
     }
 
-    private void validateLoadedSnapshot(UUID snapshotId, long expectedRows, SourceCounts counts) {
+    private void validateLoadedSnapshot(
+            UUID snapshotId,
+            long expectedRows,
+            SourceCounts counts,
+            double minimumActiveFraction) {
         if (counts.seen() != expectedRows || counts.active() + counts.inactive() != expectedRows) {
             throw new AddressRegistryImportException("ROW_ACCOUNTING", "source row accounting is inconsistent");
+        }
+        long minimumActiveRows = Math.max(1, (long) Math.ceil(expectedRows * minimumActiveFraction));
+        if (counts.active() < minimumActiveRows) {
+            throw new AddressRegistryImportException(
+                    "ACTIVE_ROW_COUNT_SANITY",
+                    "only " + counts.active() + " of " + expectedRows + " source rows are active; at least "
+                            + minimumActiveRows + " (minimum-active-fraction=" + minimumActiveFraction
+                            + ") are required before promotion");
         }
         Long loaded = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM address_registry_points WHERE snapshot_id = ?", Long.class, snapshotId);
@@ -401,6 +418,16 @@ public class AddressRegistryImporter {
                   GROUP BY ko_id, parcel_number_normalized
                   HAVING COUNT(*) > 1
                 ) duplicates
+                """, Long.class, snapshotId);
+        return count == null ? 0 : count;
+    }
+
+    private long unnormalizedParcelRowCount(UUID snapshotId) {
+        Long count = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM address_registry_points
+                WHERE snapshot_id = ?
+                  AND parcel_number IS NOT NULL
+                  AND parcel_number_normalized IS NULL
                 """, Long.class, snapshotId);
         return count == null ? 0 : count;
     }
@@ -483,8 +510,9 @@ public class AddressRegistryImporter {
                   schema_sha256, source_table, geometry_column, source_crs, target_crs,
                   source_row_count, imported_row_count, active_source_row_count,
                   inactive_source_row_count, retired_source_row_count, rejected_row_count,
-                  duplicate_parcel_identities, ambiguous_parent_identities
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 4326, ?, 0, 0, ?, 0, 0, 0, 0)
+                  duplicate_parcel_identities, unnormalized_parcel_rows,
+                  ambiguous_parent_identities
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 4326, ?, 0, 0, ?, 0, 0, 0, 0, 0)
                 """,
                 snapshotId,
                 properties.getCanonicalUrl(),
@@ -502,6 +530,35 @@ public class AddressRegistryImporter {
                 schema.sourceSrid(),
                 schema.rowCount(),
                 schema.rowCount());
+    }
+
+    private ImportResult cleanupAfterPromotion(ImportResult imported, int retainedSnapshots) {
+        Instant started = Instant.now();
+        try {
+            RetentionResult cleanup = transactions.execute(status -> {
+                acquireImportLock();
+                cleanupRetainedSnapshots(retainedSnapshots);
+                long retentionMillis = Duration.between(started, Instant.now()).toMillis();
+                long totalMillis = imported.totalMillis() + retentionMillis;
+                jdbc.update("""
+                        UPDATE address_registry_import_runs
+                        SET retention_millis = ?, total_millis = ?
+                        WHERE id = ?
+                        """, retentionMillis, totalMillis, imported.runId());
+                return new RetentionResult(retainedSnapshotCount(), retentionMillis);
+            });
+            if (cleanup == null) {
+                log.warn("Address Registry snapshot {} was promoted, but retention returned no result", imported.snapshotId());
+                return imported;
+            }
+            return withRetention(imported, cleanup.retainedSnapshots(), cleanup.retentionMillis());
+        } catch (RuntimeException cleanupFailure) {
+            log.warn(
+                    "Address Registry snapshot {} was promoted, but post-commit retention failed; "
+                            + "a later import or operator cleanup can retry it",
+                    imported.snapshotId(), cleanupFailure);
+            return imported;
+        }
     }
 
     private void cleanupRetainedSnapshots(int retainedSnapshots) {
@@ -546,7 +603,8 @@ public class AddressRegistryImporter {
                 SELECT id, source_date, source_sha256, gpkg_sha256, schema_sha256,
                        source_bytes, gpkg_bytes, source_row_count,
                        imported_row_count, inactive_source_row_count, retired_source_row_count,
-                       duplicate_parcel_identities, ambiguous_parent_identities
+                       duplicate_parcel_identities, unnormalized_parcel_rows,
+                       ambiguous_parent_identities
                 FROM address_registry_snapshots WHERE id = ?
                 """, (result, row) -> new SnapshotSummary(
                         result.getObject("id", UUID.class),
@@ -561,6 +619,7 @@ public class AddressRegistryImporter {
                         result.getLong("inactive_source_row_count"),
                         result.getLong("retired_source_row_count"),
                         result.getLong("duplicate_parcel_identities"),
+                        result.getLong("unnormalized_parcel_rows"),
                         result.getLong("ambiguous_parent_identities")), id);
     }
 
@@ -584,6 +643,7 @@ public class AddressRegistryImporter {
             long validationMillis,
             long loadMillis,
             long centroidMillis,
+            long retentionMillis,
             long totalMillis,
             int retainedSnapshots) {
         return new ImportResult(
@@ -591,9 +651,24 @@ public class AddressRegistryImporter {
                 snapshot.sourceSha256(), snapshot.gpkgSha256(), snapshot.schemaSha256(),
                 snapshot.sourceBytes(), snapshot.gpkgBytes(), snapshot.sourceRows(),
                 snapshot.importedRows(), snapshot.inactiveRows(), snapshot.retiredRows(),
-                snapshot.duplicateParcelIdentities(), snapshot.ambiguousParentIdentities(),
+                snapshot.duplicateParcelIdentities(), snapshot.unnormalizedParcelRows(),
+                snapshot.ambiguousParentIdentities(),
                 centroidCount(snapshot.id()), retainedSnapshots,
-                downloadMillis, validationMillis, loadMillis, centroidMillis, totalMillis);
+                downloadMillis, validationMillis, loadMillis, centroidMillis, retentionMillis, totalMillis);
+    }
+
+    private static ImportResult withRetention(
+            ImportResult result,
+            int retainedSnapshots,
+            long retentionMillis) {
+        return new ImportResult(
+                result.outcome(), result.runId(), result.snapshotId(), result.previousSnapshotId(),
+                result.sourceDate(), result.sourceSha256(), result.gpkgSha256(), result.schemaSha256(),
+                result.sourceBytes(), result.gpkgBytes(), result.sourceRows(), result.importedRows(),
+                result.inactiveRows(), result.retiredRows(), result.duplicateParcelIdentities(),
+                result.unnormalizedParcelRows(), result.ambiguousParentIdentities(), result.centroidRows(),
+                retainedSnapshots, result.downloadMillis(), result.validationMillis(), result.loadMillis(),
+                result.centroidMillis(), retentionMillis, result.totalMillis() + retentionMillis);
     }
 
     private void startRun(UUID runId, String action, AddressRegistryImportProperties properties) {
@@ -616,9 +691,10 @@ public class AddressRegistryImporter {
                     source_sha256 = ?, gpkg_sha256 = ?, source_bytes = ?, gpkg_bytes = ?,
                     source_row_count = ?, imported_row_count = ?,
                     inactive_source_row_count = ?, retired_source_row_count = ?,
-                    duplicate_parcel_identities = ?, ambiguous_parent_identities = ?,
+                    duplicate_parcel_identities = ?, unnormalized_parcel_rows = ?,
+                    ambiguous_parent_identities = ?,
                     download_millis = ?, validation_millis = ?, load_millis = ?,
-                    centroid_millis = ?, total_millis = ?
+                    centroid_millis = ?, retention_millis = ?, total_millis = ?
                 WHERE id = ?
                 """,
                 "UNCHANGED".equals(result.outcome()) ? "UNCHANGED" : "SUCCEEDED",
@@ -634,11 +710,13 @@ public class AddressRegistryImporter {
                 result.inactiveRows(),
                 result.retiredRows(),
                 result.duplicateParcelIdentities(),
+                result.unnormalizedParcelRows(),
                 result.ambiguousParentIdentities(),
                 result.downloadMillis(),
                 result.validationMillis(),
                 result.loadMillis(),
                 result.centroidMillis(),
+                result.retentionMillis(),
                 result.totalMillis(),
                 result.runId());
     }
@@ -708,6 +786,15 @@ public class AddressRegistryImporter {
         return value;
     }
 
+    private static String requiredNormalized(String value, String column) {
+        String normalized = AddressRegistryNormalizer.name(value);
+        if (normalized == null) {
+            throw new AddressRegistryImportException(
+                    "REQUIRED_VALUE_MISSING", column + " is present but normalizes to blank");
+        }
+        return normalized;
+    }
+
     private static long requiredLong(ResultSet row, String column) throws SQLException {
         long value = row.getLong(column);
         if (row.wasNull()) {
@@ -730,6 +817,9 @@ public class AddressRegistryImporter {
     private record ActivePointer(UUID snapshotId, UUID previousSnapshotId) {
     }
 
+    private record RetentionResult(int retainedSnapshots, long retentionMillis) {
+    }
+
     private record SnapshotSummary(
             UUID id,
             java.time.LocalDate sourceDate,
@@ -743,6 +833,7 @@ public class AddressRegistryImporter {
             long inactiveRows,
             long retiredRows,
             long duplicateParcelIdentities,
+            long unnormalizedParcelRows,
             long ambiguousParentIdentities) {
     }
 
@@ -762,6 +853,7 @@ public class AddressRegistryImporter {
             long inactiveRows,
             long retiredRows,
             long duplicateParcelIdentities,
+            long unnormalizedParcelRows,
             long ambiguousParentIdentities,
             long centroidRows,
             int retainedSnapshots,
@@ -769,6 +861,7 @@ public class AddressRegistryImporter {
             long validationMillis,
             long loadMillis,
             long centroidMillis,
+            long retentionMillis,
             long totalMillis) {
     }
 

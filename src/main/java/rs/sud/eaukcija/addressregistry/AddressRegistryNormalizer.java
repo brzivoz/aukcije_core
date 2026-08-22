@@ -55,6 +55,7 @@ final class AddressRegistryNormalizer {
 
     private static String transliterate(int codePoint) {
         return switch (Character.toUpperCase(codePoint)) {
+            case 'Đ' -> "DJ";
             case 'А' -> "A";
             case 'Б' -> "B";
             case 'В' -> "V";

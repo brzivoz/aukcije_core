@@ -88,7 +88,7 @@ final class AddressRegistryArtifactStager {
 
             Extracted extracted = isZip(source)
                     ? extractSingleGpkg(source, directory, properties.getMaximumGpkgBytes())
-                    : copyGpkg(source, directory, properties.getMaximumGpkgBytes());
+                    : moveGpkg(source, directory, properties.getMaximumGpkgBytes(), sourceSha256);
             if (properties.getExpectedGpkgSha256() != null
                     && !extracted.sha256().equals(properties.getExpectedGpkgSha256())) {
                 deleteDirectory(directory);
@@ -159,14 +159,18 @@ final class AddressRegistryArtifactStager {
         }
     }
 
-    private static Extracted copyGpkg(Path source, Path directory, long maximumBytes) throws IOException {
+    private static Extracted moveGpkg(
+            Path source,
+            Path directory,
+            long maximumBytes,
+            String sourceSha256) throws IOException {
         long bytes = Files.size(source);
         if (bytes > maximumBytes) {
             throw new AddressRegistryImportException("GPKG_TOO_LARGE", "GPKG exceeds configured byte limit");
         }
         Path gpkg = directory.resolve("address-registry.gpkg");
-        Files.copy(source, gpkg, StandardCopyOption.REPLACE_EXISTING);
-        return new Extracted(gpkg, null, bytes, sha256(gpkg));
+        Files.move(source, gpkg, StandardCopyOption.REPLACE_EXISTING);
+        return new Extracted(gpkg, null, bytes, sourceSha256);
     }
 
     private static Extracted extractSingleGpkg(Path archive, Path directory, long maximumBytes) throws IOException {

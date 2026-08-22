@@ -64,12 +64,13 @@ class AddressRegistryImporterIntegrationTest {
         AddressRegistryImporter.ImportResult first = importer.importSnapshot(properties);
 
         assertThat(first.outcome()).isEqualTo("SUCCEEDED");
-        assertThat(first.sourceRows()).isEqualTo(3);
+        assertThat(first.sourceRows()).isEqualTo(4);
         assertThat(first.gpkgBytes()).isPositive();
-        assertThat(first.importedRows()).isEqualTo(2);
+        assertThat(first.importedRows()).isEqualTo(3);
         assertThat(first.inactiveRows()).isEqualTo(1);
         assertThat(first.retiredRows()).isEqualTo(1);
-        assertThat(first.centroidRows()).isEqualTo(6);
+        assertThat(first.unnormalizedParcelRows()).isZero();
+        assertThat(first.centroidRows()).isEqualTo(9);
         assertThat(first.previousSnapshotId()).isNull();
 
         Map<String, Object> source = jdbc.queryForMap("""
@@ -105,6 +106,18 @@ class AddressRegistryImporterIntegrationTest {
                 SELECT member_point_count FROM address_registry_centroids
                 WHERE snapshot_id = ? AND level = 'KO' AND official_id = '702013'
                 """, Long.class, first.snapshotId())).isEqualTo(1);
+        assertThat(jdbc.queryForMap("""
+                SELECT house_number_normalized, street_name_normalized,
+                       ko_name_normalized, settlement_name_normalized,
+                       municipality_name_normalized
+                FROM address_registry_points
+                WHERE snapshot_id = ? AND source_primary_key = 7312319
+                """, first.snapshotId()))
+                .containsEntry("house_number_normalized", "88DJ")
+                .containsEntry("street_name_normalized", "DJURE JAKSICA")
+                .containsEntry("ko_name_normalized", "BECMEN")
+                .containsEntry("settlement_name_normalized", "BECMEN")
+                .containsEntry("municipality_name_normalized", "SURCIN");
 
         AddressRegistryImporter.ImportResult unchanged = importer.importSnapshot(properties);
 
@@ -149,9 +162,14 @@ class AddressRegistryImporterIntegrationTest {
                 tempDirectory.resolve("negative"), 4, AddressRegistryGpkgFixture.Fault.DUPLICATE_PRIMARY_KEY);
         assertFailure(properties(duplicate, 2), "DATABASE_IMPORT");
 
+        Path blankNormalizedName = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("negative"), 5,
+                AddressRegistryGpkgFixture.Fault.REQUIRED_NAME_NORMALIZES_EMPTY);
+        assertFailure(properties(blankNormalizedName, 2), "REQUIRED_VALUE_MISSING");
+
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM address_registry_snapshots", Long.class)).isZero();
         assertThat(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM address_registry_import_runs WHERE outcome = 'FAILED'", Long.class)).isEqualTo(7);
+                "SELECT COUNT(*) FROM address_registry_import_runs WHERE outcome = 'FAILED'", Long.class)).isEqualTo(8);
     }
 
     @Test
@@ -168,7 +186,51 @@ class AddressRegistryImporterIntegrationTest {
         assertThat(status.activeSnapshotId()).isEqualTo(good);
         assertThat(status.previousSnapshotId()).isNull();
         assertThat(status.retainedSnapshots()).isEqualTo(1);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM address_registry_points", Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM address_registry_points", Long.class)).isEqualTo(3);
+    }
+
+    @Test
+    void changedStatusOrRetiredVocabularyCannotPromoteAnEmptySnapshot() throws Exception {
+        Path valid = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("status-vocabulary"), 0, AddressRegistryGpkgFixture.Fault.NONE);
+        UUID good = importer.importSnapshot(properties(valid, 2)).snapshotId();
+
+        Path unknownStatuses = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("status-vocabulary"), 1,
+                AddressRegistryGpkgFixture.Fault.UNKNOWN_ACTIVE_STATUS);
+        assertFailure(properties(unknownStatuses, 2), "ACTIVE_ROW_COUNT_SANITY");
+
+        Path booleanRetired = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("status-vocabulary"), 2,
+                AddressRegistryGpkgFixture.Fault.BOOLEAN_RETIRED);
+        assertFailure(properties(booleanRetired, 2), "ACTIVE_ROW_COUNT_SANITY");
+
+        assertThat(importer.status().activeSnapshotId()).isEqualTo(good);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM address_registry_snapshots", Long.class)).isEqualTo(1);
+        assertThat(jdbc.queryForList(
+                "SELECT error_code FROM address_registry_import_runs WHERE outcome = 'FAILED' ORDER BY started_at",
+                String.class)).containsExactly("ACTIVE_ROW_COUNT_SANITY", "ACTIVE_ROW_COUNT_SANITY");
+    }
+
+    @Test
+    void parcelValuesThatCannotNormalizeAreCountedAndRetainedAsSourceEvidence() throws Exception {
+        Path gpkg = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("parcel-normalization"), 0,
+                AddressRegistryGpkgFixture.Fault.UNNORMALIZED_PARCEL);
+
+        AddressRegistryImporter.ImportResult imported = importer.importSnapshot(properties(gpkg, 2));
+
+        assertThat(imported.unnormalizedParcelRows()).isEqualTo(1);
+        assertThat(jdbc.queryForMap("""
+                SELECT parcel_number, parcel_number_normalized
+                FROM address_registry_points
+                WHERE snapshot_id = ? AND source_primary_key = 1001
+                """, imported.snapshotId()))
+                .containsEntry("parcel_number", "1572-А")
+                .containsEntry("parcel_number_normalized", null);
+        assertThat(jdbc.queryForObject("""
+                SELECT unnormalized_parcel_rows FROM address_registry_import_runs WHERE id = ?
+                """, Long.class, imported.runId())).isEqualTo(1);
     }
 
     @Test
@@ -228,6 +290,9 @@ class AddressRegistryImporterIntegrationTest {
 
         assertThat(thirdResult.previousSnapshotId()).isEqualTo(second);
         assertThat(thirdResult.retainedSnapshots()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT retention_millis FROM address_registry_import_runs WHERE id = ?
+                """, Long.class, thirdResult.runId())).isEqualTo(thirdResult.retentionMillis());
         assertThat(jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM address_registry_snapshots WHERE id = ?)", Boolean.class, first)).isFalse();
 
@@ -241,6 +306,47 @@ class AddressRegistryImporterIntegrationTest {
         assertThat(importer.status().retainedSnapshots()).isEqualTo(2);
     }
 
+    @Test
+    void retentionFailureCannotRollBackAnAlreadyPromotedSnapshot() throws Exception {
+        importer.importSnapshot(properties(AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("retention-failure"), 1,
+                AddressRegistryGpkgFixture.Fault.NONE), 2));
+        UUID second = importer.importSnapshot(properties(AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("retention-failure"), 2,
+                AddressRegistryGpkgFixture.Fault.NONE), 2)).snapshotId();
+        jdbc.execute("""
+                CREATE FUNCTION fail_address_registry_retention() RETURNS trigger
+                LANGUAGE plpgsql AS $$
+                BEGIN
+                  RAISE EXCEPTION 'forced retention failure';
+                END
+                $$
+                """);
+        jdbc.execute("""
+                CREATE TRIGGER fail_address_registry_retention
+                BEFORE DELETE ON address_registry_snapshots
+                FOR EACH ROW EXECUTE FUNCTION fail_address_registry_retention()
+                """);
+        try {
+            AddressRegistryImporter.ImportResult third = importer.importSnapshot(properties(
+                    AddressRegistryGpkgFixture.create(
+                            tempDirectory.resolve("retention-failure"), 3,
+                            AddressRegistryGpkgFixture.Fault.NONE), 2));
+
+            assertThat(third.outcome()).isEqualTo("SUCCEEDED");
+            assertThat(third.previousSnapshotId()).isEqualTo(second);
+            assertThat(importer.status().activeSnapshotId()).isEqualTo(third.snapshotId());
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM address_registry_snapshots", Long.class)).isEqualTo(3);
+            assertThat(jdbc.queryForObject("""
+                    SELECT outcome FROM address_registry_import_runs WHERE id = ?
+                    """, String.class, third.runId())).isEqualTo("SUCCEEDED");
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_address_registry_retention ON address_registry_snapshots");
+            jdbc.execute("DROP FUNCTION fail_address_registry_retention()");
+        }
+    }
+
     private AddressRegistryImportProperties properties(Path gpkg, int retainedSnapshots) throws Exception {
         AddressRegistryImportProperties properties = new AddressRegistryImportProperties();
         properties.setSourceUri(gpkg.toUri());
@@ -249,6 +355,7 @@ class AddressRegistryImporterIntegrationTest {
         properties.setExpectedSha256(AddressRegistryArtifactStager.sha256(gpkg));
         properties.setMinimumRows(1);
         properties.setMaximumRows(10);
+        properties.setMinimumActiveFraction(0.5);
         properties.setBatchSize(2);
         properties.setRetainedSnapshots(retainedSnapshots);
         properties.setMinimumFreeBytes(0);

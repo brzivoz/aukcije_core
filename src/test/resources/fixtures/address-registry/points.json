@@ -78,6 +78,32 @@
       "municipalityLatin": "VOŽDOVAC",
       "easting": 460089.341,
       "northing": 4957533.212
+    },
+    {
+      "fid": 44462,
+      "primaryKey": 7312319,
+      "houseNumberId": "7312319",
+      "houseNumber": "88Ђ",
+      "houseNumberLatin": "88Đ",
+      "status": "АКТИВАН",
+      "statusLatin": "AKTIVAN",
+      "retired": null,
+      "streetId": "703834082162",
+      "street": "ЂУРЕ ЈАКШИЋА",
+      "streetLatin": "ĐURE JAKŠIĆA",
+      "parcel": "1437/24",
+      "parcelPart": "",
+      "koId": "716022",
+      "ko": "БЕЧМЕН",
+      "koLatin": "BEČMEN",
+      "settlementId": "703834",
+      "settlement": "БЕЧМЕН",
+      "settlementLatin": "BEČMEN",
+      "municipalityId": "71293",
+      "municipality": "СУРЧИН",
+      "municipalityLatin": "SURČIN",
+      "easting": 438254.94,
+      "northing": 4958030.58
     }
   ]
 }

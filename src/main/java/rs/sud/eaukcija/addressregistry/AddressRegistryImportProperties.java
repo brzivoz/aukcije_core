@@ -34,6 +34,7 @@ public class AddressRegistryImportProperties {
     private String expectedSchemaSha256;
     private long minimumRows = 2_000_000;
     private long maximumRows = 3_500_000;
+    private double minimumActiveFraction = 0.90;
     private int batchSize = 5_000;
     private int retainedSnapshots = 3;
     private long minimumFreeBytes = 4L * 1024 * 1024 * 1024;
@@ -112,6 +113,14 @@ public class AddressRegistryImportProperties {
         this.maximumRows = maximumRows;
     }
 
+    public double getMinimumActiveFraction() {
+        return minimumActiveFraction;
+    }
+
+    public void setMinimumActiveFraction(double minimumActiveFraction) {
+        this.minimumActiveFraction = minimumActiveFraction;
+    }
+
     public int getBatchSize() {
         return batchSize;
     }
@@ -170,6 +179,11 @@ public class AddressRegistryImportProperties {
         expectedSchemaSha256 = normalizedHash(expectedSchemaSha256, "expected-schema-sha256", false);
         if (minimumRows < 1 || maximumRows < minimumRows) {
             throw invalid("row-count limits must satisfy 1 <= minimum-rows <= maximum-rows");
+        }
+        if (!Double.isFinite(minimumActiveFraction)
+                || minimumActiveFraction <= 0
+                || minimumActiveFraction > 1) {
+            throw invalid("minimum-active-fraction must be greater than 0 and at most 1");
         }
         if (batchSize < 1 || batchSize > 50_000) {
             throw invalid("batch-size must be between 1 and 50000");

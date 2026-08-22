@@ -40,25 +40,33 @@ ADDRESS_REGISTRY_FULL_WORK_DIR='/tmp' \
   --no-daemon
 ```
 
-Result: `BUILD SUCCESSFUL in 3m 56s`.
+Result after the review fixes: `BUILD SUCCESSFUL in 3m 57s`.
 
 | Metric | Clean import | Unchanged replay |
 |---|---:|---:|
 | Source rows | 2,488,492 | 2,488,492 |
 | Imported active rows | 2,488,492 | existing snapshot reused |
 | Inactive / retired / rejected | 0 / 0 / 0 | 0 / 0 / 0 |
+| Unnormalized nonblank parcels | 0 | 0 |
 | Multi-point KO+parcel identities | 182,989 | 182,989 |
 | Ambiguous parent identities | 4 | 4 |
 | Centroid rows | 9,382 | existing snapshot reused |
-| Staging/hash time | 5.677 s | 5.937 s |
-| Schema/CRS/count validation | 0.518 s | 0.101 s |
-| Batched PostGIS load/transform | 191.372 s | 0 s |
-| Centroid build | 20.415 s | 0 s |
-| Total importer time | 221.088 s | 6.049 s |
+| Staging/hash time | 2.806 s | 3.293 s |
+| Schema/CRS/count validation | 0.320 s | 0.102 s |
+| Batched PostGIS load/transform | 197.351 s | 0 s |
+| Centroid build | 20.452 s | 0 s |
+| Post-commit retention | 0.003 s | 0 s |
+| Total importer time | 224.594 s | 3.404 s |
 
 The clean import's `sourceSha256`, `gpkgSha256`, source row count, and
 multi-point parcel count reproduce spike #32. The replay returned `UNCHANGED`
 with the same snapshot id and did not duplicate rows.
+
+This disposable database began with no retained snapshots, so its 3 ms
+retention phase performed pointer locking/accounting but no 2.49-million-row
+cascade delete. It is not presented as a steady-state deletion benchmark.
+Production runs retain that separate cost in `retention_millis`, outside the
+already committed promotion transaction.
 
 ## Centroid and ambiguity report
 
@@ -98,13 +106,17 @@ The offline committed fixture suite proves:
 - PostGIS transforms EPSG:25834 coordinates to the expected WGS84 points;
 - ZIP and direct-GPKG staging retain both hashes and the archive member;
 - bad source/GPKG checksum, missing schema, schema fingerprint, CRS, row-count,
-  malformed geometry, Serbia bounds, and duplicate source keys fail before
-  promotion;
+  active-row fraction, malformed geometry, Serbia bounds, required normalized
+  values, and duplicate source keys fail before promotion;
 - a failed refresh leaves the prior snapshot and pointer active;
+- an upstream status-vocabulary change cannot promote an empty snapshot;
 - unchanged re-import does not duplicate content;
-- current and previous snapshots survive configurable retention;
+- current and previous snapshots survive configurable post-commit retention,
+  and a forced retention failure cannot roll back promotion;
 - explicit rollback atomically swaps current and previous;
-- parcel `/sub` separators and house-number separators survive normalization;
+- Cyrillic `Ђ/ђ` and Latin `Đ/đ` normalize to the same keys;
+- parcel `/sub` separators and house-number separators survive normalization,
+  while nonblank parcels rejected by the grammar are counted;
 - ambiguous parents are recorded without an arbitrary parent choice.
 
 The full artifact test is opt-in and never downloads from a live service. The
@@ -118,7 +130,7 @@ Final clean regression command:
 ./gradlew clean test --no-daemon
 ```
 
-Result: `BUILD SUCCESSFUL in 31s`; 60 tests passed and the one opt-in full
+Result: `BUILD SUCCESSFUL in 31s`; 63 tests passed and the one opt-in full
 artifact test was skipped by design because the large-file environment variable
 was absent. The full artifact test result above was executed separately against
 the reviewed local GPKG.

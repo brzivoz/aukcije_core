@@ -71,6 +71,7 @@ class AddressRegistryFullImportIntegrationTest {
         assertThat(imported.importedRows()).isEqualTo(2_488_492);
         assertThat(imported.inactiveRows()).isZero();
         assertThat(imported.retiredRows()).isZero();
+        assertThat(imported.unnormalizedParcelRows()).isZero();
         assertThat(imported.duplicateParcelIdentities()).isEqualTo(182_989);
         assertThat(imported.ambiguousParentIdentities()).isEqualTo(4);
         assertThat(imported.centroidRows()).isGreaterThan(1_000);

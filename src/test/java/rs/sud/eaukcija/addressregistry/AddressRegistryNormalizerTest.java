@@ -18,6 +18,15 @@ class AddressRegistryNormalizerTest {
     void namesAndHouseNumbersFoldBothSerbianScriptsWithoutDiscardingSeparators() {
         assertThat(AddressRegistryNormalizer.name("Чајетина")).isEqualTo("CAJETINA");
         assertThat(AddressRegistryNormalizer.name("Čajetina")).isEqualTo("CAJETINA");
+        assertThat(AddressRegistryNormalizer.name("Ђурђево"))
+                .isEqualTo(AddressRegistryNormalizer.name("Đurđevo"))
+                .isEqualTo("DJURDJEVO");
+        assertThat(AddressRegistryNormalizer.name("Ђердап"))
+                .isEqualTo(AddressRegistryNormalizer.name("Đerdap"))
+                .isEqualTo("DJERDAP");
         assertThat(AddressRegistryNormalizer.houseNumber("10 А/2-1")).isEqualTo("10A/2-1");
+        assertThat(AddressRegistryNormalizer.houseNumber("12Ђ"))
+                .isEqualTo(AddressRegistryNormalizer.houseNumber("12Đ"))
+                .isEqualTo("12DJ");
     }
 }

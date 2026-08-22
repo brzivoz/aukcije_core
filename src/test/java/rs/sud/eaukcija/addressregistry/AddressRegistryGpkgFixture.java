@@ -24,7 +24,11 @@ final class AddressRegistryGpkgFixture {
         DUPLICATE_PRIMARY_KEY,
         INVALID_GEOMETRY,
         PARENT_CONFLICT,
-        OUTSIDE_SERBIA
+        OUTSIDE_SERBIA,
+        UNKNOWN_ACTIVE_STATUS,
+        BOOLEAN_RETIRED,
+        UNNORMALIZED_PARCEL,
+        REQUIRED_NAME_NORMALIZES_EMPTY
     }
 
     private AddressRegistryGpkgFixture() {
@@ -144,11 +148,17 @@ final class AddressRegistryGpkgFixture {
                 String variantSuffix = rowNumber == 1 && variant > 0 ? "-" + variant : "";
                 insert.setString(index++, row.get("houseNumber").asText() + variantSuffix);
                 insert.setString(index++, row.get("houseNumberLatin").asText() + variantSuffix);
-                insert.setString(index++, row.get("status").asText());
-                insert.setString(index++, row.get("statusLatin").asText());
+                insert.setString(index++, fault == Fault.UNKNOWN_ACTIVE_STATUS
+                        ? "ВАЖЕЋИ"
+                        : row.get("status").asText());
+                insert.setString(index++, fault == Fault.UNKNOWN_ACTIVE_STATUS
+                        ? "VAŽEĆI"
+                        : row.get("statusLatin").asText());
                 insert.setString(index++, "2026-08-01");
                 insert.setString(index++, "2026-08-21T10:15:30Z");
-                if (row.get("retired").isNull()) {
+                if (fault == Fault.BOOLEAN_RETIRED) {
+                    insert.setString(index++, "false");
+                } else if (fault == Fault.UNKNOWN_ACTIVE_STATUS || row.get("retired").isNull()) {
                     insert.setNull(index++, java.sql.Types.VARCHAR);
                 } else {
                     insert.setString(index++, row.get("retired").asText());
@@ -159,13 +169,19 @@ final class AddressRegistryGpkgFixture {
                 insert.setString(index++, row.get("street").asText());
                 insert.setString(index++, row.get("streetLatin").asText());
                 if (!omitParcel) {
-                    insert.setString(index++, row.get("parcel").asText());
+                    insert.setString(index++, fault == Fault.UNNORMALIZED_PARCEL && rowNumber == 1
+                            ? "1572-А"
+                            : row.get("parcel").asText());
                 }
                 insert.setString(index++, row.get("parcelPart").asText());
                 JsonNode koIdentity = fault == Fault.PARENT_CONFLICT && rowNumber == 2 ? rows.get(0) : row;
                 insert.setString(index++, koIdentity.get("koId").asText());
-                insert.setString(index++, koIdentity.get("ko").asText());
-                insert.setString(index++, koIdentity.get("koLatin").asText());
+                insert.setString(index++, fault == Fault.REQUIRED_NAME_NORMALIZES_EMPTY && rowNumber == 1
+                        ? "---"
+                        : koIdentity.get("ko").asText());
+                insert.setString(index++, fault == Fault.REQUIRED_NAME_NORMALIZES_EMPTY && rowNumber == 1
+                        ? "---"
+                        : koIdentity.get("koLatin").asText());
                 insert.setString(index++, row.get("settlementId").asText());
                 insert.setString(index++, row.get("settlement").asText());
                 insert.setString(index++, row.get("settlementLatin").asText());

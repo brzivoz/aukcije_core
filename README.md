@@ -98,7 +98,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
-| `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, 25834→4326, checksum/schema/CRS/row/geometry gates, unchanged replay, atomic failure, retention, rollback |
+| `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index

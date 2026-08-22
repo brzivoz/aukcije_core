@@ -24,7 +24,7 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | Official Address Registry full snapshots | working (points + centroids, #22) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
-| Spatial auction schema | planned (EPIC-05/#20) |
+| Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
 | Basemap + map UI | planned (EPIC-06, EPIC-07) |
 
 ## Running
@@ -85,6 +85,9 @@ idempotent reprocessing, retained provenance, and match-rate reports.
 See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
 for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
 rollback.
+See [issue #20 spatial verification](documentation/2026-08-23-issue-20-verification.md)
+for the V7 reference/resolution model, geometry gates, bounded repository
+contract, and reproducible PostGIS evidence.
 
 ## Tests
 
@@ -105,11 +108,12 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V6, Hibernate `validate`, entity round-trip, PostGIS, filter, and KO-match evidence indexes |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V7, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial indexes, and the canonical-derivation trigger |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
+| `SpatialResolutionSchemaIntegrationTest` | isolated PostGIS database; source CRS transform; point/polygon/multipolygon fidelity; invalid geometry/bounds/SRID rejection; recorded repair; write-free identity replay; immutable provenance; supersession; `STREET` representative-point semantics; and a default-planner exact-query proof over 20k geometries/100k attempts |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
 | `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, manifest-v2 compatibility, distinct reviewed KO/municipality aliases, orphan-target rejection, alias/official collision retention, byte-identical replay, immutable publication, and failure-safe activation |
@@ -118,10 +122,10 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `StructuredKoMatchIntegrationTest` | V6 persistence, immutable snapshot/KO/municipality-alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
-`SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
+`SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index
-would just be reading back its own DDL. Schema and index assertions belong to
-#20, against the real migrated schema.
+would just be reading back its own DDL. `SpatialResolutionSchemaIntegrationTest`
+asserts V7 and the production repository instead.
 
 Reports land in `build/reports/tests/test/index.html`. Every CI run — passing or
 failing — retains them as the `test-reports` artifact for 14 days, so a run
@@ -129,11 +133,15 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V6 it
+`src/main/resources/db/migration/` is the only schema authority. Through V7 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias
-provenance, and population-run reports. The dev, test,
+provenance, population-run reports, canonical property/parcel identities,
+source plus WGS84 resolution geometry, append-only attempt evidence, separate
+cache records, mutable selected-resolution pointers, and the viewport GiST
+plus reverse-FK indexes. Canonical WGS84 is derived by a normal-write trigger so
+backup restore does not re-run PROJ-dependent transforms. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
 Migration validation, Hibernate validation, and an explicit PostGIS startup
 probe make checksum drift, schema drift, and a missing extension fatal.

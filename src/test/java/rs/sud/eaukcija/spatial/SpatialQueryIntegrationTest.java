@@ -18,7 +18,8 @@ import rs.sud.eaukcija.testsupport.SpatialFixture;
  * own scratch table, so any assertion about a geometry column's SRID, its type,
  * or its index would be asserting this test's own DDL back to itself and could
  * not detect missing application or Flyway schema wiring. Those assertions
- * belong to #20, against the real migrated schema, once #20 defines it.
+ * live in {@link SpatialResolutionSchemaIntegrationTest}, against V7's real
+ * application schema and production repository query.
  *
  * <p>What is worth proving here, and does not depend on our schema, is that this
  * specific image resolves bounding boxes and spheroidal distances correctly —

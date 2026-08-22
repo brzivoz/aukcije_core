@@ -82,7 +82,8 @@ class PostgisSchemaIntegrationTest {
         assertThat(applied)
                 .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
                         "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
-                        "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql")
+                        "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
+                        "V7__spatial_resolution_model.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -161,6 +162,54 @@ class PostgisSchemaIntegrationTest {
                         "idx_structured_ko_matches_ko_code",
                         "idx_structured_ko_matches_dictionary",
                         "idx_structured_ko_matches_candidates");
+    }
+
+    @Test
+    void flywayOwnsTheSpatialResolutionAndViewportContract() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name IN (
+                      'parcel_identities', 'property_references', 'spatial_resolution_geometries',
+                      'location_resolution_cache_records', 'location_resolution_attempts',
+                      'current_location_resolutions'
+                  )
+                ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "current_location_resolutions",
+                        "location_resolution_attempts",
+                        "location_resolution_cache_records",
+                        "parcel_identities",
+                        "property_references",
+                        "spatial_resolution_geometries");
+        assertThat(jdbc.queryForObject("""
+                SELECT srid FROM geometry_columns
+                WHERE f_table_schema = 'public'
+                  AND f_table_name = 'spatial_resolution_geometries'
+                  AND f_geometry_column = 'canonical_geometry'
+                """, Integer.class)).isEqualTo(4326);
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'spatial_resolution_geometries'
+                ORDER BY indexname
+                """, String.class)).contains("idx_spatial_resolution_geometries_canonical");
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'public'
+                  AND tablename IN ('location_resolution_attempts', 'location_resolution_cache_records')
+                ORDER BY indexname
+                """, String.class)).contains(
+                        "idx_location_resolution_attempts_geometry",
+                        "idx_location_resolution_attempts_used_cache",
+                        "idx_location_resolution_cache_records_geometry");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM pg_trigger
+                WHERE tgrelid = 'spatial_resolution_geometries'::regclass
+                  AND tgname = 'trg_spatial_resolution_geometry_derive_canonical'
+                  AND NOT tgisinternal
+                """, Integer.class)).isOne();
     }
 
     @Test

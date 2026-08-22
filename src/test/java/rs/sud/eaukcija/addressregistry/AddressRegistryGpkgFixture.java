@@ -25,10 +25,16 @@ final class AddressRegistryGpkgFixture {
         INVALID_GEOMETRY,
         PARENT_CONFLICT,
         OUTSIDE_SERBIA,
+        RETIRED_OUTSIDE_SERBIA,
         UNKNOWN_ACTIVE_STATUS,
         BOOLEAN_RETIRED,
         UNNORMALIZED_PARCEL,
-        REQUIRED_NAME_NORMALIZES_EMPTY
+        REQUIRED_NAME_NORMALIZES_EMPTY,
+        DUPLICATE_NAME_ACROSS_MUNICIPALITIES,
+        DUPLICATE_NAME_SAME_MUNICIPALITY_MISSING_LATIN,
+        DUPLICATE_MUNICIPALITY_NAME,
+        CONFLICTING_OFFICIAL_NAME,
+        NORMALIZED_NAME_VARIANT
     }
 
     private AddressRegistryGpkgFixture() {
@@ -136,7 +142,8 @@ final class AddressRegistryGpkgFixture {
                 }
                 double easting = row.get("easting").asDouble();
                 double northing = row.get("northing").asDouble();
-                if (fault == Fault.OUTSIDE_SERBIA && rowNumber == 2) {
+                if ((fault == Fault.OUTSIDE_SERBIA && rowNumber == 2)
+                        || (fault == Fault.RETIRED_OUTSIDE_SERBIA && rowNumber == 3)) {
                     easting = 100_000;
                     northing = 1_000_000;
                 }
@@ -174,20 +181,40 @@ final class AddressRegistryGpkgFixture {
                             : row.get("parcel").asText());
                 }
                 insert.setString(index++, row.get("parcelPart").asText());
-                JsonNode koIdentity = fault == Fault.PARENT_CONFLICT && rowNumber == 2 ? rows.get(0) : row;
+                JsonNode koIdentity = (fault == Fault.PARENT_CONFLICT
+                        || fault == Fault.CONFLICTING_OFFICIAL_NAME
+                        || fault == Fault.NORMALIZED_NAME_VARIANT)
+                        && rowNumber == 2 ? rows.get(0) : row;
                 insert.setString(index++, koIdentity.get("koId").asText());
+                JsonNode koNameIdentity = (fault == Fault.DUPLICATE_NAME_ACROSS_MUNICIPALITIES
+                        || fault == Fault.DUPLICATE_NAME_SAME_MUNICIPALITY_MISSING_LATIN
+                        || fault == Fault.PARENT_CONFLICT) && rowNumber == 2 ? rows.get(0) : row;
+                String koName = fault == Fault.CONFLICTING_OFFICIAL_NAME && rowNumber == 2
+                        ? row.get("ko").asText() : koNameIdentity.get("ko").asText();
+                String koLatin = fault == Fault.CONFLICTING_OFFICIAL_NAME && rowNumber == 2
+                        ? row.get("koLatin").asText() : koNameIdentity.get("koLatin").asText();
+                if (fault == Fault.NORMALIZED_NAME_VARIANT && rowNumber == 2) {
+                    koName = "  димитровград  ";
+                    koLatin = "  Dimitrovgrad  ";
+                }
                 insert.setString(index++, fault == Fault.REQUIRED_NAME_NORMALIZES_EMPTY && rowNumber == 1
-                        ? "---"
-                        : koIdentity.get("ko").asText());
-                insert.setString(index++, fault == Fault.REQUIRED_NAME_NORMALIZES_EMPTY && rowNumber == 1
-                        ? "---"
-                        : koIdentity.get("koLatin").asText());
+                        ? "---" : koName);
+                if (fault == Fault.DUPLICATE_NAME_SAME_MUNICIPALITY_MISSING_LATIN && rowNumber == 2) {
+                    insert.setNull(index++, java.sql.Types.VARCHAR);
+                } else {
+                    insert.setString(index++, fault == Fault.REQUIRED_NAME_NORMALIZES_EMPTY && rowNumber == 1
+                            ? "---" : koLatin);
+                }
                 insert.setString(index++, row.get("settlementId").asText());
                 insert.setString(index++, row.get("settlement").asText());
                 insert.setString(index++, row.get("settlementLatin").asText());
-                insert.setString(index++, row.get("municipalityId").asText());
-                insert.setString(index++, row.get("municipality").asText());
-                insert.setString(index++, row.get("municipalityLatin").asText());
+                JsonNode municipalityIdentity = fault == Fault.DUPLICATE_NAME_SAME_MUNICIPALITY_MISSING_LATIN
+                        && rowNumber == 2 ? rows.get(0) : row;
+                insert.setString(index++, municipalityIdentity.get("municipalityId").asText());
+                JsonNode municipalityNameIdentity = fault == Fault.DUPLICATE_MUNICIPALITY_NAME && rowNumber == 2
+                        ? rows.get(0) : municipalityIdentity;
+                insert.setString(index++, municipalityNameIdentity.get("municipality").asText());
+                insert.setString(index++, municipalityNameIdentity.get("municipalityLatin").asText());
                 insert.setLong(index++, primaryKey);
                 insert.setString(index, "POINT (" + easting + " " + northing + ")");
                 insert.addBatch();

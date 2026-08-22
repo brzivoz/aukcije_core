@@ -59,7 +59,7 @@ final class AddressRegistryArtifactStager {
         }
     }
 
-    Artifact stage(AddressRegistryImportProperties properties) {
+    Artifact stage(AddressRegistrySourceSettings properties) {
         Instant started = Instant.now();
         Path root = properties.getWorkDirectory().toAbsolutePath().normalize();
         Path directory = null;

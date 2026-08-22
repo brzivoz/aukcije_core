@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 /** Operator inputs and conservative safety limits for one registry refresh. */
 @Component
 @ConfigurationProperties(prefix = "address-registry.import")
-public class AddressRegistryImportProperties {
+public class AddressRegistryImportProperties implements AddressRegistrySourceSettings {
 
     public enum Action {
         IMPORT,

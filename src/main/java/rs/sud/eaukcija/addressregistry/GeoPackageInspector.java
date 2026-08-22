@@ -47,7 +47,7 @@ final class GeoPackageInspector {
             List<Column> columns) {
     }
 
-    Schema inspect(Path gpkg, AddressRegistryImportProperties properties) {
+    Schema inspect(Path gpkg, AddressRegistrySourceSettings properties) {
         try (Connection connection = openReadOnly(gpkg)) {
             Map<String, Column> columns = readColumns(connection);
             List<String> missing = REQUIRED_COLUMNS.stream()

@@ -151,7 +151,7 @@ flowchart TB
     end
 
     subgraph M1A["M1a — Coarse Map MVP (first usable product)"]
-        I36["#36 Registry centroid extract"]
+        I36["#36 Registry centroid extract ✅"]
         I24["#24 Reproducible Serbia PMTiles"]
         I34["#34 Browser harness + frontend"]
         I20["#20 Spatial schema + bbox queries"]
@@ -257,7 +257,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | Wave | Issues | Evidence required before advancing |
 |---|---|---|
 | 0 ✅ | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
-| 1 | **#15 ✅**, #36, #24, #34 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
+| 1 | **#15 ✅, #36 ✅**, #24, #34 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
 | 2 | #14, #20, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
 | 3 | #37, #38 | Zero exact-match false positives matching structured `Place.Cadastral`, ambiguity left unresolved; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
 | 4 | #26 | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |

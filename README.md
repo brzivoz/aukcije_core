@@ -18,7 +18,8 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | eAukcija ingest (listings + details) | working |
 | Local filtering / list UI | working |
 | Property reference extraction | planned (EPIC-02) |
-| Official Address Registry snapshots | working (full points + centroids, #22) |
+| Official Address Registry centroid extract | working (small immutable artifact, #36) |
+| Official Address Registry full snapshots | working (points + centroids, #22) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | planned (EPIC-05/#20) |
@@ -70,6 +71,9 @@ been taken; it is never the default runtime.
 
 See [Database operations](documentation/DATABASE_OPERATIONS.md) for profile,
 backup/restore, legacy-H2 archive, clean re-sync, and failure-recovery commands.
+See [Centroid extract operations](documentation/CENTROID_EXTRACT_OPERATIONS.md)
+for the database-free coarse-location artifact, reviewed checksums,
+reproducible publication, status, and failure recovery.
 See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
 for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
 rollback.
@@ -98,6 +102,8 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
+| `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
+| `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
@@ -185,6 +191,8 @@ src/test/java/rs/sud/eaukcija/
 └── SchemaNegativeControlTest.java
 
 src/main/resources/db/migration/  Flyway migrations (PostgreSQL/PostGIS)
+
+data/address-registry-centroids/  ignored runtime #36 versions, ACTIVE pointer, and run evidence
 
 src/test/resources/fixtures/
 ├── auctions-sample.json         86-record sample, thumbnails stripped

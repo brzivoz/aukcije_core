@@ -68,3 +68,10 @@ tasks.register('importAddressRegistry', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'rs.sud.eaukcija.addressregistry.AddressRegistryImportCli'
 }
+
+tasks.register('buildAddressRegistryCentroids', JavaExec) {
+    group = 'application'
+    description = 'Derive and atomically publish the small Address Registry centroid extract'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.addressregistry.AddressRegistryCentroidExtractCli'
+}

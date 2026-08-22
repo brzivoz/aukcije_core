@@ -121,13 +121,17 @@ public class StructuredKoMatchService {
                 INSERT INTO structured_ko_match_runs (
                     id, started_at, finished_at, dictionary_version, dictionary_source_sha256,
                     normalizer_version, alias_dataset_version, alias_sha256,
+                    municipality_alias_dataset_version, municipality_alias_sha256,
                     population_count, processed_count, unchanged_count,
                     matched_count, ambiguous_count, not_found_count, invalid_count, method_counts
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb))
                 """,
                 runId, databaseTime(started), databaseTime(finished),
                 dictionary.version(), dictionary.sourceGpkgSha256(),
                 dictionary.normalizerVersion(), dictionary.aliasDatasetVersion(), dictionary.aliasSha256(),
+                // The loader requires one shared review-dataset version; only the municipality subset hash differs.
+                // Keep the dedicated version column for evidence-schema symmetry with that independent subset hash.
+                dictionary.aliasDatasetVersion(), dictionary.municipalityAliasSha256(),
                 inputs.size(), processed, unchanged,
                 statusCounts.get(StructuredKoMatcher.Status.MATCHED),
                 statusCounts.get(StructuredKoMatcher.Status.AMBIGUOUS),
@@ -152,6 +156,8 @@ public class StructuredKoMatchService {
                 dictionary.normalizerVersion(),
                 dictionary.aliasDatasetVersion(),
                 dictionary.aliasSha256(),
+                dictionary.aliasDatasetVersion(),
+                dictionary.municipalityAliasSha256(),
                 inputs.size(),
                 processed,
                 unchanged,
@@ -175,8 +181,10 @@ public class StructuredKoMatchService {
                     auction_id, source_cadastral, source_place_name, source_municipality,
                     input_fingerprint, status, method, rationale, matched_ko_code,
                     dictionary_version, dictionary_source_sha256, normalizer_version,
-                    alias_dataset_version, alias_sha256, candidates, resolved_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?)
+                    alias_dataset_version, alias_sha256,
+                    municipality_alias_dataset_version, municipality_alias_sha256,
+                    candidates, resolved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?)
                 ON CONFLICT (auction_id) DO UPDATE SET
                     source_cadastral = EXCLUDED.source_cadastral,
                     source_place_name = EXCLUDED.source_place_name,
@@ -191,6 +199,8 @@ public class StructuredKoMatchService {
                     normalizer_version = EXCLUDED.normalizer_version,
                     alias_dataset_version = EXCLUDED.alias_dataset_version,
                     alias_sha256 = EXCLUDED.alias_sha256,
+                    municipality_alias_dataset_version = EXCLUDED.municipality_alias_dataset_version,
+                    municipality_alias_sha256 = EXCLUDED.municipality_alias_sha256,
                     candidates = EXCLUDED.candidates,
                     resolved_at = EXCLUDED.resolved_at
                 WHERE auction_structured_ko_matches.input_fingerprint
@@ -200,6 +210,8 @@ public class StructuredKoMatchService {
                 match.inputFingerprint(), match.status().name(), match.method().name(), match.rationale(),
                 match.matchedKoCode(), dictionary.version(), dictionary.sourceGpkgSha256(),
                 dictionary.normalizerVersion(), dictionary.aliasDatasetVersion(), dictionary.aliasSha256(),
+                // Kept as a separate column for evidence-query symmetry with the independent subset hash.
+                dictionary.aliasDatasetVersion(), dictionary.municipalityAliasSha256(),
                 json(match.candidates()), databaseTime(resolvedAt));
         if (changed != 1) {
             throw new KoStructuredMatchException(
@@ -257,6 +269,8 @@ public class StructuredKoMatchService {
             String normalizerVersion,
             String aliasDatasetVersion,
             String aliasSha256,
+            String municipalityAliasDatasetVersion,
+            String municipalityAliasSha256,
             long populationCount,
             long processedCount,
             long unchangedCount,

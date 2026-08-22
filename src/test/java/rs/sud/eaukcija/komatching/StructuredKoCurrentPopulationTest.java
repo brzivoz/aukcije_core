@@ -56,18 +56,34 @@ class StructuredKoCurrentPopulationTest {
             assertThat(first.populationCount()).isEqualTo(
                     first.matchedCount() + first.ambiguousCount() + first.notFoundCount() + first.invalidCount());
             assertThat(first.processedCount()).isEqualTo(589);
-            assertThat(first.matchedCount()).isEqualTo(566);
-            assertThat(first.ambiguousCount()).isEqualTo(21);
+            assertThat(first.matchedCount()).isEqualTo(587);
+            assertThat(first.ambiguousCount()).isZero();
             assertThat(first.notFoundCount()).isEqualTo(2);
             assertThat(first.invalidCount()).isZero();
-            assertThat(first.matchRatePercent()).isEqualByComparingTo("96.10");
+            assertThat(first.matchRatePercent()).isEqualByComparingTo("99.66");
             assertThat(first.sourceGpkgSha256())
                     .isEqualTo("ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3");
             assertThat(first.aliasSha256())
-                    .isEqualTo("cfa87e561054de6535f211db7b5546b0a4f13a196fbe5231a5cf5ac1a728c1ed");
+                    .isEqualTo("72455511d935ccf10cdb4a5e829bb498460b40abc4adf1ae5e9a2e496fda9c04");
+            assertThat(first.municipalityAliasSha256())
+                    .isEqualTo("7d13955eb71af897549712bb11cdf85ca3559a2d364473955eadc499e6bed580");
             assertThat(first.methodCounts()).containsEntry("EXACT_NORMALIZED_NAME", 453L)
                     .containsEntry("MUNICIPALITY_CONTEXT", 134L)
                     .containsEntry("FUZZY_REVIEW", 2L);
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(*) FROM auction_structured_ko_matches
+                    WHERE rationale LIKE 'MUNICIPALITY_CONTEXT_REVIEWED_ALIAS:%'
+                    """, Integer.class)).isEqualTo(21);
+            assertThat(jdbc.queryForObject("""
+                    SELECT count(DISTINCT review->>'id')
+                    FROM auction_structured_ko_matches m,
+                         jsonb_array_elements(m.candidates) candidate,
+                         jsonb_array_elements(candidate->'municipalityAliasReviews') review
+                    WHERE m.rationale LIKE 'MUNICIPALITY_CONTEXT_REVIEWED_ALIAS:%'
+                    """, Integer.class)).isEqualTo(8);
+            assertThat(jdbc.queryForObject("""
+                    SELECT matched_ko_code FROM auction_structured_ko_matches WHERE auction_id = 179985
+                    """, String.class)).isEqualTo("703907");
             assertThat(replay.processedCount()).isZero();
             assertThat(replay.unchangedCount()).isEqualTo(589);
             assertThat(replay.matchedCount()).isEqualTo(first.matchedCount());

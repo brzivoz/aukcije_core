@@ -9,6 +9,9 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
 
@@ -50,6 +53,17 @@ final class StructuredKoMatcher {
             String reviewedAt) {
     }
 
+    record MunicipalityAliasEvidence(
+            String id,
+            String municipalityCode,
+            String name,
+            String normalizedName,
+            String provenance,
+            String sourceReference,
+            String reviewer,
+            String reviewedAt) {
+    }
+
     record Candidate(
             int rank,
             String koCode,
@@ -59,6 +73,9 @@ final class StructuredKoMatcher {
             String matchedNormalizedName,
             String matchKind,
             List<AliasEvidence> aliasReviews,
+            List<MunicipalityAliasEvidence> municipalityAliasReviews,
+            boolean municipalityIdentityCollision,
+            List<String> collidingMunicipalityCodes,
             boolean municipalityContextMatch,
             boolean placeContextMatch,
             Integer editDistance,
@@ -98,14 +115,16 @@ final class StructuredKoMatcher {
         KoDictionarySnapshot.KoEntry exactCode = dictionary.entriesByCode().get(input.cadastral().trim());
         if (exactCode != null) {
             Candidate candidate = candidate(
-                    1, exactCode, null, null, List.of(), input, null, null);
+                    1, exactCode, null, null, List.of(), input,
+                    municipalityContext(input.municipality()), null, null);
             return matched(input, fingerprint, Method.EXACT_CODE,
                     "EXACT_CODE: Place.Cadastral exactly equals an official KO code", candidate);
         }
 
         List<KoDictionarySnapshot.IndexCandidate> exact = dictionary.normalizedIndex().get(normalizedCadastral);
         if (exact != null) {
-            List<Candidate> candidates = candidates(exact, normalizedCadastral, input, null);
+            MunicipalityContext municipalityContext = municipalityContext(input.municipality());
+            List<Candidate> candidates = candidates(exact, normalizedCadastral, input, municipalityContext, null);
             if (exact.size() == 1) {
                 KoDictionarySnapshot.IndexCandidate hit = exact.get(0);
                 Method method = hit.officialName() ? Method.EXACT_NORMALIZED_NAME : Method.REVIEWED_ALIAS;
@@ -115,21 +134,31 @@ final class StructuredKoMatcher {
                 return matched(input, fingerprint, method, rationale, candidates.get(0));
             }
 
-            String normalizedMunicipality = normalizeQuery(input.municipality());
             List<Candidate> municipalityMatches = candidates.stream()
                     .filter(Candidate::municipalityContextMatch)
                     .toList();
-            if (normalizedMunicipality != null && municipalityMatches.size() == 1) {
+            if (municipalityContext.normalizedName() != null && municipalityMatches.size() == 1) {
                 Candidate selected = municipalityMatches.get(0);
+                String rationale = selected.municipalityAliasReviews().isEmpty()
+                        ? "MUNICIPALITY_CONTEXT: duplicate normalized KO name reduced to one candidate by the "
+                                + "structured municipality"
+                        : "MUNICIPALITY_CONTEXT_REVIEWED_ALIAS: duplicate normalized KO name reduced to one "
+                                + "candidate by a reviewed municipality equivalence";
                 return new Match(
                         input.auctionId(), fingerprint, Status.MATCHED, Method.MUNICIPALITY_CONTEXT,
-                        "MUNICIPALITY_CONTEXT: duplicate normalized KO name reduced to one candidate by the "
-                                + "structured municipality",
+                        rationale,
                         selected.koCode(), candidates);
             }
             String rationale;
-            if (normalizedMunicipality == null) {
+            if (municipalityContext.normalizedName() == null) {
                 rationale = "AMBIGUOUS_NAME: normalized KO name has multiple candidates and municipality is missing";
+            } else if (municipalityContext.identityCollision()) {
+                String collidingCodes = String.join(", ", municipalityContext.collidingMunicipalityCodes());
+                rationale = municipalityContext.reviews().isEmpty()
+                        ? "AMBIGUOUS_MUNICIPALITY_IDENTITY_COLLISION: the structured municipality name denotes "
+                                + "official municipalities " + collidingCodes + " and cannot select a candidate"
+                        : "AMBIGUOUS_MUNICIPALITY_ALIAS_COLLISION: reviewed municipality aliases and official names "
+                                + "denote municipalities " + collidingCodes + " and cannot select a candidate";
             } else if (municipalityMatches.isEmpty()) {
                 rationale = "AMBIGUOUS_MUNICIPALITY_MISMATCH: normalized KO name has multiple candidates and none "
                         + "matches the structured municipality";
@@ -138,7 +167,8 @@ final class StructuredKoMatcher {
                         + "structured municipality filtering";
             }
             return unresolved(input, fingerprint, Status.AMBIGUOUS,
-                    normalizedMunicipality == null ? Method.EXACT_NORMALIZED_NAME : Method.MUNICIPALITY_CONTEXT,
+                    municipalityContext.normalizedName() == null
+                            ? Method.EXACT_NORMALIZED_NAME : Method.MUNICIPALITY_CONTEXT,
                     rationale, candidates);
         }
 
@@ -169,6 +199,7 @@ final class StructuredKoMatcher {
             add(digest, dictionary.normalizerVersion());
             add(digest, dictionary.aliasDatasetVersion());
             add(digest, dictionary.aliasSha256());
+            add(digest, dictionary.municipalityAliasSha256());
             add(digest, dictionary.version());
             add(digest, dictionary.sourceGpkgSha256());
             return java.util.HexFormat.of().formatHex(digest.digest());
@@ -182,6 +213,7 @@ final class StructuredKoMatcher {
             return List.of();
         }
         Map<String, FuzzyHit> bestByKo = new LinkedHashMap<>();
+        MunicipalityContext municipalityContext = municipalityContext(input.municipality());
         for (Map.Entry<String, List<KoDictionarySnapshot.IndexCandidate>> row
                 : dictionary.normalizedIndex().entrySet()) {
             String indexedName = row.getKey();
@@ -193,8 +225,8 @@ final class StructuredKoMatcher {
         }
         Comparator<FuzzyHit> order = Comparator
                 .comparingInt(FuzzyHit::distance)
-                .thenComparing((FuzzyHit hit) -> !municipalityMatches(
-                        dictionary.entriesByCode().get(hit.candidate().koCode()), input.municipality()))
+                .thenComparing((FuzzyHit hit) -> !municipalityContext.matches(
+                        dictionary.entriesByCode().get(hit.candidate().koCode())))
                 .thenComparing((FuzzyHit hit) -> !placeMatches(
                         dictionary.entriesByCode().get(hit.candidate().koCode()), input.placeName()))
                 .thenComparing(hit -> hit.candidate().koCode());
@@ -215,6 +247,7 @@ final class StructuredKoMatcher {
                     hit.candidate(),
                     hit.candidate().aliasIds(),
                     input,
+                    municipalityContext,
                     hit.distance(),
                     similarity));
         }
@@ -232,6 +265,7 @@ final class StructuredKoMatcher {
             List<KoDictionarySnapshot.IndexCandidate> indexCandidates,
             String matchedNormalizedName,
             Input input,
+            MunicipalityContext municipalityContext,
             Integer distance) {
         List<Candidate> candidates = new ArrayList<>();
         for (int index = 0; index < indexCandidates.size(); index++) {
@@ -243,6 +277,7 @@ final class StructuredKoMatcher {
                     indexCandidate,
                     indexCandidate.aliasIds(),
                     input,
+                    municipalityContext,
                     distance,
                     null));
         }
@@ -256,6 +291,7 @@ final class StructuredKoMatcher {
             KoDictionarySnapshot.IndexCandidate indexCandidate,
             List<String> aliasIds,
             Input input,
+            MunicipalityContext municipalityContext,
             Integer editDistance,
             Integer similarityBasisPoints) {
         List<AliasEvidence> aliasEvidence = aliasIds.stream()
@@ -263,6 +299,13 @@ final class StructuredKoMatcher {
                 .map(alias -> new AliasEvidence(
                         alias.id(), alias.name(), alias.kind(), alias.provenance(), alias.sourceReference(),
                         alias.reviewer(), alias.reviewedAt().toString()))
+                .toList();
+        List<MunicipalityAliasEvidence> municipalityAliasEvidence = municipalityContext.reviews().stream()
+                .filter(alias -> entry.municipalities().stream()
+                        .anyMatch(municipality -> municipality.code().equals(alias.municipalityCode())))
+                .map(alias -> new MunicipalityAliasEvidence(
+                        alias.id(), alias.municipalityCode(), alias.name(), alias.normalizedName(),
+                        alias.provenance(), alias.sourceReference(), alias.reviewer(), alias.reviewedAt().toString()))
                 .toList();
         String matchKind;
         if (indexCandidate == null) {
@@ -286,20 +329,31 @@ final class StructuredKoMatcher {
                 matchedNormalizedName,
                 matchKind,
                 aliasEvidence,
-                municipalityMatches(entry, input.municipality()),
+                municipalityAliasEvidence,
+                municipalityContext.identityCollision(),
+                municipalityContext.collidingMunicipalityCodes(),
+                municipalityContext.matches(entry),
                 placeMatches(entry, input.placeName()),
                 editDistance,
                 similarityBasisPoints);
     }
 
-    private static boolean municipalityMatches(KoDictionarySnapshot.KoEntry entry, String rawMunicipality) {
+    private MunicipalityContext municipalityContext(String rawMunicipality) {
         String normalized = normalizeQuery(rawMunicipality);
         if (normalized == null) {
-            return false;
+            return new MunicipalityContext(null, Set.of(), List.of(), List.of());
         }
-        String trimmed = rawMunicipality.trim();
-        return entry.municipalities().stream().anyMatch(municipality ->
-                municipality.code().equals(trimmed) || municipality.normalizedNames().contains(normalized));
+        List<KoDictionarySnapshot.MunicipalityAliasReview> reviews =
+                dictionary.municipalityAliasesByNormalizedName().getOrDefault(normalized, List.of());
+        TreeSet<String> resolvedCodes = new TreeSet<>(
+                dictionary.municipalityCodesByNormalizedName().getOrDefault(normalized, List.of()));
+        resolvedCodes.addAll(reviews.stream()
+                .map(KoDictionarySnapshot.MunicipalityAliasReview::municipalityCode)
+                .collect(Collectors.toSet()));
+        if (resolvedCodes.size() > 1) {
+            return new MunicipalityContext(normalized, Set.of(), reviews, List.copyOf(resolvedCodes));
+        }
+        return new MunicipalityContext(normalized, Set.copyOf(resolvedCodes), reviews, List.of());
     }
 
     private static boolean placeMatches(KoDictionarySnapshot.KoEntry entry, String rawPlace) {
@@ -371,5 +425,26 @@ final class StructuredKoMatcher {
             String normalizedName,
             KoDictionarySnapshot.IndexCandidate candidate,
             int distance) {
+    }
+
+    private record MunicipalityContext(
+            String normalizedName,
+            Set<String> eligibleMunicipalityCodes,
+            List<KoDictionarySnapshot.MunicipalityAliasReview> reviews,
+            List<String> collidingMunicipalityCodes) {
+
+        /**
+         * True when the structured municipality name denotes more than one official
+         * municipality, whether through official names alone or together with reviewed
+         * aliases. No candidate is eligible while it holds.
+         */
+        private boolean identityCollision() {
+            return !collidingMunicipalityCodes.isEmpty();
+        }
+
+        private boolean matches(KoDictionarySnapshot.KoEntry entry) {
+            return entry.municipalities().stream()
+                    .anyMatch(municipality -> eligibleMunicipalityCodes.contains(municipality.code()));
+        }
     }
 }

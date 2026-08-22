@@ -26,6 +26,7 @@ final class KoDictionaryTestArtifact {
     static Path create(Path root, ObjectMapper objectMapper) throws Exception {
         Files.createDirectories(root.resolve("versions"));
         Map<String, Object> alias = orderedMap(
+                "recordKind", "KO_ALIAS",
                 "id", "caribrod-1930",
                 "koCode", "200001",
                 "name", "Caribrod",
@@ -35,13 +36,31 @@ final class KoDictionaryTestArtifact {
                 "sourceReference", "fixture://gazette/1930",
                 "reviewer", "fixture-reviewer",
                 "reviewedAt", "2026-08-20");
+        Map<String, Object> municipalityAliasM1 = municipalityAlias(
+                "shared-portal-m1", "M1", "Заједничка-портал", "ZAJEDNICKA PORTAL");
+        Map<String, Object> municipalityAliasM2 = municipalityAlias(
+                "opstina-b-grad", "M2", "Општина Б-град", "OPSTINA B GRAD");
+        Map<String, Object> municipalityAliasOfficialCollision = municipalityAlias(
+                "official-name-collision-m2", "M2", "Општина А", "OPSTINA A");
+        Map<String, Object> municipalityAliasCollisionM2 = municipalityAlias(
+                "shared-portal-m2", "M2", "Заједничка-портал", "ZAJEDNICKA PORTAL");
+        List<Map<String, Object>> municipalityAliases = List.of(
+                municipalityAliasM1, municipalityAliasOfficialCollision,
+                municipalityAliasM2, municipalityAliasCollisionM2);
         Map<String, Object> aliasRoot = orderedMap(
+                "formatVersion", 2,
+                "datasetVersion", "fixture-2026.1",
+                "normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION,
+                "koAliases", List.of(alias),
+                "municipalityAliases", municipalityAliases);
+        byte[] aliasBytes = jsonLine(objectMapper, aliasRoot).getBytes(StandardCharsets.UTF_8);
+        String aliasHash = sha256(aliasBytes);
+        byte[] municipalityAliasBytes = jsonLine(objectMapper, orderedMap(
                 "formatVersion", 1,
                 "datasetVersion", "fixture-2026.1",
                 "normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION,
-                "aliases", List.of(alias));
-        byte[] aliasBytes = jsonLine(objectMapper, aliasRoot).getBytes(StandardCharsets.UTF_8);
-        String aliasHash = sha256(aliasBytes);
+                "municipalityAliases", municipalityAliases)).getBytes(StandardCharsets.UTF_8);
+        String municipalityAliasHash = sha256(municipalityAliasBytes);
         String version = SOURCE_DATE + "-" + SOURCE_HASH + "-aliases-" + aliasHash;
         Path directory = root.resolve("versions").resolve(version);
         Files.createDirectories(directory);
@@ -50,19 +69,30 @@ final class KoDictionaryTestArtifact {
                 dictionaryRow(
                         version, "100001", "Чајетина", "Čajetina",
                         "M1", "Општина А", "Opština A",
-                        "S1", "Насеље А", "Naselje A", List.of()),
+                        "S1", "Насеље А", "Naselje A", List.of(), List.of("shared-portal-m1")),
                 dictionaryRow(
                         version, "200001", "Димитровград", "Dimitrovgrad",
                         "M3", "Димитровград", "Dimitrovgrad",
-                        "S3", "Димитровград", "Dimitrovgrad", List.of(alias)),
+                        "S3", "Димитровград", "Dimitrovgrad", List.of(alias), List.of()),
                 dictionaryRow(
                         version, "300001", "Град", "Grad",
                         "M1", "Општина А", "Opština A",
-                        "S4", "Насеље А", "Naselje A", List.of()),
+                        "S4", "Насеље А", "Naselje A", List.of(), List.of("shared-portal-m1")),
                 dictionaryRow(
                         version, "300002", "Град", "Grad",
                         "M2", "Општина Б", "Opština B",
-                        "S5", "Насеље Б", "Naselje B", List.of()));
+                        "S5", "Насеље Б", "Naselje B", List.of(),
+                        List.of("official-name-collision-m2", "opstina-b-grad", "shared-portal-m2")),
+                // M4 and M5 carry different official spellings that the shared normalizer folds to
+                // the same key, so "Општина В" denotes two municipalities without any reviewed alias.
+                dictionaryRow(
+                        version, "400001", "Поље", "Polje",
+                        "M4", "Општина В", "Opština V",
+                        "S6", "Насеље В", "Naselje V", List.of(), List.of()),
+                dictionaryRow(
+                        version, "400002", "Поље", "Polje",
+                        "M5", "ОПШТИНА В", "OPŠTINA V",
+                        "S7", "Насеље Г", "Naselje G", List.of(), List.of()));
         writeNdjson(directory.resolve("ko-dictionary.ndjson"), entries, objectMapper);
 
         List<Map<String, Object>> index = List.of(
@@ -72,7 +102,10 @@ final class KoDictionaryTestArtifact {
                 indexRow(version, "DIMITROVGRAD", List.of(indexCandidate("200001", "M3", true, List.of()))),
                 indexRow(version, "GRAD", List.of(
                         indexCandidate("300001", "M1", true, List.of()),
-                        indexCandidate("300002", "M2", true, List.of()))));
+                        indexCandidate("300002", "M2", true, List.of()))),
+                indexRow(version, "POLJE", List.of(
+                        indexCandidate("400001", "M4", true, List.of()),
+                        indexCandidate("400002", "M5", true, List.of()))));
         writeNdjson(directory.resolve("normalized-index.ndjson"), index, objectMapper);
 
         Files.write(directory.resolve("alias-overrides.json"), aliasBytes);
@@ -94,7 +127,7 @@ final class KoDictionaryTestArtifact {
                     "sha256", sha256(Files.readAllBytes(file))));
         }
         Map<String, Object> manifest = orderedMap(
-                "formatVersion", 1,
+                "formatVersion", 2,
                 "dictionaryVersion", version,
                 "normalizerContract", SerbianNameNormalizer.CONTRACT_VERSION,
                 "source", orderedMap(
@@ -103,7 +136,14 @@ final class KoDictionaryTestArtifact {
                 "aliases", orderedMap(
                         "datasetVersion", "fixture-2026.1",
                         "sha256", aliasHash,
-                        "count", 1),
+                        "count", 5,
+                        "koAliasCount", 1,
+                        "municipalityAliasCount", 4),
+                "municipalityAliases", orderedMap(
+                        "datasetVersion", "fixture-2026.1",
+                        "sha256", municipalityAliasHash,
+                        "count", 4,
+                        "collisionCount", 2),
                 "content", orderedMap(
                         "koEntries", entries.size(),
                         "normalizedIndexKeys", index.size(),
@@ -126,7 +166,8 @@ final class KoDictionaryTestArtifact {
             String settlementCode,
             String settlementCyrillic,
             String settlementLatin,
-            List<Map<String, Object>> aliases) {
+            List<Map<String, Object>> aliases,
+            List<String> municipalityAliasIds) {
         return orderedMap(
                 "dictionaryVersion", version,
                 "sourceDate", SOURCE_DATE,
@@ -138,13 +179,28 @@ final class KoDictionaryTestArtifact {
                 "municipalities", List.of(orderedMap(
                         "code", municipalityCode,
                         "nameCyrillic", municipalityCyrillic,
-                        "nameLatin", municipalityLatin)),
+                        "nameLatin", municipalityLatin,
+                        "aliasIds", municipalityAliasIds)),
                 "settlements", List.of(orderedMap(
                         "code", settlementCode,
                         "nameCyrillic", settlementCyrillic,
                         "nameLatin", settlementLatin,
                         "municipalityCodes", List.of(municipalityCode))),
                 "aliases", aliases);
+    }
+
+    private static Map<String, Object> municipalityAlias(
+            String id, String municipalityCode, String name, String normalizedName) {
+        return orderedMap(
+                "recordKind", "MUNICIPALITY_ALIAS",
+                "id", id,
+                "municipalityCode", municipalityCode,
+                "name", name,
+                "normalizedName", normalizedName,
+                "provenance", "Reviewed municipality fixture",
+                "sourceReference", "fixture://municipality/" + id,
+                "reviewer", "fixture-reviewer",
+                "reviewedAt", "2026-08-20");
     }
 
     private static Map<String, Object> indexRow(

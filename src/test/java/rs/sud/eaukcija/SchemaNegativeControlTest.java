@@ -10,13 +10,16 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import rs.sud.eaukcija.testsupport.PostgisApplication;
 import rs.sud.eaukcija.testsupport.PostgisTestContainer;
 
 /**
@@ -37,15 +40,9 @@ class SchemaNegativeControlTest {
         //
         // Only the fault and the connection are injected. The wiring under test —
         // Flyway on, ddl-auto=validate — still comes from
-        // application-postgis.properties.
-        return new SpringApplicationBuilder(SudAukcijeApplication.class)
-                .web(WebApplicationType.NONE)
-                .profiles("postgis")
-                .run(
-                        "--spring.datasource.url=" + jdbcUrl,
-                        "--spring.datasource.username=" + username,
-                        "--spring.datasource.password=" + password,
-                        "--spring.flyway.locations=" + flywayLocations);
+        // application-test.properties.
+        return PostgisApplication.start(jdbcUrl, username, password,
+                "--spring.flyway.locations=" + flywayLocations);
     }
 
     @Test
@@ -100,6 +97,90 @@ class SchemaNegativeControlTest {
         assertThatThrownBy(() -> startContext(jdbcUrl, container.getUsername(), container.getPassword(),
                 "classpath:db/migration"))
                 .hasStackTraceContaining("cadastral");
+    }
+
+    @Test
+    void theContextFailsWhenCredentialsAreInvalid() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+
+        assertThatThrownBy(() -> startContext(jdbcUrl, container.getUsername(), "deliberately-wrong",
+                "classpath:db/migration"))
+                .hasStackTraceContaining("password authentication failed");
+    }
+
+    @Test
+    void theContextFailsWhenTheDatabaseIsUnavailable() {
+        assertThatThrownBy(() -> startContext(
+                "jdbc:postgresql://127.0.0.1:1/unavailable?connectTimeout=1",
+                "nobody", "not-a-secret", "classpath:db/migration"))
+                .hasStackTraceContaining("Connection to 127.0.0.1:1 refused");
+    }
+
+    @Test
+    void theContextFailsWhenAMigrationChecksumChanges() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+
+        try (ConfigurableApplicationContext context = startContext(
+                jdbcUrl, container.getUsername(), container.getPassword(), "classpath:db/migration")) {
+            assertThat(context.isRunning()).isTrue();
+        }
+        execute(jdbcUrl, container, """
+                UPDATE flyway_schema_history
+                SET checksum = checksum + 1
+                WHERE script = 'V2__baseline_auctions.sql'
+                """);
+
+        assertThatThrownBy(() -> startContext(jdbcUrl, container.getUsername(), container.getPassword(),
+                "classpath:db/migration"))
+                .hasStackTraceContaining("Migration checksum mismatch");
+    }
+
+    @Test
+    void theContextFailsWhenPostgisWasRemovedAfterMigration() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+
+        try (ConfigurableApplicationContext context = startContext(
+                jdbcUrl, container.getUsername(), container.getPassword(), "classpath:db/migration")) {
+            assertThat(context.isRunning()).isTrue();
+        }
+        execute(jdbcUrl, container, "DROP EXTENSION postgis CASCADE");
+
+        assertThatThrownBy(() -> startContext(jdbcUrl, container.getUsername(), container.getPassword(),
+                "classpath:db/migration"))
+                .hasStackTraceContaining("PostGIS extension is missing");
+    }
+
+    @Test
+    void missingPostgisFailsBeforeTheServletConnectorStarts() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+
+        try (ConfigurableApplicationContext context = startContext(
+                jdbcUrl, container.getUsername(), container.getPassword(), "classpath:db/migration")) {
+            assertThat(context.isRunning()).isTrue();
+        }
+        execute(jdbcUrl, container, "DROP EXTENSION postgis CASCADE");
+
+        AtomicBoolean webServerInitialized = new AtomicBoolean(false);
+        var application = new SpringApplicationBuilder(SudAukcijeApplication.class)
+                .web(WebApplicationType.SERVLET)
+                .profiles("test")
+                .listeners(event -> {
+                    if (event instanceof WebServerInitializedEvent) {
+                        webServerInitialized.set(true);
+                    }
+                });
+
+        assertThatThrownBy(() -> application.run(
+                "--server.port=0",
+                "--spring.datasource.url=" + jdbcUrl,
+                "--spring.datasource.username=" + container.getUsername(),
+                "--spring.datasource.password=" + container.getPassword()))
+                .hasStackTraceContaining("PostGIS extension is missing");
+        assertThat(webServerInitialized).isFalse();
     }
 
     private static List<String> appliedMigrationScripts(String jdbcUrl, PostgreSQLContainer<?> container) {

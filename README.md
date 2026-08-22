@@ -19,14 +19,31 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | Local filtering / list UI | working |
 | Property reference extraction | planned (EPIC-02) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
-| PostGIS store | planned (EPIC-05) |
+| PostgreSQL/PostGIS + Flyway foundation | working |
+| Spatial auction schema | planned (EPIC-05/#20) |
 | Basemap + map UI | planned (EPIC-06, EPIC-07) |
 
 ## Running
 
+The explicit `dev` profile requires PostgreSQL/PostGIS. Create an ignored local
+secret, start the digest-pinned database, and pass the same password only to the
+application process:
+
 ```bash
-./gradlew bootRun
+mkdir -p .secrets
+# Put a generated local password in .secrets/postgres-password (one line).
+docker compose up -d --wait db
+AUKCIJE_DB_PASSWORD="$(tr -d '\r\n' < .secrets/postgres-password)" \
+  ./gradlew bootRun
 ```
+
+Compose reads `.env`; Spring Boot does not. If `.env` changes the database name,
+user, or port, export the matching `AUKCIJE_DB_*` variables before `bootRun`;
+set `AUKCIJE_DB_HOST` directly in the application environment when needed.
+The Gradle `bootRun` task supplies `dev` for this local workflow only. The
+packaged application has no default: starting it without exactly one of `dev`,
+`test`, `prod`, or `local-h2` is rejected before the datasource or web server
+starts.
 
 Serves on <http://localhost:8081>.
 
@@ -34,7 +51,9 @@ Serves on <http://localhost:8081>.
 2. **Преузми детаље** — fetches per-auction details (location, category, description).
 3. Filter and sort locally.
 
-Data persists to `./data/aukcije` (H2 file DB), so syncing is a one-time step.
+PostgreSQL data persists in the named Compose volume mounted at the PostgreSQL
+18 path `/var/lib/postgresql`. Flyway owns the schema and Hibernate validates it
+at startup.
 
 ### Sync API
 
@@ -44,7 +63,12 @@ POST /api/sync/details    start details sync
 GET  /api/sync/status     sync progress
 ```
 
-H2 console: <http://localhost:8081/h2-console> — JDBC URL `jdbc:h2:file:./data/aukcije`, user `sa`, empty password.
+The old H2 console and automatic DDL are disabled. An explicitly activated
+`local-h2` profile remains only for legacy compatibility after an archive has
+been taken; it is never the default runtime.
+
+See [Database operations](documentation/DATABASE_OPERATIONS.md) for profile,
+backup/restore, legacy-H2 archive, clean re-sync, and failure-recovery commands.
 
 ## Tests
 
@@ -65,8 +89,9 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database, Hibernate starting with `ddl-auto=validate`, entity round-trip |
-| `SchemaNegativeControlTest` | context must fail on an invalid migration, on a database without PostGIS, and on a schema that drifted from the entity |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V3, Hibernate `validate`, entity round-trip, PostGIS and filter indexes |
+| `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
+| `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
 
@@ -81,9 +106,10 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is PostgreSQL/PostGIS flavoured and is
-applied by the `postgis` test profile. The application itself still runs on H2
-with `spring.flyway.enabled=false` until EPIC-05 (#15) moves it across.
+`src/main/resources/db/migration/` is the only schema authority. The dev, test,
+and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
+Migration validation, Hibernate validation, and an explicit PostGIS startup
+probe make checksum drift, schema drift, and a missing extension fatal.
 
 ### If Testcontainers cannot find Docker
 
@@ -174,7 +200,7 @@ python3 tools/make-fixture.py tools/aukcije.json src/test/resources/fixtures/auc
 
 ## Stack
 
-Java 17 · Spring Boot 3.4.3 (Web, Data JPA, Thymeleaf) · H2 (migrating to
-PostgreSQL/PostGIS per EPIC-05) · Flyway · Gradle wrapper.
+Java 17 · Spring Boot 3.4.3 (Web, Data JPA, Thymeleaf) · PostgreSQL 18/PostGIS
+3.6 · Hibernate Spatial/JTS · Flyway · Gradle wrapper.
 
 Tests: JUnit 5 · Testcontainers (`postgis/postgis:18-3.6`) · GitHub Actions.

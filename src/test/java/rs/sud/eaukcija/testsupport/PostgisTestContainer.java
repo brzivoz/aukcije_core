@@ -22,10 +22,13 @@ public final class PostgisTestContainer {
 
     /** The production image. Changing this must be a deliberate, reviewed step. */
     public static final DockerImageName IMAGE =
-            DockerImageName.parse("postgis/postgis:18-3.6").asCompatibleSubstituteFor("postgres");
+            DockerImageName.parse("postgis/postgis:18-3.6@sha256:db8c151a4e1f4686b1a985a3490cf96f9f8c8c2725f58a46ef7a57e52f167cc3")
+                    .asCompatibleSubstituteFor("postgres");
 
     /** A stock PostgreSQL image with no PostGIS, used only as a negative control. */
-    public static final DockerImageName IMAGE_WITHOUT_POSTGIS = DockerImageName.parse("postgres:18-alpine");
+    public static final DockerImageName IMAGE_WITHOUT_POSTGIS = DockerImageName.parse(
+            "postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2")
+                    .asCompatibleSubstituteFor("postgres");
 
     private static PostgreSQLContainer<?> shared;
 

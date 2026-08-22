@@ -15,16 +15,21 @@ repositories {
     mavenCentral()
 }
 
+def flywayVersion = '11.20.2'
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    // Spring Boot 3.4.3 manages Flyway 10.x. Pin the newest Java-17 Flyway 11
+    // line that retains the configuration API used by Boot 3.4.
+    implementation "org.flywaydb:flyway-core:${flywayVersion}"
+    implementation "org.flywaydb:flyway-database-postgresql:${flywayVersion}"
+    implementation 'org.hibernate.orm:hibernate-spatial'
+    implementation 'org.locationtech.jts:jts-core'
 
-    // Migrations are authored here from #16 onwards. They are disabled on the
-    // default H2 profile until #15 moves the application onto PostgreSQL.
-    implementation 'org.flywaydb:flyway-core'
-    implementation 'org.flywaydb:flyway-database-postgresql'
-
+    // Kept only for the explicitly isolated local-h2 transition profile. The
+    // default/dev, test, and prod runtimes all use PostgreSQL/PostGIS.
     runtimeOnly 'com.h2database:h2'
     runtimeOnly 'org.postgresql:postgresql'
 
@@ -32,6 +37,12 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+}
+
+tasks.named('bootRun') {
+    // Local Gradle ergonomics only. The packaged application still has no
+    // default profile and refuses to start until deployment selects one.
+    args = ['--spring.profiles.active=dev']
 }
 
 tasks.named('test') {

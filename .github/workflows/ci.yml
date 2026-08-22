@@ -43,8 +43,8 @@ jobs:
         # Pulled explicitly so an image-registry problem is reported as its own
         # failed step rather than as a mysterious container-startup timeout.
         run: |
-          docker pull postgis/postgis:18-3.6
-          docker pull postgres:18-alpine
+          docker pull postgis/postgis:18-3.6@sha256:db8c151a4e1f4686b1a985a3490cf96f9f8c8c2725f58a46ef7a57e52f167cc3
+          docker pull postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
 
       - name: Run the full test suite
         run: ./gradlew --no-daemon clean test

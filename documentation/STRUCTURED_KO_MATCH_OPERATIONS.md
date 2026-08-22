@@ -52,9 +52,11 @@ run.
 
 The final JSON reports the dictionary/source/normalizer/alias versions, total
 population, processed and unchanged counts, all four statuses, method counts,
-duration, and the measured match rate. A `NOT_FOUND` row retains the five best
-deterministically ranked review candidates; this fixed bound is not a hidden
-runtime input to idempotency.
+duration, and the measured match rate. A `NOT_FOUND` row retains up to five
+deterministically ranked review candidates whose normalized-name similarity is
+at least 70%. Candidates below that review floor are omitted; if none remain,
+the row uses method `NONE`. The fixed floor and bound are not hidden runtime
+inputs to idempotency.
 
 ## Persistence and audit evidence
 

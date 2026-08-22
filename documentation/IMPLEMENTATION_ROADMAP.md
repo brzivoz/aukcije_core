@@ -79,7 +79,7 @@ Every figure below was verified directly against the live API on 2026-08-21.
 
 16. **The legal scrutiny was one-sided.** An entire epic, a P0 gate, and explicit no-authenticated-scraping rules cover RGZ — and nothing covered eaukcija.sud.rs's own terms for automated access, the source the whole project depends on. `robots.txt` returns 404 and `WebApi.Proxy/*` is an undocumented SPA backend, not a published API. #17 now requires a short source acceptable-use note recording that state, the chosen rate limit and contact `User-Agent` as mitigation, and whether official contact was attempted. Deliberately far lighter than #13 — no gate, half a page — but the asymmetry is closed.
 
-17. **Nothing was sized and no milestone had a date.** Every executable issue now carries `size:S` (1–2 focused days), `size:M` (about a week), or `size:L` (two weeks or more; consider splitting). The current distribution is 3 S, 15 M, 7 L. Milestones still have no due dates, because setting them requires a velocity assumption the repository cannot supply.
+17. **Nothing was sized and no milestone had a date.** Every executable issue now carries `size:S` (1–2 focused days), `size:M` (about a week), or `size:L` (two weeks or more; consider splitting). The current distribution is 4 S, 15 M, 7 L. Milestones still have no due dates, because setting them requires a velocity assumption the repository cannot supply.
 
 18. **The RGZ gate was reopened for the real private-use scope.** The earlier commercial/production assumption correctly selected C. The owner clarified that use is occasional, private, and non-commercial and requested A or B. A public unauthenticated WFS 2.0.0 advertises the weekly parcel feature type and returned exact polygons for all three KO+parcel samples. #13 therefore selects **B** only as a manual one-parcel-to-private-GeoJSON workflow. It does not authorize scheduled/bulk use, product caching, or redistribution. The decision record, sanitized WFS fingerprints, failure cases, one-shot command, CRS proofs, and exact #21 replacement contract are in `documentation/2026-08-21-decision-13-rgz-parcel-access.md` and `spike/issue-13/`.
 
@@ -109,7 +109,7 @@ The reorder does not change that total — it changes when the product becomes u
 | Order | Issues on the path | Focused days |
 |---|---|---:|
 | As originally wired | #12, #17, #10, #18, #19, #20, #22, #14, #33, #23, #26, #24, #34, #25, #27 | **~103** |
-| Coarse-map-first | #36, #14, #37, #20, #38, #26, #24, #34, #25, #27 | **~47** |
+| Coarse-map-first | #36, #14, #37, #39, #20, #38, #26, #24, #34, #25, #27 | **~49** |
 
 The originally-wired row uses the pre-split #22/#33/#23; the coarse row uses #36/#37/#38.
 
@@ -119,7 +119,7 @@ The P2/M2 work remains the designated cut line. #28 and, if #13 goes badly, #21 
 
 ## Implementation order
 
-Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. The dashed #21 edge is optional precision: absent a manually imported private WFS artifact, #23 still proceeds through the address fallback.
+Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. #39 records the reviewed municipality-identity prerequisite discovered in #37's retained population before #38 consumes those matches. The dashed #21 edge is optional precision: absent a manually imported private WFS artifact, #23 still proceeds through the address fallback.
 
 ```mermaid
 flowchart TB
@@ -156,7 +156,8 @@ flowchart TB
         I34["#34 Browser harness + frontend"]
         I20["#20 Spatial schema + bbox queries"]
         I14["#14 Canonical KO dictionary"]
-        I37["#37 Structured KO matching"]
+        I37["#37 Structured KO matching ✅"]
+        I39["#39 Reviewed municipality aliases"]
         I38["#38 Coarse location resolver"]
         I25["#25 Range/ETag local serving"]
         I26["#26 Bounded GeoJSON API"]
@@ -170,7 +171,9 @@ flowchart TB
         I16 --> I20
         I36 --> I14
         I14 --> I37
+        I37 --> I39
         I37 --> I38
+        I39 --> I38
         I20 --> I38
         I36 --> I38
         I20 --> I26
@@ -237,9 +240,9 @@ The parser chain `#12 → #17 → #10 → #18 → #19 → #33 → #23` is still 
 | [#1 Auction Data Foundation](https://github.com/brzivoz/aukcije_core/issues/1) | P0 / M0 | #16, #15 (cross-epic), #12, #17, #10, #11 |
 | [#2 Property Reference Extraction](https://github.com/brzivoz/aukcije_core/issues/2) | P0 / M0 | #18, #19 |
 | [#3 Lawful RGZ Parcel Resolution](https://github.com/brzivoz/aukcije_core/issues/3) | P1 / M1 | #13 (P0 gate), #21 |
-| [#4 Official Address Resolution](https://github.com/brzivoz/aukcije_core/issues/4) | P1 / M1 | #32 (P0 spike), #36, #14, #37, #38, then #22, #33, #23 |
+| [#4 Official Address Resolution](https://github.com/brzivoz/aukcije_core/issues/4) | P1 / M1 | #32 (P0 spike), #36, #14, #37, #39, #38, then #22, #33, #23 |
 
-The correction-21 splits are [#36 centroid extract](https://github.com/brzivoz/aukcije_core/issues/36), [#37 structured KO matching](https://github.com/brzivoz/aukcije_core/issues/37), and [#38 coarse resolver](https://github.com/brzivoz/aukcije_core/issues/38). Their parents #22, #33, and #23 retain the address/parcel half of each and keep their original size labels.
+The correction-21 splits are [#36 centroid extract](https://github.com/brzivoz/aukcije_core/issues/36), [#37 structured KO matching](https://github.com/brzivoz/aukcije_core/issues/37), and [#38 coarse resolver](https://github.com/brzivoz/aukcije_core/issues/38). Their parents #22, #33, and #23 retain the address/parcel half of each and keep their original size labels. [#39 municipality aliases](https://github.com/brzivoz/aukcije_core/issues/39) is the small reviewed-data bridge from #37 to #38; it replaces per-KO suffix workarounds with one explicit municipality-identity contract.
 | [#5 PostgreSQL/PostGIS Spatial Store](https://github.com/brzivoz/aukcije_core/issues/5) | P1 / M1 | #15 (P0 prerequisite), #20 |
 | [#6 Reproducible Local Serbia Basemap](https://github.com/brzivoz/aukcije_core/issues/6) | P1 / M1 | #24, #25 |
 | [#7 Auction Map MVP](https://github.com/brzivoz/aukcije_core/issues/7) | P1 / M1 | #34, #26, #27 |
@@ -259,7 +262,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 0 ✅ | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
 | 1 | **#15 ✅, #36 ✅**, #24, #34 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
 | 2 | **#14 ✅**, #20, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
-| 3 | #37, #38 | Zero exact-match false positives matching structured `Place.Cadastral`, ambiguity left unresolved; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
+| 3 | **#37 ✅**, #39, #38 | Zero exact-match false positives matching structured `Place.Cadastral`; reviewed municipality aliases republished through #14/#37 with genuine ambiguity retained; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
 | 4 | #26 | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |
 | 5 | #27 | Accessible offline map browser suite, including multi-auction handling at a shared centroid (correction 22) and localhost-only network proof |
 

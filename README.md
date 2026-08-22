@@ -114,6 +114,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
 | `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, reviewed aliases, duplicate-name report, byte-identical replay, immutable publication, and failure-safe activation |
 | `StructuredKoMatcherTest` | scripts/diacritics, exact-code precedence, duplicate names, municipality disambiguation, reviewed aliases, malformed inputs, fuzzy-review-only behavior, and shared query/index normalization |
+| `KoDictionaryPublisherCompatibilityTest` | real #36 extractor -> #14 publisher -> #37 loader compatibility for duplicate names, reviewed aliases, and multi-parent relationships |
 | `StructuredKoMatchIntegrationTest` | V5 persistence, immutable snapshot/alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 

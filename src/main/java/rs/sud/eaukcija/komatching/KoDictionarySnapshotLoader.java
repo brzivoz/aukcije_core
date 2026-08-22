@@ -104,7 +104,7 @@ final class KoDictionarySnapshotLoader {
                     Map.copyOf(entries), Map.copyOf(index), Map.copyOf(aliases));
         } catch (KoStructuredMatchException e) {
             throw e;
-        } catch (IOException | RuntimeException e) {
+        } catch (IOException e) {
             throw new KoStructuredMatchException(
                     "DICTIONARY_CORRUPT", "could not validate the active KO dictionary", e);
         }

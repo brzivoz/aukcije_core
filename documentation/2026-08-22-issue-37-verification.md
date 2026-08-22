@@ -48,17 +48,27 @@ unresolved with every exact official candidate retained. Examples include
 `БРЕСНИЦА / Врање-град`, `ЗАГРАЂЕ / Зајечар-град`,
 `КРАЉЕВО / Краљево-град`, `СТАРИ ГРАД / Суботица-град`, and
 `ЛЕСКОВАЦ / Лесковац-град`. No popularity, row-order, settlement, or fuzzy
-guess was used to resolve them.
+guess was used to resolve them. Twenty rows use the systematic city-qualified
+portal form. The remaining `ПАЛИЛУЛА / Палилула` row is not a suffix case: its
+two KO candidates belong to official `ПАЛИЛУЛА (БЕОГРАД)` and `СВРЉИГ`
+municipalities, so it needs separately reviewed identity evidence.
 
 The two `NOT_FOUND` rows are auctions `180244` and `180245`, both carrying
-`БУНУШЕВЦЕ / Врање-град`. Their top five edit-distance candidates were
-persisted for review, but `matched_ko_code` remained null. Adding a mapping
-would require a reviewed #14 alias record with provenance; the matcher contains
-no one-off exception.
+`БУНУШЕВЦЕ / Врање-град`. Each retains the one plausible distance-one review
+candidate (`БУНУШЕВАЦ`, code `711209`) above the 70% normalized-name similarity
+floor; unrelated top-five candidates are no longer persisted.
 
-The final disposable-PostGIS run processed all 589 rows in 568 ms. An immediate
+The 21 ambiguous rows expose a separate municipality-identity gap: portal
+municipalities such as `Врање-град`, `Зајечар-град`, and `Краљево-град` do not
+equal their official municipality forms. A KO-name alias cannot express that
+equivalence without pinning each KO separately, so no per-KO workaround was
+added here. The reviewed municipality-alias prerequisite is tracked explicitly
+in [#39](https://github.com/brzivoz/aukcije_core/issues/39), blocks #38, and
+must refresh the #14 artifact before rerunning this matcher.
+
+The final disposable-PostGIS run processed all 589 rows in 395 ms. An immediate
 identical replay processed zero, counted 589 unchanged, preserved the same
-status totals, and completed in 80 ms. The integration regression additionally
+status totals, and completed in 83 ms. The integration regression additionally
 proves that an exact change to `place_name` changes the fingerprint and
 reprocesses only that auction while unchanged rows preserve `resolved_at`.
 
@@ -76,14 +86,23 @@ The reviewed fixture suite covers:
   source reference, reviewer, and date;
 - null and punctuation-only structured names as `INVALID`; and
 - a one-edit typo producing ranked `FUZZY_REVIEW` candidates while remaining
-  `NOT_FOUND` with no selected KO.
+  `NOT_FOUND` with no selected KO, and an implausible query whose candidates
+  all fall below the 70% review floor.
 
 `StructuredKoMatcherTest` directly proves that query normalization calls the
 same `SerbianNameNormalizer` implementation and contract as the dictionary
 index. The loader independently verifies `ACTIVE`, the manifest, every file
 size/hash, per-row source provenance, shared-normalizer output, embedded alias
 reviews, and a fully reconstructed official-name/alias index before matching.
-A checksum-negative control fails before a match runs.
+A checksum-negative control fails before a match runs. A loader-programming-bug
+control also proves that an unexpected runtime exception is not mislabeled as
+operator-owned `DICTIONARY_CORRUPT` data.
+
+`KoDictionaryPublisherCompatibilityTest` builds synthetic GPKG sources through
+the production #36 extractor and #14 publisher, then loads the generated
+artifact through the #37 loader. It proves duplicate-name disambiguation,
+reviewed-alias compatibility, and preservation of multi-municipality and
+multi-settlement relationships without relying on a hand-written dictionary.
 
 `StructuredKoMatchIntegrationTest` migrates real PostgreSQL through V5 and
 proves all four statuses, method/rationale fields, selected-code nullability,
@@ -91,14 +110,15 @@ JSONB candidates, official snapshot and alias provenance, retained run reports,
 unchanged replay, and selective source-field reprocessing. In the reviewed
 fixture matrix, every exact selection equals the expected official code and all
 duplicate-name cases without one unique municipality remain unresolved: zero
-exact-match false positives.
+exact-match false positives. Symmetric setup/teardown cleanup also prevents its
+shared Testcontainers database rows from leaking into adjacent suites.
 
 Description fields are never read. The known structured/text conflict on
 auction `179324` therefore remains #33's reconciliation responsibility, as the
 issue contract requires.
 
-The final clean `./gradlew clean test --no-daemon` run discovered 98 tests:
-95 passed, the three explicitly opt-in full-artifact/population tests skipped,
+The final clean `./gradlew clean test --no-daemon` run discovered 102 tests:
+99 passed, the three explicitly opt-in full-artifact/population tests skipped,
 and there were zero failures or errors. The separately enabled current-population
 test then passed against the retained official dictionary and 589-row corpus.
 `git diff --check` also passed.

@@ -16,6 +16,7 @@ import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
 final class StructuredKoMatcher {
 
     static final int DEFAULT_FUZZY_CANDIDATE_LIMIT = 5;
+    static final int MIN_FUZZY_SIMILARITY_BASIS_POINTS = 7_000;
 
     enum Status {
         MATCHED,
@@ -144,7 +145,8 @@ final class StructuredKoMatcher {
         List<Candidate> fuzzy = fuzzyCandidates(normalizedCadastral, input);
         if (fuzzy.isEmpty()) {
             return unresolved(input, fingerprint, Status.NOT_FOUND, Method.NONE,
-                    "NOT_FOUND: normalized Place.Cadastral is absent from the official and reviewed-alias index",
+                    "NOT_FOUND: normalized Place.Cadastral is absent from the exact index and no fuzzy candidate "
+                            + "meets the 70% review-similarity floor",
                     List.of());
         }
         return unresolved(input, fingerprint, Status.NOT_FOUND, Method.FUZZY_REVIEW,
@@ -196,14 +198,16 @@ final class StructuredKoMatcher {
                 .thenComparing((FuzzyHit hit) -> !placeMatches(
                         dictionary.entriesByCode().get(hit.candidate().koCode()), input.placeName()))
                 .thenComparing(hit -> hit.candidate().koCode());
-        List<FuzzyHit> hits = bestByKo.values().stream().sorted(order).limit(fuzzyCandidateLimit).toList();
+        List<FuzzyHit> hits = bestByKo.values().stream()
+                .filter(hit -> similarityBasisPoints(normalizedQuery, hit.normalizedName(), hit.distance())
+                        >= MIN_FUZZY_SIMILARITY_BASIS_POINTS)
+                .sorted(order)
+                .limit(fuzzyCandidateLimit)
+                .toList();
         List<Candidate> candidates = new ArrayList<>();
         for (int index = 0; index < hits.size(); index++) {
             FuzzyHit hit = hits.get(index);
-            int maximumLength = Math.max(normalizedQuery.length(), hit.normalizedName().length());
-            int similarity = maximumLength == 0
-                    ? 10_000
-                    : Math.max(0, 10_000 - (hit.distance() * 10_000 / maximumLength));
+            int similarity = similarityBasisPoints(normalizedQuery, hit.normalizedName(), hit.distance());
             candidates.add(candidate(
                     index + 1,
                     dictionary.entriesByCode().get(hit.candidate().koCode()),
@@ -215,6 +219,13 @@ final class StructuredKoMatcher {
                     similarity));
         }
         return List.copyOf(candidates);
+    }
+
+    private static int similarityBasisPoints(String query, String candidate, int distance) {
+        int maximumLength = Math.max(query.length(), candidate.length());
+        return maximumLength == 0
+                ? 10_000
+                : Math.max(0, 10_000 - (distance * 10_000 / maximumLength));
     }
 
     private List<Candidate> candidates(

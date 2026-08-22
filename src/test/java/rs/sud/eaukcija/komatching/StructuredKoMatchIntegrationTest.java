@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,13 +45,18 @@ class StructuredKoMatchIntegrationTest {
 
     @BeforeEach
     void resetPopulation() {
-        jdbc.update("DELETE FROM structured_ko_match_runs");
-        jdbc.update("DELETE FROM auctions");
+        clearPopulation();
         insertAuction(37001, "  чајетина!!!", "Насеље А", "Општина А");
         insertAuction(37002, "ГРАД", "Насеље А", null);
         insertAuction(37003, "Caribrod", "Димитровград", "Димитровград");
         insertAuction(37004, "Cajetinaa", "Naselje A", "Opština A");
         insertAuction(37005, null, "Naselje A", "Opština A");
+    }
+
+    @AfterEach
+    void clearPopulation() {
+        jdbc.update("DELETE FROM structured_ko_match_runs");
+        jdbc.update("DELETE FROM auctions");
     }
 
     @Test

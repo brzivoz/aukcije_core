@@ -3,10 +3,13 @@ package rs.sud.eaukcija.komatching;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,7 +125,21 @@ class StructuredKoMatcherTest {
         assertThat(result.candidates()).isNotEmpty();
         assertThat(result.candidates().get(0).koCode()).isEqualTo("100001");
         assertThat(result.candidates().get(0).editDistance()).isEqualTo(1);
+        assertThat(result.candidates().get(0).similarityBasisPoints())
+                .isGreaterThanOrEqualTo(StructuredKoMatcher.MIN_FUZZY_SIMILARITY_BASIS_POINTS);
         assertThat(result.rationale()).contains("not auto-selected");
+    }
+
+    @Test
+    void implausibleFuzzyCandidatesBelowTheSimilarityFloorAreDropped() {
+        StructuredKoMatcher.Match result = matcher.match(
+                new StructuredKoMatcher.Input(12, "XYZXYZXYZ", "Naselje A", "Opština A"));
+
+        assertThat(result.status()).isEqualTo(StructuredKoMatcher.Status.NOT_FOUND);
+        assertThat(result.method()).isEqualTo(StructuredKoMatcher.Method.NONE);
+        assertThat(result.matchedKoCode()).isNull();
+        assertThat(result.candidates()).isEmpty();
+        assertThat(result.rationale()).contains("70% review-similarity floor");
     }
 
     @Test
@@ -163,6 +180,21 @@ class StructuredKoMatcherTest {
         assertThatThrownBy(() -> new KoDictionarySnapshotLoader(objectMapper).load(root))
                 .isInstanceOfSatisfying(KoStructuredMatchException.class,
                         error -> assertThat(error.code()).isEqualTo("DICTIONARY_FILE_CHECKSUM_MISMATCH"));
+    }
+
+    @Test
+    void unexpectedLoaderRuntimeBugsAreNotMisreportedAsCorruptOperatorData() throws Exception {
+        Path root = KoDictionaryTestArtifact.create(tempDirectory.resolve("loader-bug"), objectMapper);
+        ObjectMapper brokenMapper = new ObjectMapper() {
+            @Override
+            public JsonNode readTree(File file) throws IOException {
+                throw new NullPointerException("simulated loader bug");
+            }
+        };
+
+        assertThatThrownBy(() -> new KoDictionarySnapshotLoader(brokenMapper).load(root))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("simulated loader bug");
     }
 
     private KoDictionarySnapshot copyDictionary(

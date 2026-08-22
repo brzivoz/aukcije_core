@@ -81,12 +81,46 @@ class PostgisSchemaIntegrationTest {
 
         assertThat(applied)
                 .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
-                        "V3__auction_filter_indexes.sql")
+                        "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
         assertThat(failures).isZero();
+    }
+
+    @Test
+    void flywayOwnsTheAddressRegistrySnapshotAndLookupContract() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name LIKE 'address_registry_%'
+                ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "address_registry_active_snapshot",
+                        "address_registry_centroids",
+                        "address_registry_import_runs",
+                        "address_registry_points",
+                        "address_registry_snapshots");
+
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                WHERE schemaname = 'public' AND tablename = 'address_registry_points'
+                ORDER BY indexname
+                """, String.class)).contains(
+                        "idx_address_registry_ko_parcel",
+                        "idx_address_registry_named_ko_parcel",
+                        "idx_address_registry_exact_address",
+                        "idx_address_registry_street",
+                        "idx_address_registry_location");
+
+        assertThat(jdbc.queryForObject("""
+                SELECT srid FROM geometry_columns
+                WHERE f_table_schema = 'public'
+                  AND f_table_name = 'address_registry_points'
+                  AND f_geometry_column = 'location'
+                """, Integer.class)).isEqualTo(4326);
     }
 
     @Test

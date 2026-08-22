@@ -27,6 +27,9 @@ dependencies {
     implementation "org.flywaydb:flyway-database-postgresql:${flywayVersion}"
     implementation 'org.hibernate.orm:hibernate-spatial'
     implementation 'org.locationtech.jts:jts-core'
+    // The official Address Registry is distributed as a GeoPackage (SQLite).
+    // The importer reads it row-by-row; no GDAL installation is required.
+    implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
 
     // Kept only for the explicitly isolated local-h2 transition profile. The
     // default/dev, test, and prod runtimes all use PostgreSQL/PostGIS.
@@ -57,4 +60,11 @@ tasks.named('test') {
         events 'passed', 'skipped', 'failed'
         exceptionFormat 'short'
     }
+}
+
+tasks.register('importAddressRegistry', JavaExec) {
+    group = 'application'
+    description = 'Validate and atomically import an official Address Registry GPKG snapshot'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.addressregistry.AddressRegistryImportCli'
 }

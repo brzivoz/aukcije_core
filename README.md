@@ -18,6 +18,7 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | eAukcija ingest (listings + details) | working |
 | Local filtering / list UI | working |
 | Property reference extraction | planned (EPIC-02) |
+| Official Address Registry snapshots | working (full points + centroids, #22) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | planned (EPIC-05/#20) |
@@ -69,6 +70,9 @@ been taken; it is never the default runtime.
 
 See [Database operations](documentation/DATABASE_OPERATIONS.md) for profile,
 backup/restore, legacy-H2 archive, clean re-sync, and failure-recovery commands.
+See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
+for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
+rollback.
 
 ## Tests
 
@@ -94,6 +98,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
+| `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, 25834→4326, checksum/schema/CRS/row/geometry gates, unchanged replay, atomic failure, retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts query *results* only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index
@@ -106,7 +111,10 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. The dev, test,
+`src/main/resources/db/migration/` is the only schema authority. Through V4 it
+owns the auction baseline plus immutable Address Registry snapshots, the atomic
+active/previous pointer, lookup/geometry indexes, centroids, and retained import
+evidence. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
 Migration validation, Hibernate validation, and an explicit PostGIS startup
 probe make checksum drift, schema drift, and a missing extension fatal.

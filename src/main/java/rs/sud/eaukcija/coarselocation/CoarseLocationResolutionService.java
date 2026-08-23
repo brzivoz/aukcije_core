@@ -20,6 +20,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
+import rs.sud.eaukcija.komatching.StructuredKoMatchService;
 import rs.sud.eaukcija.spatial.LocationPrecision;
 
 /** Transactional #38 population orchestration over the active #36 and persisted #37 evidence. */
@@ -61,13 +62,16 @@ public class CoarseLocationResolutionService {
         properties.validate();
         Instant started = Instant.now(clock);
         CentroidSnapshot snapshot = snapshotLoader.load(properties.getCentroidDirectory());
-        List<CoarseLocationResolver.Input> inputs = readInputs();
-        validateUpstreamSnapshot(inputs, snapshot);
-        CoarseLocationResolver resolver = new CoarseLocationResolver(snapshot, objectMapper);
 
-        // The unchanged decision, cache publication, append-only attempt, and
-        // selected pointer move form one database-wide serial transaction.
+        // Hold the same population lock as #37 before reading its rows, then
+        // serialize #38's unchanged checks and writes behind its own lock.
+        jdbc.execute("SELECT pg_advisory_xact_lock("
+                + StructuredKoMatchService.POPULATION_LOCK_ID + ")");
         jdbc.execute("SELECT pg_advisory_xact_lock(" + ADVISORY_LOCK_ID + ")");
+
+        List<CoarseLocationResolver.Input> inputs = readInputs();
+        UpstreamProvenance upstream = validateUpstreamSnapshot(inputs, snapshot);
+        CoarseLocationResolver resolver = new CoarseLocationResolver(snapshot, objectMapper);
 
         TreeMap<String, Long> tierCounts = initializedTierCounts();
         TreeMap<String, Long> koStatusCounts = initializedKoStatusCounts();
@@ -81,7 +85,7 @@ public class CoarseLocationResolutionService {
             CoarseLocationResolver.Resolution resolution = resolver.resolve(input);
             increment(koStatusCounts, input.koStatus() == null ? "MISSING" : input.koStatus());
             increment(tierCounts, resolution.precision().name());
-            increment(rationaleCounts, rationaleCode(resolution.rationale()));
+            increment(rationaleCounts, CoarseLocationResolver.rationaleCode(resolution.rationale()));
             if (resolution.precision() == LocationPrecision.CADASTRAL_MUNICIPALITY
                     && resolution.usedMunicipalityAlias()) {
                 municipalityAliasKoCount++;
@@ -101,10 +105,14 @@ public class CoarseLocationResolutionService {
                 INSERT INTO coarse_location_resolution_runs (
                     id, started_at, finished_at, resolver_version,
                     extract_version, extract_source_sha256,
+                    dictionary_version, dictionary_source_sha256, normalizer_version,
+                    alias_dataset_version, alias_sha256,
+                    municipality_alias_dataset_version, municipality_alias_sha256,
                     population_count, processed_count, unchanged_count,
                     cadastral_municipality_count, settlement_count, municipality_count, none_count,
                     municipality_alias_ko_count, structured_ko_status_counts, rationale_counts
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb))
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                          CAST(? AS jsonb), CAST(? AS jsonb))
                 """,
                 runId,
                 databaseTime(started),
@@ -112,6 +120,13 @@ public class CoarseLocationResolutionService {
                 CoarseLocationResolver.RESOLVER_VERSION,
                 snapshot.version(),
                 snapshot.sourceGpkgSha256(),
+                upstream.dictionaryVersion(),
+                upstream.dictionarySourceSha256(),
+                upstream.normalizerVersion(),
+                upstream.aliasDatasetVersion(),
+                upstream.aliasSha256(),
+                upstream.municipalityAliasDatasetVersion(),
+                upstream.municipalityAliasSha256(),
                 inputs.size(),
                 processed,
                 unchanged,
@@ -132,6 +147,13 @@ public class CoarseLocationResolutionService {
                 snapshot.version(),
                 snapshot.sourceDate().toString(),
                 snapshot.sourceGpkgSha256(),
+                upstream.dictionaryVersion(),
+                upstream.dictionarySourceSha256(),
+                upstream.normalizerVersion(),
+                upstream.aliasDatasetVersion(),
+                upstream.aliasSha256(),
+                upstream.municipalityAliasDatasetVersion(),
+                upstream.municipalityAliasSha256(),
                 inputs.size(),
                 processed,
                 unchanged,
@@ -150,6 +172,11 @@ public class CoarseLocationResolutionService {
                        match.matched_ko_code,
                        match.dictionary_version,
                        match.dictionary_source_sha256,
+                       match.normalizer_version,
+                       match.alias_dataset_version,
+                       match.alias_sha256,
+                       match.municipality_alias_dataset_version,
+                       match.municipality_alias_sha256,
                        match.candidates::text AS ko_candidates
                   FROM auctions a
                   LEFT JOIN auction_structured_ko_matches match ON match.auction_id = a.id
@@ -165,14 +192,47 @@ public class CoarseLocationResolutionService {
                 resultSet.getString("matched_ko_code"),
                 resultSet.getString("dictionary_version"),
                 resultSet.getString("dictionary_source_sha256"),
+                resultSet.getString("normalizer_version"),
+                resultSet.getString("alias_dataset_version"),
+                resultSet.getString("alias_sha256"),
+                resultSet.getString("municipality_alias_dataset_version"),
+                resultSet.getString("municipality_alias_sha256"),
                 parseCandidates(resultSet.getString("ko_candidates"))));
     }
 
-    private void validateUpstreamSnapshot(
+    private UpstreamProvenance validateUpstreamSnapshot(
             List<CoarseLocationResolver.Input> inputs,
             CentroidSnapshot snapshot) {
+        if (inputs.isEmpty()) {
+            return UpstreamProvenance.empty();
+        }
+
+        List<Long> missing = inputs.stream()
+                .filter(input -> input.koStatus() == null)
+                .map(CoarseLocationResolver.Input::auctionId)
+                .limit(10)
+                .toList();
+        if (!missing.isEmpty()) {
+            long missingCount = inputs.stream().filter(input -> input.koStatus() == null).count();
+            throw new CoarseLocationResolutionException(
+                    "STRUCTURED_KO_RESULTS_MISSING",
+                    "#37 has no persisted result for " + missingCount + " of " + inputs.size()
+                            + " auctions; first auction ids " + missing + "; run #37 before coarse resolution");
+        }
+
+        List<Long> incomplete = inputs.stream()
+                .filter(input -> !hasCompleteUpstreamProvenance(input))
+                .map(CoarseLocationResolver.Input::auctionId)
+                .limit(10)
+                .toList();
+        if (!incomplete.isEmpty()) {
+            throw new CoarseLocationResolutionException(
+                    "STRUCTURED_KO_PROVENANCE_MISSING",
+                    "#37 rows lack dictionary or reviewed-alias provenance for auction ids " + incomplete
+                            + "; republish #14/#39 and rerun #37 before coarse resolution");
+        }
+
         List<Long> mismatches = inputs.stream()
-                .filter(input -> input.dictionarySourceSha256() != null)
                 .filter(input -> !snapshot.sourceGpkgSha256().equals(input.dictionarySourceSha256()))
                 .map(CoarseLocationResolver.Input::auctionId)
                 .limit(10)
@@ -183,6 +243,31 @@ public class CoarseLocationResolutionService {
                     "#37 results do not trace to active #36 source hash for auction ids " + mismatches
                             + "; republish #14 and rerun #37 before coarse resolution");
         }
+        List<UpstreamProvenance> provenances = inputs.stream()
+                .map(UpstreamProvenance::from)
+                .distinct()
+                .limit(2)
+                .toList();
+        if (provenances.size() != 1) {
+            throw new CoarseLocationResolutionException(
+                    "STRUCTURED_KO_PROVENANCE_MIXED",
+                    "#37 population rows do not share one dictionary and reviewed-alias snapshot; rerun #37");
+        }
+        return provenances.get(0);
+    }
+
+    private static boolean hasCompleteUpstreamProvenance(CoarseLocationResolver.Input input) {
+        return present(input.dictionaryVersion())
+                && present(input.dictionarySourceSha256())
+                && present(input.normalizerVersion())
+                && present(input.aliasDatasetVersion())
+                && present(input.aliasSha256())
+                && present(input.municipalityAliasDatasetVersion())
+                && present(input.municipalityAliasSha256());
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank();
     }
 
     private UUID upsertStructuredReference(CoarseLocationResolver.Input input) {
@@ -449,16 +534,36 @@ public class CoarseLocationResolutionService {
         counts.merge(key, 1L, Long::sum);
     }
 
-    private static String rationaleCode(String rationale) {
-        int separator = rationale.indexOf(':');
-        return separator < 0 ? rationale : rationale.substring(0, separator);
-    }
-
     private static OffsetDateTime databaseTime(Instant value) {
         return OffsetDateTime.ofInstant(value, ZoneOffset.UTC);
     }
 
     private record CacheRecord(UUID id, UUID geometryId) {
+    }
+
+    private record UpstreamProvenance(
+            String dictionaryVersion,
+            String dictionarySourceSha256,
+            String normalizerVersion,
+            String aliasDatasetVersion,
+            String aliasSha256,
+            String municipalityAliasDatasetVersion,
+            String municipalityAliasSha256) {
+
+        private static UpstreamProvenance from(CoarseLocationResolver.Input input) {
+            return new UpstreamProvenance(
+                    input.dictionaryVersion(),
+                    input.dictionarySourceSha256(),
+                    input.normalizerVersion(),
+                    input.aliasDatasetVersion(),
+                    input.aliasSha256(),
+                    input.municipalityAliasDatasetVersion(),
+                    input.municipalityAliasSha256());
+        }
+
+        private static UpstreamProvenance empty() {
+            return new UpstreamProvenance(null, null, null, null, null, null, null);
+        }
     }
 
     public record RunResult(
@@ -470,6 +575,13 @@ public class CoarseLocationResolutionService {
             String extractVersion,
             String extractSourceDate,
             String extractSourceSha256,
+            String dictionaryVersion,
+            String dictionarySourceSha256,
+            String normalizerVersion,
+            String aliasDatasetVersion,
+            String aliasSha256,
+            String municipalityAliasDatasetVersion,
+            String municipalityAliasSha256,
             long populationCount,
             long processedCount,
             long unchangedCount,

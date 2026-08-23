@@ -26,7 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class StructuredKoMatchService {
 
-    private static final long ADVISORY_LOCK_ID = 37_003_700_014L;
+    /** Shared population lock used by downstream consumers that need one coherent #37 snapshot. */
+    public static final long POPULATION_LOCK_ID = 37_003_700_014L;
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -66,7 +67,7 @@ public class StructuredKoMatchService {
 
         // One process owns a database-wide match transaction. This makes the
         // unchanged test and the conditional upsert one atomic decision.
-        jdbc.execute("SELECT pg_advisory_xact_lock(" + ADVISORY_LOCK_ID + ")");
+        jdbc.execute("SELECT pg_advisory_xact_lock(" + POPULATION_LOCK_ID + ")");
 
         List<StructuredKoMatcher.Input> inputs = jdbc.query("""
                 SELECT id, cadastral, place_name, municipality

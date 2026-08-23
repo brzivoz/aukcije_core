@@ -28,6 +28,7 @@ final class CentroidTestArtifact {
 
         List<Map<String, Object>> rows = List.of(
                 row("KO", "K100", "КО ТЕСТ", "KO TEST", List.of("S100"), List.of("M100"), 101, 20.1, 44.1),
+                row("KO", "300002", "ГРАД", "GRAD", List.of("S300"), List.of("M200"), 30, 21.2, 44.2),
                 row("SETTLEMENT", "S100", "ЧАЈЕТИНА", "ČAJETINA", List.of(), List.of("M100"), 55, 19.7, 43.7),
                 row("SETTLEMENT", "S200", "ГРАД", "GRAD", List.of(), List.of("M100"), 20, 20.2, 44.2),
                 row("SETTLEMENT", "S300", "ГРАД", "GRAD", List.of(), List.of("M200"), 30, 21.2, 44.2),
@@ -52,7 +53,7 @@ final class CentroidTestArtifact {
                         "gpkgSha256", SOURCE_HASH,
                         "targetCrs", 4326),
                 "content", Map.of("centroidCounts", Map.of(
-                        "KO", 1,
+                        "KO", 2,
                         "SETTLEMENT", 3,
                         "MUNICIPALITY", 2)),
                 "files", List.of(

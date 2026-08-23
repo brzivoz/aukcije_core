@@ -4,7 +4,7 @@
 
 **Issue:** [#38](https://github.com/brzivoz/aukcije_core/issues/38)
 
-**Runtime:** Java 17; PostgreSQL 18/PostGIS 3.6; Flyway V8; active official
+**Runtime:** Java 17; PostgreSQL 18/PostGIS 3.6; Flyway V9; active official
 #36 centroid extract; post-#39 #14 dictionary and freshly rerun #37 population
 
 **Outcome:** all 589 retained auctions received an honest selected tier:
@@ -20,13 +20,19 @@
 | Reviewed municipality-alias KO selections | 21 |
 | Extract version | `2026-08-22-ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3` |
 | Official GPKG SHA-256 | `ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3` |
-| Resolver | `structured-place-coarse-centroid` / `coarse-location-v1` |
+| Dictionary version | `2026-08-22-ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3-aliases-72455511d935ccf10cdb4a5e829bb498460b40abc4adf1ae5e9a2e496fda9c04` |
+| Normalizer | `serbian-name-v1` |
+| Alias dataset / SHA-256 | `2026-08-22.3` / `72455511d935ccf10cdb4a5e829bb498460b40abc4adf1ae5e9a2e496fda9c04` |
+| Municipality-alias dataset / SHA-256 | `2026-08-22.3` / `7d13955eb71af897549712bb11cdf85ca3559a2d364473955eadc499e6bed580` |
+| Resolver | `structured-place-coarse-centroid` / `coarse-location-v2` |
 
 The population proof runs #37 freshly before #38. It therefore consumes the
 republished format-2 dictionary and the eight #39 municipality equivalences,
 not the earlier 21-row ambiguity result. The resolver also checks that every
-persisted #37 row and the active centroid extract trace to the same official
-GPKG hash before writing anything.
+auction has a #37 row, every row carries the same complete dictionary/
+normalizer/KO-alias/municipality-alias provenance tuple, and that tuple and the
+active centroid extract trace to the same official GPKG hash before writing
+anything.
 
 ## Measured tier distribution
 
@@ -45,16 +51,18 @@ per-KO workaround exists in #38.
 
 The only two non-KO results are auctions `180244` and `180245`. Their #37 KO
 status remains review-only `NOT_FOUND` for `БУНУШЕВЦЕ`, so the resolver does
-not silently upgrade fuzzy KO candidate `711209`. Both fall through to
-settlement `Врање` (official code `711306`) after #37's reviewed `Врање-град`
-municipality context confirms the same official parent; the chosen centroid
-carries `14,725` official member points. This distinguishes a defensible
-settlement fallback from a guessed KO.
+not silently upgrade fuzzy KO candidate `711209`. Both fall through to the
+globally unambiguous settlement `Врање` (official code `711306`). #37's
+reviewed `Врање-град` municipality context is retained and checked for
+compatibility, but the report does not claim that context narrowed the
+already-single settlement candidate. The chosen centroid carries `14,725`
+official member points. This distinguishes a defensible settlement fallback
+from a guessed KO.
 
-The first full resolver pass processed 589 rows in 942 ms. The immediate
+The first full resolver pass processed 589 rows in 1,017 ms. The immediate
 identical replay processed zero, counted 589 unchanged, retained the same tier
-distribution, and completed in 375 ms. The preceding fresh #37 pass processed
-589 rows in 451 ms and reproduced 587/0/2/0.
+distribution, and completed in 367 ms. The preceding fresh #37 pass processed
+589 rows in 483 ms and reproduced 587/0/2/0.
 
 ## Persisted and failure-safe contract
 
@@ -64,12 +72,14 @@ selected `RESOLVED` attempt in the #20 model. Resolved centroid attempts carry:
 - exact coarse precision and rationale;
 - selected official level/code/name and WGS84 point;
 - the #36 extract version and official GPKG hash;
-- full #37 status/method/rationale/candidate and dictionary evidence;
+- full #37 status/method/rationale/candidate, dictionary, and #39 alias evidence;
 - the source fields and every tier considered; and
 - the selected centroid's `member_point_count`.
 
-Cache records are separate from append-only attempts. A source or version
-change creates a new attempt and moves the current pointer, leaving old
+Cache records are separate from append-only attempts. The fingerprint includes
+the complete #37/#39 provenance tuple, so a dictionary republish creates fresh
+attempt evidence even if tier/code/rationale remain unchanged. A source or
+version change creates a new attempt and moves the current pointer, leaving old
 evidence intact. A checksum or #37/#36 source-hash mismatch fails before
 mutation. Integration tests also select a later `ADDRESS` attempt, rerun the
 coarse resolver after a source change, and prove the address remains current
@@ -97,6 +107,12 @@ Focused tests cover:
 - Cyrillic/Latin and diacritic normalization through the shared
   `serbian-name-v1` implementation;
 - duplicate settlement names constrained only by #37 municipality evidence;
+- pre- and post-context settlement candidates with context contribution stated
+  only when it actually narrows the set;
+- structural municipality-alias counting from the selected #37 candidate,
+  independent of rationale text;
+- fail-closed missing, incomplete, mixed, and source-mismatched #37 populations;
+- a dictionary-version-only republish appending refreshed evidence;
 - no output of `PARCEL`, `ADDRESS`, or `STREET`;
 - active pointer, manifest/file checksum, per-row provenance, count, CRS,
   uniqueness, bounds, and member-count validation;

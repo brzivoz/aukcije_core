@@ -18,7 +18,7 @@ import rs.sud.eaukcija.spatial.LocationPrecision;
 final class CoarseLocationResolver {
 
     static final String RESOLVER = "structured-place-coarse-centroid";
-    static final String RESOLVER_VERSION = "coarse-location-v1";
+    static final String RESOLVER_VERSION = "coarse-location-v2";
     static final String SOURCE_DATASET = "RGZ_ADDRESS_REGISTRY_CENTROID_EXTRACT";
     static final String REFERENCE_PARSER_VERSION = "coarse-structured-place-v1";
     static final String REFERENCE_CANONICAL_KEY = "structured-place";
@@ -66,10 +66,14 @@ final class CoarseLocationResolver {
             eligibleSettlements = settlementCandidates.stream()
                     .filter(candidate -> candidate.municipalityCodes().contains(municipalityContext.code()))
                     .toList();
+        }
+        boolean municipalityContextNarrowed = eligibleSettlements.size() < settlementCandidates.size();
+        if (municipalityContextNarrowed) {
             settlementRationale = "SETTLEMENT_EXACT_NAME_WITH_MUNICIPALITY_CONTEXT";
         }
-        evidence.set("settlementTier", lookupEvidence(
-                input.placeName(), settlementCandidates,
+        evidence.set("settlementTier", settlementLookupEvidence(
+                input.placeName(), settlementCandidates, eligibleSettlements, municipalityContext,
+                municipalityContextNarrowed,
                 eligibleSettlements.size() == 1 ? null : "NO_UNAMBIGUOUS_SETTLEMENT_IDENTITY"));
         if (eligibleSettlements.size() == 1) {
             return resolved(
@@ -138,7 +142,7 @@ final class CoarseLocationResolver {
         selected.put("memberPointCount", centroid.memberPointCount());
         selected.put("longitude", centroid.longitude());
         selected.put("latitude", centroid.latitude());
-        selected.put("rationale", rationale.substring(0, rationale.indexOf(':')));
+        selected.put("rationale", rationaleCode(rationale));
         return new Resolution(
                 fingerprint,
                 "RESOLVED",
@@ -167,6 +171,11 @@ final class CoarseLocationResolver {
         putNullable(ko, "matchedKoCode", input.matchedKoCode());
         putNullable(ko, "dictionaryVersion", input.dictionaryVersion());
         putNullable(ko, "dictionarySourceSha256", input.dictionarySourceSha256());
+        putNullable(ko, "normalizerVersion", input.normalizerVersion());
+        putNullable(ko, "aliasDatasetVersion", input.aliasDatasetVersion());
+        putNullable(ko, "aliasSha256", input.aliasSha256());
+        putNullable(ko, "municipalityAliasDatasetVersion", input.municipalityAliasDatasetVersion());
+        putNullable(ko, "municipalityAliasSha256", input.municipalityAliasSha256());
         ko.put("usedReviewedMunicipalityAlias", input.usedReviewedMunicipalityAlias());
         ko.set("candidates", input.koCandidates() == null
                 ? objectMapper.createArrayNode()
@@ -233,6 +242,32 @@ final class CoarseLocationResolver {
         return lookup;
     }
 
+    private ObjectNode settlementLookupEvidence(
+            String rawValue,
+            List<CentroidSnapshot.Centroid> candidates,
+            List<CentroidSnapshot.Centroid> eligibleCandidates,
+            MunicipalityContext municipalityContext,
+            boolean municipalityContextNarrowed,
+            String rejection) {
+        ObjectNode lookup = lookupEvidence(rawValue, candidates, rejection);
+        ArrayNode eligibleCodes = lookup.putArray("eligibleCandidateCodes");
+        eligibleCandidates.stream()
+                .map(CentroidSnapshot.Centroid::officialCode)
+                .sorted()
+                .forEach(eligibleCodes::add);
+        putNullable(lookup, "municipalityContextCode", municipalityContext.code());
+        lookup.put("municipalityContextFromStructuredKoEvidence",
+                municipalityContext.fromStructuredKoEvidence());
+        lookup.put("municipalityContextNarrowedCandidates", municipalityContextNarrowed);
+        String selectionBasis = eligibleCandidates.size() != 1
+                ? null
+                : municipalityContextNarrowed
+                        ? "MUNICIPALITY_CONTEXT_NARROWED_TO_ONE"
+                        : "UNIQUE_SETTLEMENT_NAME";
+        putNullable(lookup, "selectionBasis", selectionBasis);
+        return lookup;
+    }
+
     static String fingerprint(Input input, String extractVersion, String resolverVersion) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -243,6 +278,13 @@ final class CoarseLocationResolver {
             add(digest, input.koMethod());
             add(digest, input.koRationale());
             add(digest, input.matchedKoCode());
+            add(digest, input.dictionaryVersion());
+            add(digest, input.dictionarySourceSha256());
+            add(digest, input.normalizerVersion());
+            add(digest, input.aliasDatasetVersion());
+            add(digest, input.aliasSha256());
+            add(digest, input.municipalityAliasDatasetVersion());
+            add(digest, input.municipalityAliasSha256());
             add(digest, String.join(",", municipalityContextCodes(input)));
             add(digest, extractVersion);
             add(digest, resolverVersion);
@@ -270,6 +312,11 @@ final class CoarseLocationResolver {
         }
     }
 
+    static String rationaleCode(String rationale) {
+        int separator = rationale.indexOf(':');
+        return separator < 0 ? rationale : rationale.substring(0, separator);
+    }
+
     record Input(
             long auctionId,
             String cadastral,
@@ -281,10 +328,27 @@ final class CoarseLocationResolver {
             String matchedKoCode,
             String dictionaryVersion,
             String dictionarySourceSha256,
+            String normalizerVersion,
+            String aliasDatasetVersion,
+            String aliasSha256,
+            String municipalityAliasDatasetVersion,
+            String municipalityAliasSha256,
             JsonNode koCandidates) {
 
         boolean usedReviewedMunicipalityAlias() {
-            return koRationale != null && koRationale.startsWith("MUNICIPALITY_CONTEXT_REVIEWED_ALIAS:");
+            if (!"MATCHED".equals(koStatus) || !"MUNICIPALITY_CONTEXT".equals(koMethod)
+                    || matchedKoCode == null
+                    || koCandidates == null || !koCandidates.isArray()) {
+                return false;
+            }
+            for (JsonNode candidate : koCandidates) {
+                if (matchedKoCode.equals(candidate.path("koCode").asText(null))
+                        && candidate.path("municipalityAliasReviews").isArray()
+                        && !candidate.path("municipalityAliasReviews").isEmpty()) {
+                    return true;
+                }
+            }
+            return false;
         }
     }
 

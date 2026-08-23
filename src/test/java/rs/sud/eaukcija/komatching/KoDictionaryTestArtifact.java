@@ -15,7 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
 
 /** Small reviewed #14-compatible artifact used by issue #37 tests. */
-final class KoDictionaryTestArtifact {
+public final class KoDictionaryTestArtifact {
 
     private static final String SOURCE_DATE = "2026-08-22";
     private static final String SOURCE_HASH = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -23,7 +23,7 @@ final class KoDictionaryTestArtifact {
     private KoDictionaryTestArtifact() {
     }
 
-    static Path create(Path root, ObjectMapper objectMapper) throws Exception {
+    public static Path create(Path root, ObjectMapper objectMapper) throws Exception {
         Files.createDirectories(root.resolve("versions"));
         Map<String, Object> alias = orderedMap(
                 "recordKind", "KO_ALIAS",

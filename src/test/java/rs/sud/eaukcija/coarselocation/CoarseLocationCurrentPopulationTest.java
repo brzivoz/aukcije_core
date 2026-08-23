@@ -77,6 +77,14 @@ class CoarseLocationCurrentPopulationTest {
                     .containsEntry("MISSING", 0L);
             assertThat(first.extractSourceSha256())
                     .isEqualTo("ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3");
+            assertThat(first.dictionaryVersion()).isEqualTo(ko.dictionaryVersion());
+            assertThat(first.dictionarySourceSha256()).isEqualTo(ko.sourceGpkgSha256());
+            assertThat(first.normalizerVersion()).isEqualTo(ko.normalizerVersion());
+            assertThat(first.aliasDatasetVersion()).isEqualTo(ko.aliasDatasetVersion());
+            assertThat(first.aliasSha256()).isEqualTo(ko.aliasSha256());
+            assertThat(first.municipalityAliasDatasetVersion())
+                    .isEqualTo(ko.municipalityAliasDatasetVersion());
+            assertThat(first.municipalityAliasSha256()).isEqualTo(ko.municipalityAliasSha256());
             assertThat(jdbc.queryForObject(
                     "SELECT count(*) FROM current_location_resolutions", Integer.class)).isEqualTo(589);
             assertThat(jdbc.queryForObject("""

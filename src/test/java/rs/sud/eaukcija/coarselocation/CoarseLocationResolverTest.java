@@ -65,7 +65,17 @@ class CoarseLocationResolverTest {
         assertThat(resolutions.get(0).usedMunicipalityAlias()).isTrue();
         assertThat(resolutions.get(0).centroid().memberPointCount()).isEqualTo(42);
         assertThat(resolutions.get(3).rationale()).startsWith("SETTLEMENT_EXACT_NAME:");
+        assertThat(resolutions.get(5).rationale())
+                .startsWith("SETTLEMENT_EXACT_NAME_WITH_MUNICIPALITY_CONTEXT:");
         assertThat(resolutions.get(5).centroid().officialCode()).isEqualTo("S300");
+        JsonNode settlementEvidence = resolutions.get(5).candidateEvidence().path("settlementTier");
+        assertThat(settlementEvidence.path("candidateCodes").toString())
+                .isEqualTo("[\"S200\",\"S300\"]");
+        assertThat(settlementEvidence.path("eligibleCandidateCodes").toString())
+                .isEqualTo("[\"S300\"]");
+        assertThat(settlementEvidence.path("municipalityContextNarrowedCandidates").asBoolean()).isTrue();
+        assertThat(settlementEvidence.path("selectionBasis").asText())
+                .isEqualTo("MUNICIPALITY_CONTEXT_NARROWED_TO_ONE");
         assertThat(resolutions.get(4).candidateEvidence().path("selected").path("precision").asText())
                 .isEqualTo("NONE");
     }
@@ -92,7 +102,13 @@ class CoarseLocationResolverTest {
                 .isNotEqualTo(CoarseLocationResolver.fingerprint(
                         first, "2026-08-24-" + "b".repeat(64), CoarseLocationResolver.RESOLVER_VERSION))
                 .isNotEqualTo(CoarseLocationResolver.fingerprint(
-                        first, CentroidTestArtifact.VERSION, "coarse-location-v2"));
+                        first, CentroidTestArtifact.VERSION, "coarse-location-v3"));
+        assertThat(CoarseLocationResolver.fingerprint(
+                first, CentroidTestArtifact.VERSION, CoarseLocationResolver.RESOLVER_VERSION))
+                .isNotEqualTo(CoarseLocationResolver.fingerprint(
+                        withDictionaryVersion(first, "fixture-dictionary-republished"),
+                        CentroidTestArtifact.VERSION,
+                        CoarseLocationResolver.RESOLVER_VERSION));
         assertThat(CoarseLocationResolver.fingerprint(
                 input(1, "ГРАД", "Grad", "Opština B-grad", "NOT_FOUND", null, array()),
                 CentroidTestArtifact.VERSION,
@@ -114,6 +130,19 @@ class CoarseLocationResolverTest {
                 .isEqualTo("NO_UNAMBIGUOUS_SETTLEMENT_IDENTITY");
     }
 
+    @Test
+    void structuralAliasEvidenceDoesNotDependOnRationaleWordingAndRationaleCodesAreSafe() {
+        CoarseLocationResolver.Input input = input(
+                8, "КО ТЕСТ", null, "Општина А", "MATCHED", "K100", aliasCandidate());
+
+        assertThat(input.koRationale()).isEqualTo("RENAMED_UPSTREAM_REASON_WITHOUT_PREFIX");
+        assertThat(input.usedReviewedMunicipalityAlias()).isTrue();
+        assertThat(withKoMethod(input, "EXACT_NORMALIZED_NAME").usedReviewedMunicipalityAlias()).isFalse();
+        assertThat(CoarseLocationResolver.rationaleCode("COLON_FREE_REASON"))
+                .isEqualTo("COLON_FREE_REASON");
+        assertThat(CoarseLocationResolver.rationaleCode("CODE: details")).isEqualTo("CODE");
+    }
+
     private CoarseLocationResolver.Input input(
             long auctionId,
             String cadastral,
@@ -123,7 +152,7 @@ class CoarseLocationResolverTest {
             String matchedKoCode,
             JsonNode candidates) {
         String rationale = "MATCHED".equals(status)
-                ? "MUNICIPALITY_CONTEXT_REVIEWED_ALIAS: reviewed fixture"
+                ? "RENAMED_UPSTREAM_REASON_WITHOUT_PREFIX"
                 : status + ": fixture";
         return new CoarseLocationResolver.Input(
                 auctionId,
@@ -131,12 +160,41 @@ class CoarseLocationResolverTest {
                 place,
                 municipality,
                 status,
-                "NONE",
+                "MATCHED".equals(status) ? "MUNICIPALITY_CONTEXT" : "NONE",
                 rationale,
                 matchedKoCode,
                 "fixture-dictionary",
                 CentroidTestArtifact.SOURCE_HASH,
+                "serbian-name-v1",
+                "fixture-review-v1",
+                "c".repeat(64),
+                "fixture-review-v1",
+                "d".repeat(64),
                 candidates);
+    }
+
+    private static CoarseLocationResolver.Input withDictionaryVersion(
+            CoarseLocationResolver.Input input,
+            String dictionaryVersion) {
+        return new CoarseLocationResolver.Input(
+                input.auctionId(), input.cadastral(), input.placeName(), input.municipality(),
+                input.koStatus(), input.koMethod(), input.koRationale(), input.matchedKoCode(),
+                dictionaryVersion, input.dictionarySourceSha256(), input.normalizerVersion(),
+                input.aliasDatasetVersion(), input.aliasSha256(),
+                input.municipalityAliasDatasetVersion(), input.municipalityAliasSha256(),
+                input.koCandidates());
+    }
+
+    private static CoarseLocationResolver.Input withKoMethod(
+            CoarseLocationResolver.Input input,
+            String koMethod) {
+        return new CoarseLocationResolver.Input(
+                input.auctionId(), input.cadastral(), input.placeName(), input.municipality(),
+                input.koStatus(), koMethod, input.koRationale(), input.matchedKoCode(),
+                input.dictionaryVersion(), input.dictionarySourceSha256(), input.normalizerVersion(),
+                input.aliasDatasetVersion(), input.aliasSha256(),
+                input.municipalityAliasDatasetVersion(), input.municipalityAliasSha256(),
+                input.koCandidates());
     }
 
     private JsonNode aliasCandidate() {

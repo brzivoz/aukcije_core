@@ -116,7 +116,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V8, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run indexes, and the canonical-derivation trigger |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V9, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, and the canonical-derivation trigger |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
@@ -128,8 +128,8 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `StructuredKoMatcherTest` | scripts/diacritics, exact-code precedence, duplicate names, collision-safe municipality alias disambiguation (including official-name conflicts and alias-free official collisions), retained review evidence, precomputed municipality context, malformed inputs, fuzzy-review-only behavior, and shared query/index normalization |
 | `KoDictionaryPublisherCompatibilityTest` | real #36 extractor -> #14 publisher -> #37 loader compatibility for duplicate names, reviewed KO/municipality aliases, and multi-parent relationships |
 | `StructuredKoMatchIntegrationTest` | V6 persistence, immutable snapshot/KO/municipality-alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
-| `CoarseLocationResolverTest` | all honest coarse tiers, shared Serbian normalization, ambiguity fallthrough, reviewed municipality context, and versioned fingerprints |
-| `CoarseLocationResolutionIntegrationTest` | V7/V8 persistence, member counts, run reports, unchanged replay, selective refresh, failure safety, and higher-tier non-downgrade against PostGIS |
+| `CoarseLocationResolverTest` | all honest coarse tiers, shared Serbian normalization, ambiguity fallthrough, structural reviewed-alias evidence, pre/post-filter settlement evidence, and upstream-versioned fingerprints |
+| `CoarseLocationResolutionIntegrationTest` | V7/V8/V9 persistence, complete #37/#39 run provenance, real-#37 alias evidence, missing-upstream refusal, republish refresh, unchanged replay, failure safety, and higher-tier non-downgrade against PostGIS |
 | `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision in JSON and rendered UI honesty notice |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
@@ -144,7 +144,7 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V8 it
+`src/main/resources/db/migration/` is the only schema authority. Through V9 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias

@@ -53,7 +53,8 @@ class DatabaseLifecycleIntegrationTest {
                 .containsExactly("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
                         "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
-                        "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql");
+                        "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql",
+                        "V9__coarse_location_upstream_provenance.sql");
     }
 
     @Test
@@ -90,6 +91,50 @@ class DatabaseLifecycleIntegrationTest {
         assertThat(queryStrings(jdbcUrl, container, """
                 SELECT script FROM flyway_schema_history WHERE version = '7' AND success
                 """)).containsExactly("V7__spatial_resolution_model.sql");
+    }
+
+    @Test
+    void coarseProvenanceMigrationPreservesHistoricalV8Reports() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+        Flyway flyway = Flyway.configure()
+                .dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("8"))
+                .load();
+        flyway.migrate();
+        execute(jdbcUrl, container, """
+                INSERT INTO coarse_location_resolution_runs (
+                    id, started_at, finished_at, resolver_version,
+                    extract_version, extract_source_sha256,
+                    population_count, processed_count, unchanged_count,
+                    cadastral_municipality_count, settlement_count, municipality_count, none_count,
+                    municipality_alias_ko_count, structured_ko_status_counts, rationale_counts
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000038', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                    'coarse-location-v1', 'historical-v8',
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    0, 0, 0, 0, 0, 0, 0, 0, '{}'::jsonb, '{}'::jsonb
+                )
+                """);
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        assertThat(queryBoolean(jdbcUrl, container, """
+                SELECT dictionary_version IS NULL
+                   AND dictionary_source_sha256 IS NULL
+                   AND normalizer_version IS NULL
+                   AND alias_dataset_version IS NULL
+                   AND alias_sha256 IS NULL
+                   AND municipality_alias_dataset_version IS NULL
+                   AND municipality_alias_sha256 IS NULL
+                  FROM coarse_location_resolution_runs
+                 WHERE id = '00000000-0000-0000-0000-000000000038'
+                """)).isTrue();
     }
 
     @Test

@@ -18,8 +18,11 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
     @Test
     void existingListPageLoadsFromSeededPostgisWithOnlyLocalhostTraffic() {
         Page page = browser.page();
+        // The shell now starts the optional async map enhancement after DOM
+        // load. AuctionMapBrowserTest owns its ready/idle contract; this smoke
+        // waits only for the server-rendered list it is intended to prove.
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
-                .setWaitUntil(WaitUntilState.NETWORKIDLE));
+                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 
         assertThat(page.locator("header h1").isVisible()).isTrue();
         assertThat(page.locator("header h1").textContent())
@@ -35,7 +38,7 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
     void externalAssetOnTheRealPageProvesTheGuardWouldFailTheSuite() {
         Page page = browser.page();
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
-                .setWaitUntil(WaitUntilState.NETWORKIDLE));
+                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         page.evaluate("""
                 async externalUrl => await new Promise(resolve => {
                   const image = document.createElement('img');
@@ -58,7 +61,7 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
     void loopbackWebSocketConnectsWhileExternalWebSocketIsRecordedAndClosed() throws IOException {
         Page page = browser.page();
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
-                .setWaitUntil(WaitUntilState.NETWORKIDLE));
+                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 
         try (LoopbackWebSocketServer server = new LoopbackWebSocketServer()) {
             assertThat(openWebSocket(page, server.url())).isEqualTo("open");

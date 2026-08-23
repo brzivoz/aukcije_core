@@ -64,16 +64,26 @@ errors:         0
 BUILD SUCCESSFUL in 1m 22s
 ```
 
-Fresh successful artifacts from that run:
+The JSON evidence manifest records the filename, size, and SHA-256 of both
+screenshots for each run. Screenshot bytes and the manifest timestamp are
+intentionally run-specific, so this record does not assert a stale fixed hash.
+Both PNGs were visually inspected after the clean run.
+
+The first exact-head CI run exposed that the pre-map shell smoke still waited
+for global network idleness. That is no longer a valid completion boundary now
+that the shell launches an optional asynchronous map. The shell smoke now waits
+for `DOMContentLoaded`; `AuctionMapBrowserTest` separately owns and proves map
+readiness, viewport completion, and error states. The complete browser suite
+was rerun after that hardening:
 
 ```text
-issue-27-auction-map-desktop.png  829,478 bytes
-  sha256 fb91cdc76864779b94ac7fb97eb7ae79d2e913d37b3b93e8d946b3ab8df2bc9e
-issue-27-auction-map-narrow.png    310,013 bytes
-  sha256 d39530ee8a20948ef21eaea7be2cae4035a5303ef469907130cb1f6565803a43
-issue-27-auction-map.json
-  sha256 e03486d7f49d8d16722d100e9eca1c6524ff9cd7638d86dc399a6c3f1fe4fda8
+./gradlew browserTest --no-daemon
+
+browserTest: 8 discovered, 8 passed, 0 skipped
+failures:    0
+errors:      0
+BUILD SUCCESSFUL in 23s
 ```
 
-Both PNGs were visually inspected after the clean run. The terminal exact-head
-CI result is added to GitHub closure evidence after publication.
+The terminal exact-head CI result is added to GitHub closure evidence after
+publication.

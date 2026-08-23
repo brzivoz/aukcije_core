@@ -128,4 +128,8 @@ the shared exact localhost-only host assertion.
 
 Every green run retains desktop and narrow screenshots plus a JSON evidence
 manifest under `build/browser-test-results/evidence/issue-27-*`; CI publishes
-that directory in `browser-test-report`.
+that directory in `browser-test-report`. The legacy shell smoke waits for
+`DOMContentLoaded`, because its boundary is the server-rendered list. Map
+completion is deliberately owned by `AuctionMapBrowserTest`, which waits for
+the map's explicit ready and viewport states rather than global network
+idleness.

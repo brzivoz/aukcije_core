@@ -960,8 +960,12 @@ function restoreSelectionFromFeatures() {
     const selected = state.features.find(
             feature => String(feature.properties.auctionId) === state.selectedAuctionId);
     if (selected) {
-        renderSelectedSummary(selected);
+        const selectionHadFocus = elements.selection.contains(document.activeElement);
+        const summaryLink = renderSelectedSummary(selected);
         showPopup(selected);
+        if (selectionHadFocus) {
+            (summaryLink || elements.selection).focus({preventScroll: true});
+        }
     } else {
         elements.selection.replaceChildren();
         const text = document.createElement('p');

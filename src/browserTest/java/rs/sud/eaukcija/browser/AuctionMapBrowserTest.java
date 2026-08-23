@@ -169,6 +169,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
 
         Locator unsafeTitle = page.locator(".map-result-button")
                 .filter(new Locator.FilterOptions().setHasText("<img src=x onerror=window.__popupXss=true>"));
+        int requestsBeforeKeyboardSelection = ((Number) page.evaluate(
+                "window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
         unsafeTitle.focus();
         assertThat((Boolean) unsafeTitle.evaluate("element => element.matches(':focus-visible')")).isTrue();
         unsafeTitle.press("Enter");
@@ -189,6 +191,10 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(selectedSource.getAttribute("href"))
                 .isEqualTo("https://eaukcija.sud.rs/#/aukcije/34001");
         assertThat(selectedSource.getAttribute("rel")).isEqualTo("noopener noreferrer");
+        page.waitForFunction("""
+                previous => window.__auctionMap.getDiagnostics().requestsStarted > previous
+                  && window.__auctionMap.getDiagnostics().lastState === 'ready'
+                """, requestsBeforeKeyboardSelection);
         assertThat((Boolean) selectedSource.evaluate("element => element === document.activeElement"))
                 .isTrue();
         assertThat((Boolean) selectedSource.evaluate("""

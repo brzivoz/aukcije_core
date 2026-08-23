@@ -28,6 +28,7 @@ The GIS layers are being delivered incrementally — see the
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
 | Bounded GeoJSON viewport API | working (indexed and precision-aware, #26) |
+| Browser-test harness | working (Playwright, seeded PostGIS, localhost-only guard, #34) |
 | Basemap + map UI | planned (EPIC-06, EPIC-07) |
 
 ## Running
@@ -106,10 +107,13 @@ for the complete 589-auction tier distribution and exact replay evidence.
 See [issue #26 verification](documentation/2026-08-23-issue-26-verification.md)
 for GeoJSON contract, validation, real PostGIS filtering, query-plan, and
 single-query evidence.
+See [browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for
+the Playwright harness, localhost-only network fixture, failure evidence,
+same-origin vendoring policy, and the decision to extend the Thymeleaf UI.
 
-## Tests
+## Unit and integration tests
 
-Everything runs from one command:
+The JUnit and PostGIS integration suites run from one command:
 
 ```bash
 ./gradlew clean test
@@ -145,6 +149,9 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `CoarseLocationResolutionIntegrationTest` | V7/V8/V9 persistence, complete #37/#39 run provenance, real-#37 alias evidence, missing-upstream refusal, republish refresh, unchanged replay, failure safety, and higher-tier non-downgrade against PostGIS |
 | `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision, extraction/publication state in JSON, review visibility, and rendered UI honesty notice |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
+| `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
+| `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
+| `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index
@@ -154,6 +161,34 @@ asserts V7 and the production repository instead.
 Reports land in `build/reports/tests/test/index.html`. Every CI run — passing or
 failing — retains them as the `test-reports` artifact for 14 days, so a run
 stays citable as evidence after its log expires.
+
+## Browser tests
+
+The Playwright suite is opt-in and separate from `test`. From a clean checkout,
+with Docker running, one command installs the pinned Chromium build, starts a
+Testcontainers PostGIS database, boots the application with deterministic data,
+and runs a non-zero browser suite:
+
+```bash
+./gradlew browserTest
+```
+
+The first run downloads Chromium into ignored `.gradle/playwright-browsers`;
+unchanged later runs reuse that verified task output without executing the
+installer. On Linux CI, `-PplaywrightWithDeps` also installs required operating-
+system libraries. To watch the suite locally:
+
+```bash
+./gradlew browserTest -Dbrowser.headless=false
+```
+
+Reports land in `build/reports/tests/browserTest/index.html`. Failed tests retain
+`failure.png` and `trace.zip` under `build/browser-test-results/artifacts/`; CI
+publishes those files as `playwright-failure-evidence`. The shared network guard
+aborts every non-loopback HTTP(S) request, closes every non-loopback WebSocket,
+and tests assert the exact contacted host set. See
+[browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for the
+fixture and asset-upgrade contract.
 
 ### Migrations
 
@@ -269,4 +304,5 @@ python3 tools/make-fixture.py tools/aukcije.json src/test/resources/fixtures/auc
 Java 17 · Spring Boot 3.4.3 (Web, Data JPA, Thymeleaf) · PostgreSQL 18/PostGIS
 3.6 · Hibernate Spatial/JTS · Flyway · Gradle wrapper.
 
-Tests: JUnit 5 · Testcontainers (`postgis/postgis:18-3.6`) · GitHub Actions.
+Tests: JUnit 5 · Testcontainers (`postgis/postgis:18-3.6`) · Playwright 1.61.0
+(Chromium) · GitHub Actions.

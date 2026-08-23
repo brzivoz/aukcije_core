@@ -16,6 +16,23 @@ repositories {
 }
 
 def flywayVersion = '11.20.2'
+def playwrightVersion = '1.61.0'
+def playwrightBrowserDirectory = layout.projectDirectory.dir('.gradle/playwright-browsers')
+def playwrightVersionMarker = playwrightBrowserDirectory.file('.playwright-version')
+
+sourceSets {
+    browserTest {
+        java.srcDir 'src/browserTest/java'
+        resources.srcDir 'src/browserTest/resources'
+        compileClasspath += sourceSets.main.output + sourceSets.test.output
+        runtimeClasspath += sourceSets.main.output + sourceSets.test.output
+    }
+}
+
+configurations {
+    browserTestImplementation.extendsFrom testImplementation
+    browserTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
@@ -40,6 +57,8 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+
+    browserTestImplementation "com.microsoft.playwright:playwright:${playwrightVersion}"
 }
 
 tasks.named('bootRun') {
@@ -56,6 +75,62 @@ tasks.named('test') {
     // both a modern Docker Desktop and the CI runner's engine accept. Override
     // with -Dapi.version=... if a future engine moves the floor again.
     systemProperty 'api.version', System.getProperty('api.version', '1.43')
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat 'short'
+    }
+}
+
+tasks.register('playwrightInstall', JavaExec) {
+    group = 'verification'
+    description = 'Install the pinned Playwright Chromium build used by browserTest'
+    classpath = configurations.browserTestRuntimeClasspath
+    mainClass = 'com.microsoft.playwright.CLI'
+    environment 'PLAYWRIGHT_BROWSERS_PATH', playwrightBrowserDirectory.asFile.absolutePath
+    inputs.property 'playwrightVersion', playwrightVersion
+    inputs.property 'withOperatingSystemDependencies', project.hasProperty('playwrightWithDeps')
+    outputs.dir playwrightBrowserDirectory
+
+    doFirst {
+        File marker = playwrightVersionMarker.asFile
+        if (marker.exists() && marker.getText('UTF-8').trim() != playwrightVersion) {
+            // The directory is generated and ignored. Replacing it on a pin
+            // change prevents superseded ~500 MB browser builds accumulating.
+            project.delete(playwrightBrowserDirectory)
+        }
+        setArgs(project.hasProperty('playwrightWithDeps')
+                ? ['install', '--with-deps', 'chromium']
+                : ['install', 'chromium'])
+    }
+
+    doLast {
+        playwrightBrowserDirectory.asFile.mkdirs()
+        playwrightVersionMarker.asFile.setText(
+                playwrightVersion + System.lineSeparator(), 'UTF-8')
+    }
+}
+
+tasks.register('browserTest', Test) {
+    group = 'verification'
+    description = 'Run the opt-in Playwright browser suite against a seeded PostGIS application'
+    dependsOn tasks.named('browserTestClasses')
+    dependsOn tasks.named('testClasses')
+    dependsOn tasks.named('playwrightInstall')
+    shouldRunAfter tasks.named('test')
+
+    testClassesDirs = sourceSets.browserTest.output.classesDirs
+    classpath = sourceSets.browserTest.runtimeClasspath
+    useJUnitPlatform()
+
+    systemProperty 'api.version', System.getProperty('api.version', '1.43')
+    systemProperty 'browser.headless', System.getProperty('browser.headless', 'true')
+    systemProperty 'browser.artifact.dir',
+            layout.buildDirectory.dir('browser-test-results/artifacts').get().asFile.absolutePath
+    environment 'PLAYWRIGHT_BROWSERS_PATH', playwrightBrowserDirectory.asFile.absolutePath
+    // The installer task owns browser acquisition. Prevent Playwright.create()
+    // from filling the shared output directory with unused Firefox/WebKit builds.
+    environment 'PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD', '1'
+
     testLogging {
         events 'passed', 'skipped', 'failed'
         exceptionFormat 'short'

@@ -1,0 +1,243 @@
+schema_name: Aukcije Core Serbia Basemap
+schema_description: Offline Serbia-only vector basemap for Serbian judicial auction maps
+attribution: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">&copy; OpenStreetMap contributors</a>
+version: 2026.8.1
+is_overlay: false
+
+sources:
+  osm:
+    type: osm
+    local_path: /inputs/serbia-260801.osm.pbf
+
+layers:
+  - id: landuse
+    features:
+      - source: osm
+        geometry: polygon
+        min_zoom: 7
+        include_when:
+          landuse: __any__
+        attributes:
+          - key: class
+            tag_value: landuse
+          - key: name
+      - source: osm
+        geometry: polygon
+        min_zoom: 9
+        include_when:
+          leisure: [park, nature_reserve, garden, pitch, sports_centre]
+        attributes:
+          - key: class
+            tag_value: leisure
+          - key: name
+      - source: osm
+        geometry: polygon
+        min_zoom: 7
+        include_when:
+          natural: [wood, scrub, grassland, heath, sand]
+        attributes:
+          - key: class
+            tag_value: natural
+          - key: name
+
+  - id: water
+    features:
+      - source: osm
+        geometry: polygon
+        min_zoom: 5
+        include_when:
+          natural: water
+          waterway: [riverbank, dock, canal]
+          landuse: [reservoir, basin]
+        attributes:
+          - key: name
+          - key: class
+            type: match_value
+      - source: osm
+        geometry: line
+        min_zoom:
+          default_value: 12
+          overrides:
+            7:
+              waterway: river
+            9:
+              waterway: canal
+            11:
+              waterway: stream
+        include_when:
+          waterway: [river, canal, stream, ditch]
+        attributes:
+          - key: name
+          - key: class
+            tag_value: waterway
+
+  - id: boundaries
+    features:
+      - source: osm
+        geometry: line
+        min_zoom:
+          default_value: 9
+          overrides:
+            3:
+              admin_level: "2"
+            5:
+              admin_level: ["3", "4"]
+            7:
+              admin_level: ["5", "6"]
+        include_when:
+          boundary: administrative
+        attributes:
+          - key: admin_level
+          - key: name
+
+  - id: roads
+    features:
+      - source: osm
+        geometry: line
+        min_size: 0
+        min_zoom:
+          default_value: 13
+          overrides:
+            5:
+              highway: [motorway, trunk]
+            7:
+              highway: primary
+            9:
+              highway: secondary
+            10:
+              highway: tertiary
+            11:
+              highway: [residential, unclassified]
+            12:
+              highway: [service, living_street, pedestrian]
+        include_when:
+          highway: __any__
+        attributes:
+          - key: class
+            tag_value: highway
+          - key: name
+          - key: ref
+          - key: bridge
+          - key: tunnel
+      - source: osm
+        geometry: line
+        min_zoom: 9
+        include_when:
+          railway: [rail, light_rail, subway, tram]
+        attributes:
+          - key: class
+            tag_value: railway
+          - key: name
+
+  - id: buildings
+    features:
+      - source: osm
+        geometry: polygon
+        min_zoom: 13
+        include_when:
+          building: __any__
+        exclude_when:
+          building: no
+        attributes:
+          - key: class
+            tag_value: building
+          - key: name
+
+  - id: places
+    features:
+      - source: osm
+        geometry: point
+        min_zoom:
+          default_value: 12
+          overrides:
+            4:
+              place: [country, city]
+            7:
+              place: town
+            9:
+              place: [village, suburb]
+            11:
+              place: [hamlet, neighbourhood]
+        include_when:
+          place: [country, city, town, village, suburb, hamlet, neighbourhood]
+        attributes:
+          - key: class
+            tag_value: place
+          - key: name
+          - key: name_sr
+            tag_value: name:sr
+          - key: name_sr_latin
+            tag_value: name:sr-Latn
+
+  - id: pois
+    features:
+      - source: osm
+        geometry: point
+        min_zoom: 13
+        include_when:
+          amenity:
+            - courthouse
+            - hospital
+            - school
+            - university
+            - police
+            - fire_station
+            - bus_station
+            - restaurant
+            - cafe
+            - pharmacy
+          tourism: [museum, attraction, hotel, viewpoint]
+        attributes:
+          - key: class
+            type: match_value
+          - key: name
+
+examples:
+  - name: motorway appears at low zoom
+    input:
+      source: osm
+      geometry: line
+      tags:
+        highway: motorway
+        name: Autoput
+        ref: A1
+    output:
+      layer: roads
+      geometry: line
+      min_zoom: 5
+      tags:
+        class: motorway
+        name: Autoput
+        ref: A1
+
+  - name: Serbian city label retains both scripts
+    input:
+      source: osm
+      geometry: point
+      tags:
+        place: city
+        name: Beograd
+        name:sr: Београд
+        name:sr-Latn: Beograd
+    output:
+      layer: places
+      geometry: point
+      min_zoom: 4
+      tags:
+        class: city
+        name: Beograd
+        name_sr: Београд
+        name_sr_latin: Beograd
+
+  - name: unnamed building is retained only at high zoom
+    input:
+      source: osm
+      geometry: polygon
+      tags:
+        building: yes
+    output:
+      layer: buildings
+      geometry: polygon
+      min_zoom: 13
+      tags:
+        class: yes

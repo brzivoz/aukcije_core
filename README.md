@@ -29,7 +29,8 @@ The GIS layers are being delivered incrementally — see the
 | Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
 | Bounded GeoJSON viewport API | working (indexed and precision-aware, #26) |
 | Browser-test harness | working (Playwright, seeded PostGIS, localhost-only guard, #34) |
-| Basemap + map UI | planned (EPIC-06, EPIC-07) |
+| Offline Serbia PMTiles basemap | working (reproducible local bundle, #24) |
+| Map serving + map UI | planned (EPIC-06, EPIC-07) |
 
 ## Running
 
@@ -107,9 +108,15 @@ for the complete 589-auction tier distribution and exact replay evidence.
 See [issue #26 verification](documentation/2026-08-23-issue-26-verification.md)
 for GeoJSON contract, validation, real PostGIS filtering, query-plan, and
 single-query evidence.
+See [issue #24 verification](documentation/2026-08-23-issue-24-verification.md)
+for the dated Serbia source, pinned build toolchain, byte-identical PMTiles,
+local asset gates, manifest, three tile reads, and localhost-only map render.
 See [browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for
 the Playwright harness, localhost-only network fixture, failure evidence,
 same-origin vendoring policy, and the decision to extend the Thymeleaf UI.
+See [Serbia basemap operations](basemap/README.md) for the one-command dated
+Geofabrik build, pinned Java 21 Planetiler toolchain, local style assets,
+validation gates, ODbL attribution, manifests, resources, and cleanup.
 
 ## Unit and integration tests
 
@@ -152,6 +159,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
+| `basemapTest` | dated-source checksum failures, immutable tool/asset pins, PMTiles v3/layer/smoke validation, and external-style-asset rejection without a full map rebuild |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index

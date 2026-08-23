@@ -67,7 +67,19 @@ tasks.named('bootRun') {
     args = ['--spring.profiles.active=dev']
 }
 
+tasks.register('basemapTest', Exec) {
+    group = 'verification'
+    description = 'Run offline PMTiles source, pin, bundle, and failure-path regressions'
+    workingDir projectDir
+    commandLine 'python3', '-m', 'unittest', 'discover',
+            '-s', 'basemap/tests', '-p', 'test_*.py', '-v'
+    inputs.files(fileTree('basemap') {
+        include '**/*.py', '**/*.sh', '**/*.json', '**/*.yml', '**/*.env', '**/*.lock', '**/*.md'
+    })
+}
+
 tasks.named('test') {
+    dependsOn tasks.named('basemapTest')
     useJUnitPlatform()
 
     // Testcontainers falls back to Docker API 1.32 when no version is configured,

@@ -1,0 +1,11 @@
+# sha256<TAB>size<TAB>bundle path<TAB>immutable source URL
+62c6d49b15fa836eb6aa45e259c7ca6762f44b011b09e47776efbe4a6db1b397	76044	glyphs/Noto Sans Regular/0-255.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/0-255.pbf
+2eca7561f9f566bcacfda5dd04fb5880baec1328ec0f5484678289a13994de8a	127726	glyphs/Noto Sans Regular/256-511.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/256-511.pbf
+302231023f7048d9694a7b3f3b737c8bc378f5af0175aed5bb4f2f3b6188919a	125320	glyphs/Noto Sans Regular/1024-1279.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/1024-1279.pbf
+8ea977a587352fe31b4159ffdbc9a40be79056f2472017c742ea1e4a931864b9	64220	glyphs/Noto Sans Regular/8192-8447.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/8192-8447.pbf
+ed638688bc63afa2aa150c0dd3ff8a7ae00b6f061a36519dfabf2d3a3ebd8da8	64	sprites/light.json	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/sprites/v3/light.json
+6d9a8068e4885e5dfce62b25973b3b156e7b201090246309e03a4db556a690ca	178	sprites/light.png	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/sprites/v3/light.png
+81b6d70adba4d4315acc9109da0d488d9474ea06c5daa2869987e2ffe8edff34	64	sprites/light@2x.json	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/sprites/v3/light@2x.json
+b14ac8d9db7f586fe99c1f8f144fa54b88b0ed45233fb42421c712ba5fb1d3bf	291	sprites/light@2x.png	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/sprites/v3/light@2x.png
+7713cfc8e3c36d5ec4aa3d6cffe7500a1b3310f8a86d914b8ea09c2a9dee7c2d	4374	licenses/Noto-OFL-1.1.txt	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/OFL.txt
+46d0ca73c10d7366ef7bf3932d8508267096393ccc9ef3a41d1b1d1fe37023f1	1074	licenses/Tangram-Icons-MIT.md	https://raw.githubusercontent.com/tangrams/icons/92510779634f4a006c61ea70e50cb8c52c765a81/LICENSE.md

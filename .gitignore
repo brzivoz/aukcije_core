@@ -5,6 +5,7 @@ build/
 
 # Node
 node_modules/
+__pycache__/
 
 # IDE
 .idea/

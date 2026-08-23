@@ -22,15 +22,15 @@ and an offline browser render
 | Visible attribution | PMTiles metadata and style source both include linked `© OpenStreetMap contributors`; browser rendered it visibly with the exact `https://www.openstreetmap.org/copyright` link |
 | Delivery-time offline render | MapLibre GL JS `6.1.0` + PMTiles JS `4.4.0` rendered the remediated final artifact at 1280×800 through a loopback range server. `loaded`, `styleLoaded`, and `tilesLoaded` were all true; 11 `place-icons` features rendered from `townspot`; render/console errors were empty; contacted hosts were exactly `127.0.0.1`; blocked hosts were empty. Screenshot SHA-256 is `806ff3ac47774c8c6667a07daf9e17e9de63230cb3f64ca3a50e60f527092aa0`. This is retained delivery evidence, not a repository-replayable test; #25 owns that multi-zoom browser test and #27 owns production UI render evidence, both reusing #34's localhost-only guard |
 | Corrupt/mismatched failure | Regression tests mutate the source bytes and downloaded checksum independently and assert non-zero failure. The first real build also proved the structural gate was non-vacuous: `pmtiles verify` rejected header `MinZoom=0` because the first addressed tile was z3; the final contract is z3–14 |
-| Retained manifest | Final local bundle `serbia-2026-08-01-3d815b2d7864`; command/config SHA-256 `3d815b2d7864aa7d76631c01bc0f21ce6b7a7bf2cb2c8e3420ce23517c35bfb0`; manifest contains the exact executed Docker argv (including `--user 501:20`), source, tool, artifact, validation, style, attribution, and a complete 15-file inventory. Two exact-config generations produced manifest SHA-256 `c845f729f9d1a209181557ac673c5ddc43b6d4e4044214fe48aa9cf1d459d7e7` |
-| Self-healing cache/lock | A deliberately corrupted promoted sprite cache file failed hash/size verification, was removed automatically, and downloaded cleanly on rerun. The build also removed the observed stale `.extract-29943` directory and recovered a synthetic lock owned by dead PID `999999` before completing |
+| Retained manifest | Final local bundle `serbia-2026-08-01-b068f45b84e2`; command/config SHA-256 `b068f45b84e23c16edc2e3feb062869b1f6779034c8cbc0affbfaa172c10618d`; manifest contains a host-neutral command derived from the exact execution argv, source, tool, artifact, validation, style, attribution, and a complete 15-file inventory. It records `<uid>:<gid>`, `<source-cache>`, `<work>`, and `<basemap-config>` instead of the builder's identifiers and paths. `BASEMAP_PRINT_COMMAND=1` matched it exactly, and two exact-config generations produced manifest SHA-256 `5d83ae93636c8825af96aefcac60304ad86c46b4a63e801a8b0d5832ed930c00` |
+| Self-healing cache/lock | A deliberately corrupted promoted sprite cache file failed hash/size verification, was removed automatically, and downloaded cleanly on rerun. The build also removed the observed stale `.extract-29943` directory. Two simultaneous processes then observed a synthetic lock owned by dead PID `999999`: the atomic recovery claimant rebuilt successfully and the other exited `2` without deleting the claimant's lock |
 
 ## Final artifact
 
 The final ignored artifact is:
 
 ```text
-data/basemap/builds/serbia-2026-08-01-3d815b2d7864/
+data/basemap/builds/serbia-2026-08-01-b068f45b84e2/
   serbia.pmtiles              231,649,275 bytes
   build-manifest.json
   validation-report.json
@@ -64,9 +64,6 @@ The fast, network-free pipeline tests are part of `check` and therefore the CI
 command, while ordinary Java `test` no longer requires host Python:
 
 ```text
-python3 -m unittest discover -s basemap/tests -p 'test_*.py' -v
-12 tests, OK
-
 ./gradlew basemapTest
 12 tests, OK
 
@@ -77,17 +74,19 @@ Java/PostGIS plus basemap tests
 They cover exact source acceptance, corrupt bytes, mismatched remote checksum,
 PMTiles v3, exact bounds/zoom/layers, three smoke reads, immutable URLs/hashes,
 local style assets, all six glyph ranges, resolution of the active sprite icon,
-canonical namespaced-metadata pinning, complete manifest inventory, shared
-execution/provenance command construction, and rejection of an external
-runtime asset.
+canonical namespaced-metadata pinning, complete manifest inventory, behavioral
+host-neutral command/manifest equality and drift rejection, and rejection of an
+external runtime asset. The Gradle task tees the real unittest output into
+`build/basemap-test/result.txt`; its unchanged rerun was `UP-TO-DATE`, and CI
+uploads that transcript rather than a constant marker.
 
 ## Operations and cleanup
 
 The generated artifact, source/tool cache, scratch data, and render evidence
 remain ignored under `data/basemap/`; no large file is committed. The build
 documents 4 GiB RAM and 3 GiB peak disk expectations, self-healing invalid
-cache behavior, partial/extraction cleanup, stale-lock recovery, regeneration,
-targeted work/cache cleanup, and old-artifact retirement. The
-superseded bootstrap bundle and the deliberately rejected z0-header work tree
-were deleted after the final exact-config artifact passed; both were generated
-data recoverable by rerunning the command.
+cache behavior, partial/extraction cleanup, atomic claimed/re-read stale-lock
+recovery, regeneration, targeted work/cache cleanup, and old-artifact
+retirement. The superseded bootstrap bundle and the deliberately rejected
+z0-header work tree were deleted after the final exact-config artifact passed;
+both were generated data recoverable by rerunning the command.

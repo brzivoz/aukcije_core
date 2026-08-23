@@ -72,18 +72,14 @@ tasks.register('basemapTest', Exec) {
     group = 'verification'
     description = 'Run offline PMTiles source, pin, bundle, and failure-path regressions'
     workingDir projectDir
-    commandLine 'python3', '-m', 'unittest', 'discover',
-            '-s', 'basemap/tests', '-p', 'test_*.py', '-v'
+    commandLine 'python3', 'basemap/tests/run_basemap_tests.py',
+            '--output', basemapTestResult.get().asFile.absolutePath
     inputs.files(fileTree('basemap') {
         include '**/*.py', '**/*.sh', '**/*.json', '**/*.yml', '**/*.env', '**/*.lock', '**/*.md'
     })
     outputs.file(basemapTestResult)
     doFirst {
         basemapTestResult.get().asFile.parentFile.mkdirs()
-    }
-    doLast {
-        basemapTestResult.get().asFile.setText(
-                'basemap pipeline tests passed' + System.lineSeparator(), 'UTF-8')
     }
 }
 

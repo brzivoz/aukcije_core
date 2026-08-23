@@ -188,7 +188,9 @@ def validate_style(bundle: Path, metadata_layers: set[str]) -> dict[str, object]
     }
 
 
-def validate_manifest(bundle: Path, report: dict[str, object]) -> None:
+def validate_manifest(
+    bundle: Path, report: dict[str, object], expected_command: str
+) -> None:
     manifest_path = bundle / "build-manifest.json"
     try:
         manifest = json.loads(manifest_path.read_text("utf-8"))
@@ -196,6 +198,8 @@ def validate_manifest(bundle: Path, report: dict[str, object]) -> None:
         raise ValueError(f"invalid build-manifest.json: {error}") from error
     if manifest.get("schemaVersion") != 1:
         raise ValueError("unsupported build manifest schemaVersion")
+    if manifest.get("command") != expected_command:
+        raise ValueError("manifest command does not match the normalized build argv")
     artifact = manifest.get("artifact", {})
     archive = bundle / "serbia.pmtiles"
     if artifact.get("filename") != archive.name:
@@ -324,7 +328,9 @@ def validate(args: argparse.Namespace) -> dict[str, object]:
         "style": style_report,
     }
     if args.require_manifest:
-        validate_manifest(bundle, report)
+        if not args.expected_command:
+            raise ValueError("--expected-command is required with --require-manifest")
+        validate_manifest(bundle, report, args.expected_command)
         report["manifestVerification"] = "passed"
     return report
 
@@ -339,6 +345,7 @@ def main() -> int:
     parser.add_argument("--min-zoom", type=int, required=True)
     parser.add_argument("--max-zoom", type=int, required=True)
     parser.add_argument("--metadata-sha256", required=True)
+    parser.add_argument("--expected-command")
     parser.add_argument("--require-manifest", action="store_true")
     args = parser.parse_args()
     try:

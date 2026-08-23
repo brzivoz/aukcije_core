@@ -6,7 +6,7 @@ REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 # shellcheck source=versions.env
 source "$SCRIPT_DIR/versions.env"
 
-for command_name in docker curl python3 tar unzip; do
+for command_name in python3; do
   if ! command -v "$command_name" >/dev/null 2>&1; then
     printf 'Missing required command: %s\n' "$command_name" >&2
     exit 2
@@ -47,8 +47,77 @@ BUNDLE_ROOT="$WORK_ROOT/bundle"
 TARGET_ROOT="$DATA_ROOT/builds/$BUILD_ID"
 LOCK_ROOT="$DATA_ROOT/.build-$BUILD_ID.lock"
 LOCK_OWNER="$LOCK_ROOT/owner"
+LOCK_RECOVERY_CLAIM="$LOCK_ROOT/.recovery"
 LOCK_HOST=$(uname -n)
 EXTRACT_ROOT=
+
+BUILD_USER="$(id -u):$(id -g)"
+PLANETILER_COMMAND=(
+  docker run --rm
+  --user "$BUILD_USER"
+  --env "JAVA_TOOL_OPTIONS=-Xmx$JAVA_HEAP"
+  --volume "$SOURCE_ROOT:/inputs:ro"
+  --volume "$WORK_ROOT:/work"
+  --volume "$SCRIPT_DIR:/config:ro"
+  "$PLANETILER_IMAGE" generate-custom
+  --schema=/config/profile.yml
+  "--osm-path=/inputs/$SOURCE_FILENAME"
+  --output=/work/bundle/serbia.pmtiles
+  --tmpdir=/work/tmp
+  "--bounds=$BASEMAP_BOUNDS"
+  "--minzoom=$BASEMAP_MIN_ZOOM"
+  "--maxzoom=$BASEMAP_MAX_ZOOM"
+  "--render-maxzoom=$BASEMAP_MAX_ZOOM"
+  "--threads=$THREADS"
+  --storage=mmap
+  --nodemap-type=sortedtable
+  --nodemap-storage=mmap
+  --mmap-temp=false
+  --compress-temp=true
+  --tile-format=mvt
+  --tile-compression=gzip
+  --use-wikidata=false
+  --force
+)
+
+# Derive the publishable provenance from the exact execution argv, replacing
+# only values supplied by the host. This keeps the manifest deterministic and
+# prevents local paths and account identifiers from being served with it.
+PLANETILER_MANIFEST_COMMAND=("${PLANETILER_COMMAND[@]}")
+for argument_index in "${!PLANETILER_MANIFEST_COMMAND[@]}"; do
+  case "${PLANETILER_MANIFEST_COMMAND[$argument_index]}" in
+    "$BUILD_USER") PLANETILER_MANIFEST_COMMAND[$argument_index]='<uid>:<gid>' ;;
+    "$SOURCE_ROOT:/inputs:ro")
+      PLANETILER_MANIFEST_COMMAND[$argument_index]='<source-cache>:/inputs:ro'
+      ;;
+    "$WORK_ROOT:/work") PLANETILER_MANIFEST_COMMAND[$argument_index]='<work>:/work' ;;
+    "$SCRIPT_DIR:/config:ro")
+      PLANETILER_MANIFEST_COMMAND[$argument_index]='<basemap-config>:/config:ro'
+      ;;
+  esac
+done
+PLANETILER_COMMAND_TEXT=
+for command_argument in "${PLANETILER_MANIFEST_COMMAND[@]}"; do
+  case "$command_argument" in
+    '<uid>:<gid>'|'<source-cache>:/inputs:ro'|'<work>:/work'|'<basemap-config>:/config:ro')
+      quoted_argument=$command_argument
+      ;;
+    *) printf -v quoted_argument '%q' "$command_argument" ;;
+  esac
+  PLANETILER_COMMAND_TEXT+="${PLANETILER_COMMAND_TEXT:+ }$quoted_argument"
+done
+
+if [[ "${BASEMAP_PRINT_COMMAND:-0}" == 1 ]]; then
+  printf '%s\n' "$PLANETILER_COMMAND_TEXT"
+  exit 0
+fi
+
+for command_name in docker curl tar unzip; do
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    printf 'Missing required command: %s\n' "$command_name" >&2
+    exit 2
+  fi
+done
 
 mkdir -p "$SOURCE_ROOT" "$TOOL_ROOT" "$ASSET_ROOT" "$DATA_ROOT/builds" "$DATA_ROOT/work"
 remove_lock_directory() {
@@ -65,6 +134,24 @@ if ! mkdir "$LOCK_ROOT" 2>/dev/null; then
   fi
   if [[ "$owner_host" == "$LOCK_HOST" && "$owner_pid" =~ ^[0-9]+$ ]] \
       && ! kill -0 "$owner_pid" 2>/dev/null; then
+    observed_owner_pid=$owner_pid
+    observed_owner_host=$owner_host
+    if ! mkdir "$LOCK_RECOVERY_CLAIM" 2>/dev/null; then
+      printf 'Another process is already recovering stale lock %s\n' "$LOCK_ROOT" >&2
+      exit 2
+    fi
+    owner_pid=
+    owner_host=
+    if [[ -f "$LOCK_OWNER" ]]; then
+      IFS=$'\t' read -r owner_pid owner_host < "$LOCK_OWNER" || true
+    fi
+    if [[ "$owner_pid" != "$observed_owner_pid" || "$owner_host" != "$observed_owner_host" ]] \
+        || kill -0 "$owner_pid" 2>/dev/null; then
+      rmdir "$LOCK_RECOVERY_CLAIM" 2>/dev/null || true
+      printf 'Basemap lock owner changed while stale-lock recovery was claimed: %s\n' \
+        "$LOCK_ROOT" >&2
+      exit 2
+    fi
     printf 'Recovering stale basemap build lock from dead pid %s: %s\n' \
       "$owner_pid" "$LOCK_ROOT" >&2
     remove_lock_directory
@@ -219,6 +306,7 @@ if [[ -d "$TARGET_ROOT" ]]; then
     --min-zoom "$BASEMAP_MIN_ZOOM" \
     --max-zoom "$BASEMAP_MAX_ZOOM" \
     --metadata-sha256 "$BASEMAP_METADATA_SHA256" \
+    --expected-command "$PLANETILER_COMMAND_TEXT" \
     --require-manifest >/dev/null
   printf '%s\n' "$TARGET_ROOT"
   exit 0
@@ -257,35 +345,6 @@ docker run --rm \
   --volume "$SCRIPT_DIR:/config:ro" \
   "$PLANETILER_IMAGE" verify /config/profile.yml
 
-PLANETILER_COMMAND=(
-  docker run --rm
-  --user "$(id -u):$(id -g)"
-  --env "JAVA_TOOL_OPTIONS=-Xmx$JAVA_HEAP"
-  --volume "$SOURCE_ROOT:/inputs:ro"
-  --volume "$WORK_ROOT:/work"
-  --volume "$SCRIPT_DIR:/config:ro"
-  "$PLANETILER_IMAGE" generate-custom
-  --schema=/config/profile.yml
-  "--osm-path=/inputs/$SOURCE_FILENAME"
-  --output=/work/bundle/serbia.pmtiles
-  --tmpdir=/work/tmp
-  "--bounds=$BASEMAP_BOUNDS"
-  "--minzoom=$BASEMAP_MIN_ZOOM"
-  "--maxzoom=$BASEMAP_MAX_ZOOM"
-  "--render-maxzoom=$BASEMAP_MAX_ZOOM"
-  "--threads=$THREADS"
-  --storage=mmap
-  --nodemap-type=sortedtable
-  --nodemap-storage=mmap
-  --mmap-temp=false
-  --compress-temp=true
-  --tile-format=mvt
-  --tile-compression=gzip
-  --use-wikidata=false
-  --force
-)
-printf -v PLANETILER_COMMAND_TEXT '%q ' "${PLANETILER_COMMAND[@]}"
-PLANETILER_COMMAND_TEXT=${PLANETILER_COMMAND_TEXT% }
 "${PLANETILER_COMMAND[@]}"
 
 python3 "$SCRIPT_DIR/scripts/validate_bundle.py" \
@@ -323,6 +382,7 @@ python3 "$SCRIPT_DIR/scripts/validate_bundle.py" \
   --min-zoom "$BASEMAP_MIN_ZOOM" \
   --max-zoom "$BASEMAP_MAX_ZOOM" \
   --metadata-sha256 "$BASEMAP_METADATA_SHA256" \
+  --expected-command "$PLANETILER_COMMAND_TEXT" \
   --require-manifest > "$WORK_ROOT/final-validation.json"
 
 mv "$BUNDLE_ROOT" "$TARGET_ROOT"

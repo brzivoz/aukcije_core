@@ -61,6 +61,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
+          # Includes the full basemap unittest transcript, even on failure.
           path: |
             build/reports/tests/test
             build/test-results/test

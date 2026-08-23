@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -164,8 +165,10 @@ else:
         ).encode("utf-8")
         return sha256(canonical)
 
-    def command(self, metadata_hash: str | None = None) -> list[str]:
-        return [
+    def command(
+        self, metadata_hash: str | None = None, expected_command: str | None = None
+    ) -> list[str]:
+        command = [
             "python3",
             str(VALIDATE_BUNDLE),
             "--bundle",
@@ -185,6 +188,56 @@ else:
             "--metadata-sha256",
             metadata_hash or self.metadata_hash(),
         ]
+        if expected_command is not None:
+            command.extend(["--expected-command", expected_command])
+        return command
+
+    def printed_build_command(self) -> str:
+        environment = os.environ.copy()
+        environment["BASEMAP_PRINT_COMMAND"] = "1"
+        completed = subprocess.run(
+            ["bash", str(BASEMAP / "build.sh")],
+            cwd=REPO_ROOT,
+            env=environment,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        return completed.stdout.strip()
+
+    def write_manifest(self, command: str) -> None:
+        archive = self.bundle / "serbia.pmtiles"
+        excluded = {"build-manifest.json", "serbia.pmtiles"}
+        bundle_files = []
+        for path in sorted(item for item in self.bundle.rglob("*") if item.is_file()):
+            relative = path.relative_to(self.bundle).as_posix()
+            if relative in excluded:
+                continue
+            bundle_files.append(
+                {
+                    "path": relative,
+                    "sizeBytes": path.stat().st_size,
+                    "sha256": sha256(path.read_bytes()),
+                }
+            )
+        manifest = {
+            "schemaVersion": 1,
+            "command": command,
+            "artifact": {
+                "filename": archive.name,
+                "sizeBytes": archive.stat().st_size,
+                "sha256": sha256(archive.read_bytes()),
+            },
+            "validation": {
+                "metadataSha256": self.metadata_hash(),
+                "bounds": BOUNDS,
+                "layers": LAYERS,
+            },
+            "bundleFiles": bundle_files,
+        }
+        (self.bundle / "build-manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
 
     def test_valid_local_bundle_and_three_smoke_reads_pass(self) -> None:
         completed = subprocess.run(self.command(), check=True, text=True, capture_output=True)
@@ -240,40 +293,14 @@ else:
         self.assertIn("style references missing sprite icons", completed.stderr)
 
     def test_unrecorded_bundle_file_fails_manifest_verification(self) -> None:
-        archive = self.bundle / "serbia.pmtiles"
-        excluded = {"build-manifest.json", "serbia.pmtiles"}
-        bundle_files = []
-        for path in sorted(item for item in self.bundle.rglob("*") if item.is_file()):
-            relative = path.relative_to(self.bundle).as_posix()
-            if relative in excluded:
-                continue
-            bundle_files.append(
-                {
-                    "path": relative,
-                    "sizeBytes": path.stat().st_size,
-                    "sha256": sha256(path.read_bytes()),
-                }
-            )
-        manifest = {
-            "schemaVersion": 1,
-            "artifact": {
-                "filename": archive.name,
-                "sizeBytes": archive.stat().st_size,
-                "sha256": sha256(archive.read_bytes()),
-            },
-            "validation": {
-                "metadataSha256": self.metadata_hash(),
-                "bounds": BOUNDS,
-                "layers": LAYERS,
-            },
-            "bundleFiles": bundle_files,
-        }
-        (self.bundle / "build-manifest.json").write_text(
-            json.dumps(manifest), encoding="utf-8"
-        )
+        expected_command = self.printed_build_command()
+        self.write_manifest(expected_command)
         (self.bundle / "unrecorded.txt").write_text("must fail", encoding="utf-8")
         completed = subprocess.run(
-            [*self.command(), "--require-manifest"],
+            [
+                *self.command(expected_command=expected_command),
+                "--require-manifest",
+            ],
             check=False,
             text=True,
             capture_output=True,
@@ -281,6 +308,40 @@ else:
         self.assertNotEqual(0, completed.returncode)
         self.assertIn("manifest inventory mismatch", completed.stderr)
         self.assertIn("unrecorded.txt", completed.stderr)
+
+    def test_printed_command_is_host_neutral_and_required_by_manifest_validation(
+        self,
+    ) -> None:
+        expected_command = self.printed_build_command()
+        self.assertIn("--user <uid>:<gid>", expected_command)
+        self.assertIn("--volume <source-cache>:/inputs:ro", expected_command)
+        self.assertIn("--volume <work>:/work", expected_command)
+        self.assertIn("--volume <basemap-config>:/config:ro", expected_command)
+        self.assertNotIn(str(REPO_ROOT), expected_command)
+        self.assertNotIn(str(Path.home()), expected_command)
+
+        self.write_manifest(expected_command)
+        subprocess.run(
+            [
+                *self.command(expected_command=expected_command),
+                "--require-manifest",
+            ],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+
+        completed = subprocess.run(
+            [
+                *self.command(expected_command=f"{expected_command} --drift"),
+                "--require-manifest",
+            ],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("manifest command does not match", completed.stderr)
 
 
 class PinContractTest(unittest.TestCase):
@@ -305,14 +366,6 @@ class PinContractTest(unittest.TestCase):
         assets = (BASEMAP / "assets.lock").read_text("utf-8")
         for range_name in GLYPH_RANGES:
             self.assertIn(f"glyphs/Noto Sans Regular/{range_name}.pbf", assets)
-
-    def test_planetiler_execution_and_manifest_share_one_command_array(self) -> None:
-        build = (BASEMAP / "build.sh").read_text("utf-8")
-        self.assertIn("PLANETILER_COMMAND=(", build)
-        self.assertIn('"${PLANETILER_COMMAND[@]}"', build)
-        self.assertIn("printf -v PLANETILER_COMMAND_TEXT", build)
-        self.assertNotIn('PLANETILER_COMMAND="docker run', build)
-
 
 if __name__ == "__main__":
     unittest.main()

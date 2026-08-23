@@ -164,14 +164,15 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
-| `basemapTest` | dated-source checksum failures, immutable tool/asset pins, canonical metadata drift, PMTiles v3/layer/smoke validation, complete manifest inventory, active sprite references, six glyph ranges, and external-style-asset rejection without a full map rebuild |
+| `basemapTest` | dated-source checksum failures, immutable tool/asset pins, canonical metadata drift, PMTiles v3/layer/smoke validation, complete manifest inventory, host-neutral command/manifest equality and drift rejection, active sprite references, six glyph ranges, and external-style-asset rejection without a full map rebuild |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index
 would just be reading back its own DDL. `SpatialResolutionSchemaIntegrationTest`
 asserts V7 and the production repository instead.
 
-Reports land in `build/reports/tests/test/index.html`. Every CI run — passing or
+Reports land in `build/reports/tests/test/index.html`; the basemap unittest
+transcript lands in `build/basemap-test/result.txt`. Every CI run — passing or
 failing — retains them as the `test-reports` artifact for 14 days, so a run
 stays citable as evidence after its log expires.
 

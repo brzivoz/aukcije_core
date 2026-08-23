@@ -79,6 +79,10 @@ artifact:
 ./gradlew check
 ```
 
+`basemapTest` retains the complete unittest transcript at
+`build/basemap-test/result.txt`; CI publishes that diagnostic output beside the
+Java reports. A second unchanged invocation is up-to-date.
+
 ## Regeneration and cleanup
 
 `./basemap/build.sh` is idempotent: an existing build ID is revalidated and
@@ -86,8 +90,19 @@ returned without rewriting it. A changed profile, style, lock, script, or tool
 pin produces a new config hash and therefore a new immutable output directory.
 The effective heap and thread settings also participate in that hash, so a
 different build command cannot silently reuse an existing manifest.
-The exact executed Planetiler Docker argument array is also serialized into the
-manifest; there is no separately maintained provenance-command copy.
+The manifest command is derived from the exact executed Planetiler Docker
+argument array. Serialization replaces only the host source/work/config volume
+paths and Docker user with `<source-cache>`, `<work>`, `<basemap-config>`, and
+`<uid>:<gid>`. The resulting manifest remains byte-reproducible across hosts and
+does not publish the builder's filesystem or account identifiers. Print the
+exact normalized manifest value without downloading or starting Docker with:
+
+```bash
+BASEMAP_PRINT_COMMAND=1 ./basemap/build.sh
+```
+
+Manifest validation requires that value, so execution/provenance drift fails
+the build rather than reaching the immutable output directory.
 
 To reclaim only disposable work, remove a specific directory below
 `data/basemap/work/`. To force a source/tool redownload, remove the specific
@@ -97,9 +112,11 @@ longer references it. Never delete the whole shared `data/` tree.
 
 Normal download/extraction errors clean their own `.part.<pid>` and
 `.extract-<pid>` paths. A dead local owner PID is recovered automatically from
-`data/basemap/.build-<id>.lock/owner`. If a lock has missing/unreadable owner
-metadata, first verify that no build is running, then remove only the exact lock
-directory printed by the error and rerun.
+`data/basemap/.build-<id>.lock/owner`. Recovery first takes an atomic claim and
+re-reads the observed owner, so simultaneous recoverers cannot delete a newly
+acquired lock. If a lock has missing/unreadable owner metadata, first verify
+that no build is running, then remove only the exact lock directory printed by
+the error and rerun.
 
 ## Attribution and distribution
 

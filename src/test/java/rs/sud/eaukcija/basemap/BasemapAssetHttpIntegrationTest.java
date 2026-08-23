@@ -84,13 +84,12 @@ class BasemapAssetHttpIntegrationTest {
     }
 
     @Test
-    void invalidAndMultipleRangesReturnStandardsShaped416() {
+    void invalidAndUnsatisfiableRangesReturnStandardsShaped416() {
         for (String range : List.of(
                 "bytes=9999999-",
+                "bytes=9999999-,9999998-",
                 "bytes=50-40",
                 "bytes=-0",
-                "bytes=0-1,4-5",
-                "items=0-1",
                 "bytes=abc-def")) {
             ResponseEntity<byte[]> response = request(HttpMethod.GET, headers(HttpHeaders.RANGE, range));
             assertThat(response.getStatusCode()).as(range)
@@ -98,6 +97,20 @@ class BasemapAssetHttpIntegrationTest {
             assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE))
                     .isEqualTo("bytes */" + BUNDLE.archive().length);
             assertThat(response.getBody()).as(range).isNullOrEmpty();
+        }
+    }
+
+    @Test
+    void unsupportedRangeFormsAreIgnoredWithAComplete200Response() {
+        for (String range : List.of(
+                "bytes=0-1,4-5",
+                "bytes=0-1,9999999-",
+                "items=0-1")) {
+            ResponseEntity<byte[]> response = request(HttpMethod.GET, headers(HttpHeaders.RANGE, range));
+            assertThat(response.getStatusCode()).as(range).isEqualTo(HttpStatus.OK);
+            assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_RANGE)).isNull();
+            assertThat(response.getHeaders().getContentLength()).isEqualTo(BUNDLE.archive().length);
+            assertThat(response.getBody()).as(range).containsExactly(BUNDLE.archive());
         }
     }
 
@@ -164,6 +177,12 @@ class BasemapAssetHttpIntegrationTest {
         assertContentType(
                 "/basemap/glyphs/Noto%20Sans%20Regular/0-255.pbf",
                 "application/x-protobuf");
+        assertContentType("/basemap/THIRD_PARTY_NOTICES.md", "text/markdown;charset=UTF-8");
+        assertContentType("/basemap/licenses/Noto-OFL-1.1.txt", "text/plain;charset=UTF-8");
+        assertContentType("/basemap/licenses/Tangram-Icons-MIT.md", "text/markdown;charset=UTF-8");
+        assertThat(rest.getForEntity(
+                uri("/basemap/licenses/not-in-the-validated-bundle.txt"), byte[].class)
+                .getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
     private void assertRange(String header, int expectedStart, int expectedEnd) {

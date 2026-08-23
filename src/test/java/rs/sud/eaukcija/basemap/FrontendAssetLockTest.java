@@ -41,6 +41,11 @@ class FrontendAssetLockTest {
                 assertThat(Files.isRegularFile(path)).isTrue();
                 assertThat(Files.size(path)).isEqualTo(file.path("sizeBytes").asLong());
                 assertThat(sha256(path)).isEqualTo(file.path("sha256").asText());
+                if (relative.endsWith(".js") || relative.endsWith(".mjs")) {
+                    assertThat(Files.readString(path))
+                            .as("vendored scripts must not request unshipped source maps")
+                            .doesNotContain("sourceMappingURL=");
+                }
             }
         }
 

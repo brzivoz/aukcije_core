@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -113,5 +114,85 @@ class BasemapArtifactActivationTest {
                 .isInstanceOf(BasemapArtifactException.class)
                 .hasMessageContaining("same-origin");
         assertThat(root.resolve("ACTIVE")).doesNotExist();
+    }
+
+    @Test
+    void unchangedPointerPollAdvancesCheckedAtWithoutRehashingTheBundle() throws Exception {
+        BasemapArtifactValidator validator = new BasemapArtifactValidator(new ObjectMapper());
+        BasemapArtifactActivator activator = new BasemapArtifactActivator(validator);
+        BasemapTestBundle.synthetic(root, "steady-state", 512, (byte) 4);
+        activator.activate(root, "steady-state");
+        BasemapArtifactRegistry registry = new BasemapArtifactRegistry(
+                root.toString(), Duration.ofHours(1), validator);
+        registry.afterPropertiesSet();
+        try {
+            Instant firstCheck = registry.status().checkedAt();
+            Thread.sleep(5);
+
+            registry.refreshNow();
+
+            assertThat(registry.status().checkedAt()).isAfter(firstCheck);
+            assertThat(registry.snapshot().buildId()).isEqualTo("steady-state");
+        } finally {
+            registry.destroy();
+        }
+    }
+
+    @Test
+    void unavailableSnapshotFastFailsWithoutPerformingARequestThreadRefresh() {
+        BasemapArtifactValidator validator = new BasemapArtifactValidator(new ObjectMapper());
+        BasemapArtifactActivator activator = new BasemapArtifactActivator(validator);
+        BasemapTestBundle.synthetic(root, "not-started", 512, (byte) 5);
+        activator.activate(root, "not-started");
+        BasemapArtifactRegistry registry = new BasemapArtifactRegistry(
+                root.toString(), Duration.ofHours(1), validator);
+        try {
+            assertThatThrownBy(registry::snapshot)
+                    .isInstanceOf(BasemapArtifactException.class)
+                    .hasMessageContaining("no validated basemap bundle");
+            assertThat(registry.status().checkedAt()).isNull();
+        } finally {
+            registry.destroy();
+        }
+    }
+
+    @Test
+    void rejectedCandidateIsRetriedOnlyAfterThePointerIsRepublished() throws Exception {
+        BasemapArtifactValidator validator = new BasemapArtifactValidator(new ObjectMapper());
+        BasemapArtifactActivator activator = new BasemapArtifactActivator(validator);
+        BasemapTestBundle.Bundle bundle =
+                BasemapTestBundle.synthetic(root, "retry-by-republish", 512, (byte) 6);
+        activator.activate(root, bundle.version());
+        Path style = bundle.directory().resolve("style.json");
+        String validStyle = Files.readString(style);
+        Files.writeString(
+                style,
+                validStyle.replace(
+                        "/basemap/sprites/light", "https://cdn.example.invalid/light"),
+                StandardCharsets.UTF_8);
+        BasemapTestBundle.refreshManifest(bundle);
+
+        BasemapArtifactRegistry registry = new BasemapArtifactRegistry(
+                root.toString(), Duration.ofHours(1), validator);
+        registry.afterPropertiesSet();
+        try {
+            assertThat(registry.status().warning()).isEqualTo("ACTIVE_POINTER_REJECTED");
+            assertThatThrownBy(registry::snapshot)
+                    .isInstanceOf(BasemapArtifactException.class);
+
+            Files.writeString(style, validStyle, StandardCharsets.UTF_8);
+            BasemapTestBundle.refreshManifest(bundle);
+            registry.refreshNow();
+            assertThatThrownBy(registry::snapshot)
+                    .as("unchanged ACTIVE bytes are attempted only once")
+                    .isInstanceOf(BasemapArtifactException.class);
+
+            activator.activate(root, bundle.version());
+            registry.refreshNow();
+            assertThat(registry.snapshot().buildId()).isEqualTo(bundle.version());
+            assertThat(registry.status().warning()).isNull();
+        } finally {
+            registry.destroy();
+        }
     }
 }

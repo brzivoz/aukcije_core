@@ -78,8 +78,10 @@ as the existing link to an auction on eaukcija.sud.rs, are not asset loads.
 The active pins are MapLibre GL JS `6.1.0` and PMTiles JavaScript `4.4.0`.
 `frontend-assets.lock.json` records the upstream package/release, license,
 shipped files, sizes, and SHA-256 values; `FrontendAssetLockTest` rejects byte
-or inventory drift. #27 reuses these pins or upgrades them only through the
-review procedure below.
+or inventory drift. The lock also records the sole vendoring transform: trailing
+`sourceMappingURL` comments are removed because source maps are not shipped, so
+opening browser developer tools cannot generate same-origin `.map` 404s. #27
+reuses these pins or upgrades them only through the review procedure below.
 
 Every vendored dependency addition or upgrade must be one reviewed change that:
 

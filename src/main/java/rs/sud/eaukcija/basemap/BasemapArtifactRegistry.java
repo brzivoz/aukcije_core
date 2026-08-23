@@ -68,10 +68,6 @@ public final class BasemapArtifactRegistry implements InitializingBean, Disposab
     public BasemapSnapshot snapshot() {
         BasemapSnapshot snapshot = active.get();
         if (snapshot == null) {
-            refreshNow();
-            snapshot = active.get();
-        }
-        if (snapshot == null) {
             throw new BasemapArtifactException("no validated basemap bundle is active");
         }
         return snapshot;
@@ -91,14 +87,18 @@ public final class BasemapArtifactRegistry implements InitializingBean, Disposab
                 warning);
     }
 
-    /** Synchronous hook for startup, focused tests, and an unavailable first request. */
+    /** Synchronous hook for lifecycle startup and focused tests. */
     public synchronized void refreshNow() {
         PointerObservation observed = observePointer();
+        checkedAt = Instant.now();
         if (observed.equals(lastAttempt)) {
             return;
         }
+        // Each exact pointer fingerprint is deliberately validated once. A
+        // rejected immutable candidate is retried only after activateBasemap
+        // atomically rewrites ACTIVE, even when it names the same build. This
+        // avoids rehashing a bad full-size bundle on every poll.
         lastAttempt = observed;
-        checkedAt = Instant.now();
         pointerVersion = observed.version();
         if (observed.problem() != null) {
             warning = observed.problem();

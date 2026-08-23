@@ -7,6 +7,7 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Optional;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -56,7 +57,9 @@ public final class BasemapAssetController {
             method = {RequestMethod.GET, RequestMethod.HEAD})
     public void archive(HttpServletRequest request, HttpServletResponse response) throws IOException {
         BasemapSnapshot snapshot = registry.snapshot();
-        BasemapAsset asset = snapshot.asset("serbia.pmtiles").orElseThrow();
+        BasemapAsset asset = snapshot.asset("serbia.pmtiles").orElseThrow(
+                () -> new BasemapArtifactException(
+                        "validated snapshot is missing the required PMTiles archive"));
         setCommonHeaders(response, snapshot, asset, true);
 
         if (ifNoneMatch(request.getHeader(HttpHeaders.IF_NONE_MATCH), asset.etag())) {
@@ -69,21 +72,24 @@ public final class BasemapAssetController {
             rangeHeader = null;
         }
         if (rangeHeader == null) {
-            response.setStatus(HttpServletResponse.SC_OK);
-            response.setContentLengthLong(asset.sizeBytes());
-            writeIfGet(request, response, asset, 0, asset.sizeBytes());
+            serveFullArchive(request, response, asset);
             return;
         }
 
-        HttpByteRange range;
+        Optional<HttpByteRange> parsedRange;
         try {
-            range = HttpByteRange.parse(rangeHeader, asset.sizeBytes());
+            parsedRange = HttpByteRange.parse(rangeHeader, asset.sizeBytes());
         } catch (IllegalArgumentException exception) {
             response.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
             response.setHeader(HttpHeaders.CONTENT_RANGE, "bytes */" + asset.sizeBytes());
             response.setContentLengthLong(0);
             return;
         }
+        if (parsedRange.isEmpty()) {
+            serveFullArchive(request, response, asset);
+            return;
+        }
+        HttpByteRange range = parsedRange.orElseThrow();
         response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
         response.setHeader(
                 HttpHeaders.CONTENT_RANGE,
@@ -130,6 +136,28 @@ public final class BasemapAssetController {
         serveWholeAsset("glyphs/" + fontStack + "/" + range + ".pbf", request, response);
     }
 
+    @RequestMapping(
+            value = "/basemap/THIRD_PARTY_NOTICES.md",
+            method = {RequestMethod.GET, RequestMethod.HEAD})
+    public void notices(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        serveWholeAsset("THIRD_PARTY_NOTICES.md", request, response);
+    }
+
+    @RequestMapping(
+            value = "/basemap/licenses/{filename:.+}",
+            method = {RequestMethod.GET, RequestMethod.HEAD})
+    public void license(
+            @PathVariable String filename,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        if (!filename.equals("Noto-OFL-1.1.txt")
+                && !filename.equals("Tangram-Icons-MIT.md")) {
+            response.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
+        serveWholeAsset("licenses/" + filename, request, response);
+    }
+
     @ExceptionHandler(BasemapArtifactException.class)
     public ResponseEntity<BasemapStatus> unavailable() {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
@@ -152,6 +180,15 @@ public final class BasemapAssetController {
             response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
+        response.setStatus(HttpServletResponse.SC_OK);
+        response.setContentLengthLong(asset.sizeBytes());
+        writeIfGet(request, response, asset, 0, asset.sizeBytes());
+    }
+
+    private static void serveFullArchive(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            BasemapAsset asset) throws IOException {
         response.setStatus(HttpServletResponse.SC_OK);
         response.setContentLengthLong(asset.sizeBytes());
         writeIfGet(request, response, asset, 0, asset.sizeBytes());

@@ -64,6 +64,12 @@ public final class BasemapArtifactActivator {
                 throw new BasemapArtifactException(
                         "filesystem does not support atomic basemap pointer replacement", exception);
             }
+            // fsyncing the temporary file makes its contents durable; fsyncing
+            // the containing directory after rename makes the new ACTIVE name
+            // durable across a sudden power loss as well.
+            try (FileChannel directory = FileChannel.open(root, StandardOpenOption.READ)) {
+                directory.force(true);
+            }
             published = true;
         } finally {
             if (!published) {

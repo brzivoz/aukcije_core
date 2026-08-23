@@ -3,7 +3,7 @@ import {Map, addProtocol} from './vendor/maplibre-gl/6.1.0/maplibre-gl.mjs';
 let protocolRegistered = false;
 
 function sameOriginBasemapRoot(baseUrl) {
-    const root = new URL(baseUrl ?? './basemap/', document.baseURI);
+    const root = new URL(baseUrl ?? '/basemap/', document.baseURI);
     if (root.origin !== window.location.origin) {
         throw new Error('Basemap root must use the application origin');
     }

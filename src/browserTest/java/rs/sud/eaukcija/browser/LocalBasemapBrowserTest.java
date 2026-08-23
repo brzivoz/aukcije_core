@@ -80,6 +80,7 @@ class LocalBasemapBrowserTest extends PostgisBrowserFixture {
         // Stay inside the compact fixture while crossing the high-zoom tile
         // viewport so the smoke exercises a real post-load pan as well.
         renderStates.add(assertRenderedAt(page, 14, 20.464, 44.791));
+        boolean nestedPathDefaultRoot = assertDefaultRootFromNestedPath(page);
 
         assertThat((List<?>) page.evaluate("window.__basemapSmoke.errors")).isEmpty();
         assertThat(page.locator(".maplibregl-ctrl-attrib").isVisible()).isTrue();
@@ -121,6 +122,7 @@ class LocalBasemapBrowserTest extends PostgisBrowserFixture {
                 "contactedHosts", browser.network().contactedHosts(),
                 "blockedHosts", browser.network().blockedHosts(),
                 "attributionUrl", "https://www.openstreetmap.org/copyright",
+                "nestedPathDefaultRoot", nestedPathDefaultRoot,
                 "screenshot", Map.of(
                         "filename", evidence.getFileName().toString(),
                         "sizeBytes", Files.size(evidence),
@@ -161,6 +163,44 @@ class LocalBasemapBrowserTest extends PostgisBrowserFixture {
         assertThat(center.get(1).doubleValue()).isCloseTo(latitude,
                 org.assertj.core.data.Offset.offset(0.0001));
         return result;
+    }
+
+    private static boolean assertDefaultRootFromNestedPath(Page page) {
+        Object result = page.evaluate("""
+                async () => {
+                  const originalPath = window.location.pathname;
+                  window.history.replaceState(null, '', '/auctions/map');
+                  const container = document.createElement('div');
+                  container.style.width = '320px';
+                  container.style.height = '240px';
+                  document.body.append(container);
+                  let nestedMap;
+                  try {
+                    const {createLocalBasemap} = await import('/basemap-map.mjs');
+                    nestedMap = await createLocalBasemap({
+                      container,
+                      center: [20.46, 44.79],
+                      zoom: 5,
+                      fadeDuration: 0
+                    });
+                    await new Promise((resolve, reject) => {
+                      const timeout = window.setTimeout(
+                        () => reject(new Error('nested-path default-root timeout')), 20000);
+                      nestedMap.once('idle', () => {
+                        window.clearTimeout(timeout);
+                        resolve();
+                      });
+                    });
+                    return nestedMap.areTilesLoaded();
+                  } finally {
+                    nestedMap?.remove();
+                    container.remove();
+                    window.history.replaceState(null, '', originalPath);
+                  }
+                }
+                """);
+        assertThat(result).isEqualTo(true);
+        return true;
     }
 
     private static Path createAssetRoot() {

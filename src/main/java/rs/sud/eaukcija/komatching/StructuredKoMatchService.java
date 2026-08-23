@@ -26,7 +26,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class StructuredKoMatchService {
 
-    /** Shared population lock used by downstream consumers that need one coherent #37 snapshot. */
+    /**
+     * Shared population lock used by downstream consumers that need one coherent #37 snapshot.
+     * Consumers needing another advisory lock must acquire this lock first, then their own lock.
+     */
     public static final long POPULATION_LOCK_ID = 37_003_700_014L;
 
     private final JdbcTemplate jdbc;

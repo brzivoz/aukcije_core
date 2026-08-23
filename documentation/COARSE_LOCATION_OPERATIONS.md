@@ -52,6 +52,7 @@ auto-selection, or network geocoder.
 export SPRING_PROFILES_ACTIVE=dev
 export AUKCIJE_DB_PASSWORD="$(tr -d '\r\n' < .secrets/postgres-password)"
 export COARSE_LOCATION_CENTROID_DIRECTORY="$PWD/data/address-registry-centroids"
+./gradlew matchStructuredKo
 ./gradlew resolveCoarseLocations
 ```
 
@@ -83,6 +84,9 @@ KO code, then writes through the canonical #20 model:
 `V8__coarse_location_resolution_runs.sql` created the retained population
 report. `V9__coarse_location_upstream_provenance.sql` adds the exact #37/#39
 provenance to new reports without rewriting historical V8 rows.
+An empty auction population is a no-op and does not write a run-report row, so
+an all-NULL V9 provenance tuple continues to identify only a historical V8
+report.
 Candidate evidence includes all raw structured fields, #37 status/method/
 rationale/candidates and full upstream provenance, every attempted tier, the
 pre- and post-municipality-filter settlement candidate codes and selection

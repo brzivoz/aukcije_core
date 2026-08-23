@@ -190,6 +190,18 @@ class CoarseLocationResolutionIntegrationTest {
     }
 
     @Test
+    void emptyPopulationIsANoOpWithoutALegacyMarkerReport() {
+        CoarseLocationResolutionService.RunResult result = service.run();
+
+        assertThat(result.runId()).isNull();
+        assertThat(result.populationCount()).isZero();
+        assertThat(result.processedCount()).isZero();
+        assertThat(result.unchangedCount()).isZero();
+        assertThat(count("coarse_location_resolution_runs")).isZero();
+        assertThat(count("location_resolution_attempts")).isZero();
+    }
+
+    @Test
     void refusesAnyPopulationGapBeforeWritingCoarseEvidence() {
         insertAuction(38999, "ГРАД", "Grad", "Opština B-grad");
 

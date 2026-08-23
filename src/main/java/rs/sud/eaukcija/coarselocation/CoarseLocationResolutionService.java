@@ -100,8 +100,9 @@ public class CoarseLocationResolutionService {
         }
 
         Instant finished = Instant.now(clock);
-        UUID runId = UUID.randomUUID();
-        jdbc.update("""
+        UUID runId = inputs.isEmpty() ? null : UUID.randomUUID();
+        if (runId != null) {
+            jdbc.update("""
                 INSERT INTO coarse_location_resolution_runs (
                     id, started_at, finished_at, resolver_version,
                     extract_version, extract_source_sha256,
@@ -137,6 +138,7 @@ public class CoarseLocationResolutionService {
                 municipalityAliasKoCount,
                 json(koStatusCounts),
                 json(rationaleCounts));
+        }
 
         return new RunResult(
                 runId,

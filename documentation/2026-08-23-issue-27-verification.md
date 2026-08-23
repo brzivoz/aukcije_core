@@ -89,7 +89,7 @@ test:         185 discovered, 181 passed, 4 explicit full-artifact/population sk
 browserTest:    9 discovered,   9 passed, 0 skipped
 failures:       0
 errors:         0
-BUILD SUCCESSFUL in 1m 25s
+BUILD SUCCESSFUL in 1m 24s
 ```
 
 The JSON evidence manifest records the filename, size, and SHA-256 of both
@@ -113,6 +113,16 @@ failures:    0
 errors:      0
 BUILD SUCCESSFUL in 23s
 ```
+
+The post-review exact-head CI run then exposed two Linux-only completion races:
+MapLibre's default popup auto-focus could overtake the keyboard focus transfer,
+and the production shell test waited only for a canvas even when the absent
+local basemap correctly ended initialization in the visible error state. Popup
+auto-focus is now disabled in favor of the explicit keyboard destination,
+keyboard-originated activation is tracked independently of browser-specific
+`click.detail`, and the shell test waits for either a canvas or that terminal
+error state before asserting that no test hook shipped. Both exact failing tests
+passed in a focused rerun before the complete clean run recorded above.
 
 The terminal exact-head CI result is added to GitHub closure evidence after
 publication.

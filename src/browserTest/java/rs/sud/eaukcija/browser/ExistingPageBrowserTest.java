@@ -26,7 +26,10 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
                 .contains("еАукција", "Претрага непокретности");
         assertThat(page.locator("tbody").textContent())
                 .contains("Н34-001", "Детерминистичка browser-test аукција", "Београд");
-        page.waitForSelector("#auction-map canvas");
+        page.waitForFunction("""
+                () => document.querySelector('#auction-map canvas') !== null
+                  || document.querySelector('#map-state')?.dataset.state === 'error'
+                """);
         assertThat((Boolean) page.evaluate("Object.hasOwn(window, '__auctionMap')")).isFalse();
     }
 

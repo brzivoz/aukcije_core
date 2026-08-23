@@ -837,9 +837,7 @@ function renderClusterSelection(features, total) {
         button.type = 'button';
         button.className = 'map-selection-button';
         button.textContent = `${feature.properties.title} — ${precisionLabel(feature)}`;
-        button.addEventListener('click', event => selectFeature(feature, {
-            focusDetails: event.detail === 0
-        }));
+        bindFeatureSelection(button, feature);
         elements.selection.append(button);
     }
     if (features.length < total) {
@@ -871,13 +869,24 @@ function renderResults(features) {
         meta.className = 'map-result-meta';
         meta.textContent = `${precisionLabel(feature)} · ${formatAmount(feature.properties)}`;
         button.append(title, meta);
-        button.addEventListener('click', event => selectFeature(feature, {
-            moveMap: true,
-            focusDetails: event.detail === 0
-        }));
+        bindFeatureSelection(button, feature, {moveMap: true});
         item.append(button);
         elements.resultList.append(item);
     }
+}
+
+function bindFeatureSelection(button, feature, options = {}) {
+    let keyboardActivation = false;
+    button.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            keyboardActivation = true;
+        }
+    });
+    button.addEventListener('click', event => {
+        const focusDetails = keyboardActivation || event.detail === 0;
+        keyboardActivation = false;
+        selectFeature(feature, {...options, focusDetails});
+    });
 }
 
 function selectFeature(feature, options = {}) {
@@ -989,7 +998,12 @@ function showPopup(feature) {
         popupContent.append(sourceLink);
     }
 
-    state.popup = new Popup({closeButton: true, closeOnClick: false, maxWidth: '310px'})
+    state.popup = new Popup({
+        closeButton: true,
+        closeOnClick: false,
+        focusAfterOpen: false,
+        maxWidth: '310px'
+    })
             .setLngLat(representativeCoordinate(feature.geometry))
             .setDOMContent(popupContent)
             .addTo(state.map);

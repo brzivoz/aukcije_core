@@ -89,3 +89,10 @@ tasks.register('matchStructuredKo', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'rs.sud.eaukcija.komatching.StructuredKoMatchCli'
 }
+
+tasks.register('resolveCoarseLocations', JavaExec) {
+    group = 'application'
+    description = 'Resolve every auction to the best honest KO, settlement, municipality, or NONE tier'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.coarselocation.CoarseLocationResolutionCli'
+}

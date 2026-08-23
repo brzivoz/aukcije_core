@@ -83,7 +83,7 @@ class PostgisSchemaIntegrationTest {
                 .contains("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
                         "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
-                        "V7__spatial_resolution_model.sql")
+                        "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -210,6 +210,20 @@ class PostgisSchemaIntegrationTest {
                   AND tgname = 'trg_spatial_resolution_geometry_derive_canonical'
                   AND NOT tgisinternal
                 """, Integer.class)).isOne();
+    }
+
+    @Test
+    void flywayOwnsTheCoarseLocationPopulationReport() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM information_schema.tables
+                 WHERE table_schema = 'public' AND table_name = 'coarse_location_resolution_runs'
+                """, Integer.class)).isOne();
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                 WHERE schemaname = 'public' AND tablename = 'coarse_location_resolution_runs'
+                """, String.class)).contains("idx_coarse_location_resolution_runs_finished");
     }
 
     @Test

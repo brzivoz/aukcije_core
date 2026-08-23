@@ -5,13 +5,14 @@ GIS enrichment for Serbian judicial real-estate auctions from
 
 The official portal lists immovable property but offers no filtering by location,
 price or property attributes, and no map. This project ingests the listings,
-resolves each advertisement to a cadastral parcel or an address, and renders the
-result on a locally hosted map of Serbia.
+resolves each advertisement to the best official location its evidence supports,
+and is building toward a locally hosted map of Serbia.
 
 ## Status
 
 The ingest layer is a working proof of concept ported from an earlier prototype.
-The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
+The GIS layers are being delivered incrementally — see the
+[epics](../../issues?q=is%3Aissue+label%3Aepic).
 
 | Layer | State |
 |---|---|
@@ -21,6 +22,7 @@ The GIS layers are planned — see the [epics](../../issues?q=is%3Aissue+label%3
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
 | Structured auction KO matching | working (auditable PostgreSQL results, #37) |
+| Coarse auction locations | working (KO/settlement/municipality/`NONE`, #38) |
 | Official Address Registry full snapshots | working (points + centroids, #22) |
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
@@ -59,12 +61,13 @@ PostgreSQL data persists in the named Compose volume mounted at the PostgreSQL
 18 path `/var/lib/postgresql`. Flyway owns the schema and Hibernate validates it
 at startup.
 
-### Sync API
+### Application API
 
 ```
 POST /api/sync/listings   start listings sync
 POST /api/sync/details    start details sync
 GET  /api/sync/status     sync progress
+GET  /api/locations/{id}  best selected location with explicit precision
 ```
 
 The old H2 console and automatic DDL are disabled. An explicitly activated
@@ -82,12 +85,17 @@ dictionary/index publication, duplicate-name evidence, and status commands.
 See [structured KO matching operations](documentation/STRUCTURED_KO_MATCH_OPERATIONS.md)
 for the transactional population matcher, ambiguity/review semantics,
 idempotent reprocessing, retained provenance, and match-rate reports.
+See [coarse location operations](documentation/COARSE_LOCATION_OPERATIONS.md)
+for the #37→#36 resolution ladder, transactional spatial persistence, retained
+tier reports, idempotent refreshes, precision-aware consumers, and recovery.
 See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
 for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
 rollback.
 See [issue #20 spatial verification](documentation/2026-08-23-issue-20-verification.md)
 for the V7 reference/resolution model, geometry gates, bounded repository
 contract, and reproducible PostGIS evidence.
+See [issue #38 verification](documentation/2026-08-23-issue-38-verification.md)
+for the complete 589-auction tier distribution and exact replay evidence.
 
 ## Tests
 
@@ -108,7 +116,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V7, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial indexes, and the canonical-derivation trigger |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V8, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run indexes, and the canonical-derivation trigger |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
@@ -120,6 +128,9 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `StructuredKoMatcherTest` | scripts/diacritics, exact-code precedence, duplicate names, collision-safe municipality alias disambiguation (including official-name conflicts and alias-free official collisions), retained review evidence, precomputed municipality context, malformed inputs, fuzzy-review-only behavior, and shared query/index normalization |
 | `KoDictionaryPublisherCompatibilityTest` | real #36 extractor -> #14 publisher -> #37 loader compatibility for duplicate names, reviewed KO/municipality aliases, and multi-parent relationships |
 | `StructuredKoMatchIntegrationTest` | V6 persistence, immutable snapshot/KO/municipality-alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
+| `CoarseLocationResolverTest` | all honest coarse tiers, shared Serbian normalization, ambiguity fallthrough, reviewed municipality context, and versioned fingerprints |
+| `CoarseLocationResolutionIntegrationTest` | V7/V8 persistence, member counts, run reports, unchanged replay, selective refresh, failure safety, and higher-tier non-downgrade against PostGIS |
+| `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision in JSON and rendered UI honesty notice |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
@@ -133,11 +144,11 @@ stays citable as evidence after its log expires.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V7 it
+`src/main/resources/db/migration/` is the only schema authority. Through V8 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias
-provenance, population-run reports, canonical property/parcel identities,
+provenance, structured-KO and coarse-location population-run reports, canonical property/parcel identities,
 source plus WGS84 resolution geometry, append-only attempt evidence, separate
 cache records, mutable selected-resolution pointers, and the viewport GiST
 plus reverse-FK indexes. Canonical WGS84 is derived by a normal-write trigger so
@@ -199,10 +210,12 @@ KO or municipality granularity.
 src/main/java/rs/sud/eaukcija/
 ├── SudAukcijeApplication.java   main class
 ├── client/                      REST client + DTOs for eaukcija.sud.rs
+├── coarselocation/              active-artifact loader + #38 resolver/CLI
 ├── model/Auction.java           JPA entity
 ├── repository/                  Spring Data repo + dynamic filter specs
 ├── service/SyncService.java     sync orchestration
-└── controller/                  Thymeleaf UI + sync REST API
+├── spatial/                     location queries + precision presentation
+└── controller/                  Thymeleaf UI + REST APIs
 
 src/test/java/rs/sud/eaukcija/
 ├── client/                      client tests against recorded fixtures

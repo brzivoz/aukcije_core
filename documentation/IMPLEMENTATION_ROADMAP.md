@@ -154,11 +154,11 @@ flowchart TB
         I36["#36 Registry centroid extract ✅"]
         I24["#24 Reproducible Serbia PMTiles"]
         I34["#34 Browser harness + frontend"]
-        I20["#20 Spatial schema + bbox queries"]
-        I14["#14 Canonical KO dictionary"]
+        I20["#20 Spatial schema + bbox queries ✅"]
+        I14["#14 Canonical KO dictionary ✅"]
         I37["#37 Structured KO matching ✅"]
-        I39["#39 Reviewed municipality aliases"]
-        I38["#38 Coarse location resolver"]
+        I39["#39 Reviewed municipality aliases ✅"]
+        I38["#38 Coarse location resolver ✅"]
         I25["#25 Range/ETag local serving"]
         I26["#26 Bounded GeoJSON API"]
         I27["#27 MapLibre precision-aware map"]
@@ -261,8 +261,8 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 |---|---|---|
 | 0 ✅ | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
 | 1 | **#15 ✅, #36 ✅**, #24, #34 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
-| 2 | **#14 ✅**, #20, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
-| 3 | **#37 ✅**, #39, #38 | Zero exact-match false positives matching structured `Place.Cadastral`; reviewed municipality aliases republished through #14/#37 with genuine ambiguity retained; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
+| 2 | **#14 ✅, #20 ✅**, #25 | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
+| 3 ✅ | **#37 ✅, #39 ✅, #38 ✅** | Zero exact-match false positives matching structured `Place.Cadastral`; reviewed municipality aliases republished through #14/#37 with genuine ambiguity retained; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
 | 4 | #26 | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |
 | 5 | #27 | Accessible offline map browser suite, including multi-auction handling at a shared centroid (correction 22) and localhost-only network proof |
 

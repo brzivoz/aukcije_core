@@ -50,6 +50,11 @@
         .status-Completed { background: #e3f2fd; color: #1565c0; }
         .first-sale { color: #d32f2f; font-weight: 600; font-size: 0.75rem; }
         .desc-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .precision-badge { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
+        .precision-coarse { background: #fff8e1; color: #8d6e00; border: 1px solid #ffe082; }
+        .precision-none { background: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+        .precision-exact { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .precision-note { margin: -4px 0 12px; color: #6d4c41; font-size: 0.8rem; }
 
         .pagination { display: flex; justify-content: center; gap: 6px; margin-top: 20px; }
         .pagination a, .pagination span { padding: 6px 12px; border-radius: 4px; text-decoration: none; font-size: 0.85rem; }
@@ -162,6 +167,9 @@
         <span>Приказ <strong th:text="${auctions.numberOfElements}">0</strong> од <strong th:text="${auctions.totalElements}">0</strong> резултата</span>
         <span>Страница <strong th:text="${currentPage + 1}">1</strong> / <strong th:text="${auctions.totalPages}">1</strong></span>
     </div>
+    <p class="precision-note" th:if="${!locationsByAuctionId.isEmpty()}">
+        Ознака „центар“ је приближна локација области, не адреса, улица или парцела.
+    </p>
 
     <table>
         <thead>
@@ -170,6 +178,7 @@
             <th>Опис</th>
             <th>Општина</th>
             <th>Место</th>
+            <th>Прецизност локације</th>
             <th>Категорија</th>
             <th><a th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy='startingPrice',sortDir=${sortBy == 'startingPrice' and sortDir == 'asc' ? 'desc' : 'asc'})}">Почетна цена</a></th>
             <th><a th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy='estimatedPrice',sortDir=${sortBy == 'estimatedPrice' and sortDir == 'asc' ? 'desc' : 'asc'})}">Процена</a></th>
@@ -187,6 +196,14 @@
             <td class="desc-cell" th:text="${a.shortDescription}"></td>
             <td th:text="${a.municipality ?: '—'}"></td>
             <td th:text="${a.placeName ?: '—'}"></td>
+            <td th:with="location=${locationsByAuctionId.get(a.id)}">
+                <span th:if="${location != null}"
+                      class="precision-badge"
+                      th:classappend="${location.precision.name() == 'NONE' ? 'precision-none' : (location.coarse ? 'precision-coarse' : 'precision-exact')}"
+                      th:title="${location.confidenceReason}"
+                      th:text="${location.precisionLabelSr}"></span>
+                <span th:unless="${location != null}">—</span>
+            </td>
             <td th:text="${a.categoryName ?: '—'}"></td>
             <td class="price" th:text="${a.startingPrice != null ? #numbers.formatDecimal(a.startingPrice, 1, 'POINT', 0, 'POINT') + ' РСД' : '—'}"></td>
             <td class="price" th:text="${a.estimatedPrice != null ? #numbers.formatDecimal(a.estimatedPrice, 1, 'POINT', 0, 'POINT') + ' РСД' : '—'}"></td>
@@ -194,7 +211,7 @@
             <td><span class="first-sale" th:if="${a.firstSale}">Да</span></td>
         </tr>
         <tr th:if="${auctions.isEmpty()}">
-            <td colspan="9" style="text-align:center; padding:30px; color:#999;">Нема резултата. Покрените синхронизацију или промените филтере.</td>
+            <td colspan="10" style="text-align:center; padding:30px; color:#999;">Нема резултата. Покрените синхронизацију или промените филтере.</td>
         </tr>
         </tbody>
     </table>

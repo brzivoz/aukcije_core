@@ -53,7 +53,7 @@ class DatabaseLifecycleIntegrationTest {
                 .containsExactly("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
                         "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
-                        "V7__spatial_resolution_model.sql");
+                        "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql");
     }
 
     @Test

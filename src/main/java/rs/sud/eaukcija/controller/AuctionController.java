@@ -6,22 +6,30 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.ObjectProvider;
 import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
 import rs.sud.eaukcija.repository.AuctionSpecifications;
 import rs.sud.eaukcija.service.SyncService;
+import rs.sud.eaukcija.spatial.AuctionLocationRepository;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 @Controller
 public class AuctionController {
 
     private final AuctionRepository repo;
     private final SyncService syncService;
+    private final ObjectProvider<AuctionLocationRepository> locationRepository;
 
-    public AuctionController(AuctionRepository repo, SyncService syncService) {
+    public AuctionController(
+            AuctionRepository repo,
+            SyncService syncService,
+            ObjectProvider<AuctionLocationRepository> locationRepository) {
         this.repo = repo;
         this.syncService = syncService;
+        this.locationRepository = locationRepository;
     }
 
     @GetMapping("/")
@@ -48,8 +56,12 @@ public class AuctionController {
         );
 
         Page<Auction> auctions = repo.findAll(spec, PageRequest.of(page, 25, sort));
+        AuctionLocationRepository locations = locationRepository.getIfAvailable();
 
         model.addAttribute("auctions", auctions);
+        model.addAttribute("locationsByAuctionId", locations == null
+                ? Map.of()
+                : locations.findBestByAuctionIds(auctions.getContent().stream().map(Auction::getId).toList()));
         model.addAttribute("municipalities", repo.findDistinctMunicipalities());
         model.addAttribute("places", repo.findDistinctPlaceNames());
         model.addAttribute("categories", repo.findDistinctCategories());

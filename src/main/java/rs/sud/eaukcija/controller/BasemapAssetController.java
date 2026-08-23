@@ -72,7 +72,7 @@ public final class BasemapAssetController {
             rangeHeader = null;
         }
         if (rangeHeader == null) {
-            serveFullArchive(request, response, asset);
+            serveFullAsset(request, response, asset);
             return;
         }
 
@@ -86,10 +86,10 @@ public final class BasemapAssetController {
             return;
         }
         if (parsedRange.isEmpty()) {
-            serveFullArchive(request, response, asset);
+            serveFullAsset(request, response, asset);
             return;
         }
-        HttpByteRange range = parsedRange.orElseThrow();
+        HttpByteRange range = parsedRange.get();
         response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
         response.setHeader(
                 HttpHeaders.CONTENT_RANGE,
@@ -180,12 +180,10 @@ public final class BasemapAssetController {
             response.setStatus(HttpServletResponse.SC_NOT_MODIFIED);
             return;
         }
-        response.setStatus(HttpServletResponse.SC_OK);
-        response.setContentLengthLong(asset.sizeBytes());
-        writeIfGet(request, response, asset, 0, asset.sizeBytes());
+        serveFullAsset(request, response, asset);
     }
 
-    private static void serveFullArchive(
+    private static void serveFullAsset(
             HttpServletRequest request,
             HttpServletResponse response,
             BasemapAsset asset) throws IOException {

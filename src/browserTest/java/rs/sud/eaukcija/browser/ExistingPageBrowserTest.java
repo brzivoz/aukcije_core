@@ -16,11 +16,8 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
     final BrowserHarnessExtension browser = new BrowserHarnessExtension();
 
     @Test
-    void existingListPageLoadsFromSeededPostgisWithOnlyLocalhostTraffic() {
+    void existingServerRenderedListLoadsWithoutShippingMapTestHooks() {
         Page page = browser.page();
-        // The shell now starts the optional async map enhancement after DOM
-        // load. AuctionMapBrowserTest owns its ready/idle contract; this smoke
-        // waits only for the server-rendered list it is intended to prove.
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
 
@@ -29,9 +26,8 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
                 .contains("еАукција", "Претрага непокретности");
         assertThat(page.locator("tbody").textContent())
                 .contains("Н34-001", "Детерминистичка browser-test аукција", "Београд");
-
-        browser.network().assertOnlyLocalhostRequests();
-        assertThat(browser.network().contactedHosts()).containsExactly("localhost");
+        page.waitForSelector("#auction-map canvas");
+        assertThat((Boolean) page.evaluate("Object.hasOwn(window, '__auctionMap')")).isFalse();
     }
 
     @Test

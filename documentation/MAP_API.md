@@ -26,7 +26,14 @@ When `from` is absent, its lower bound is the current instant. That is the
 default “currently relevant” behavior: auctions whose `end_date` has passed are
 not returned. eAukcija has no reliable closed status, so `status` is never used
 as a substitute for that time rule. Supplying `from` is the explicit way to
-request historical dates.
+request historical dates. The map form states this default beside the empty
+`from` field; an empty control therefore never hides the active time rule.
+
+The MapLibre client derives its minimum zoom from the rendered canvas size and
+the same 1,000,000 km² ceiling, with a safety margin. It re-evaluates that
+minimum after resize and verifies the actual spherical bbox before fetching.
+This keeps a national zoom useful on both narrow and wide layouts without
+sending a request the API must reject. The server ceiling remains authoritative.
 
 PostgreSQL stores `end_date` as `TIMESTAMP WITH TIME ZONE`; the JSON value is an
 ISO-8601 UTC instant. Map UI consumers display it in `Europe/Belgrade`.
@@ -180,6 +187,11 @@ Invalid requests return `application/problem+json`:
   "field": "bbox"
 }
 ```
+
+The browser client preserves and displays `field` plus `detail` for a `4xx`
+response and asks the user to change the view or filter. It reserves the retry
+instruction for network/`5xx` failures, so a deterministic invalid request is
+not presented as a transient outage.
 
 The `field` property identifies the missing, repeated, unknown, or invalid
 parameter and is normalized and capped at 64 Unicode code points before being

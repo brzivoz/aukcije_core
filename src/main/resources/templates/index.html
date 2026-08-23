@@ -42,7 +42,7 @@
         table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .table-scroll { width: 100%; max-width: 100%; overflow-x: auto; border-radius: 8px; }
         .table-scroll table { min-width: 900px; }
-        .table-scroll:focus-visible { outline: 3px solid #ffbf47; outline-offset: 2px; }
+        .table-scroll:focus-visible { outline: 3px solid #fff; outline-offset: 0; box-shadow: 0 0 0 5px #0b2e59; }
         th { background: #f5f5f5; padding: 10px 12px; text-align: left; font-size: 0.8rem; text-transform: uppercase; color: #666; border-bottom: 2px solid #e0e0e0; white-space: nowrap; }
         th a { color: #666; text-decoration: none; }
         th a:hover { color: #1a237e; }
@@ -102,7 +102,8 @@
         </div>
     </div>
 
-    <section class="auction-map-panel" aria-labelledby="auction-map-heading">
+    <section class="auction-map-panel" aria-labelledby="auction-map-heading"
+             th:attr="data-map-test-hooks=${mapBrowserTestHooks}">
         <div class="auction-map-heading-row">
             <div>
                 <p class="map-eyebrow">Локална интерактивна карта</p>
@@ -126,46 +127,30 @@
                 <label for="map-status-filter">Статус</label>
                 <select id="map-status-filter" name="mapStatus">
                     <option value="">Сви статуси</option>
-                    <option value="InPrediction">У најави</option>
-                    <option value="Published">Објављено</option>
-                    <option value="Verification">Провера</option>
-                    <option value="Verified">Проверено</option>
+                    <option th:each="option : ${mapStatusOptions}"
+                            th:value="${option.value}" th:text="${option.label}"></option>
                 </select>
             </div>
             <div class="map-filter-field">
                 <label for="map-kind-filter">Врста</label>
                 <select id="map-kind-filter" name="mapKind">
                     <option value="">Све врсте</option>
-                    <option value="Гаража">Гаража</option>
-                    <option value="Грађевинско земљиште">Грађевинско земљиште</option>
-                    <option value="Земљиште">Земљиште</option>
-                    <option value="Кућа">Кућа</option>
-                    <option value="Локал">Локал</option>
-                    <option value="Непокретности">Непокретности</option>
-                    <option value="Објекат">Објекат</option>
-                    <option value="Остали пословни објекат">Остали пословни објекат</option>
-                    <option value="Парцела">Парцела</option>
-                    <option value="Пољопривредно земљиште">Пољопривредно земљиште</option>
-                    <option value="Стамбена зграда са више станова">Стамбена зграда са више станова</option>
-                    <option value="Стамбени објекат">Стамбени објекат</option>
-                    <option value="Шумско земљиште">Шумско земљиште</option>
+                    <option th:each="option : ${mapKindOptions}"
+                            th:value="${option.value}" th:text="${option.label}"></option>
                 </select>
             </div>
             <div class="map-filter-field">
                 <label for="map-precision-filter">Прецизност</label>
                 <select id="map-precision-filter" name="mapPrecision">
                     <option value="">Све прецизности</option>
-                    <option value="PARCEL">Парцела</option>
-                    <option value="ADDRESS">Адреса</option>
-                    <option value="STREET">Улица</option>
-                    <option value="CADASTRAL_MUNICIPALITY">Центар катастарске општине</option>
-                    <option value="SETTLEMENT">Центар насеља</option>
-                    <option value="MUNICIPALITY">Центар општине</option>
+                    <option th:each="option : ${mapPrecisionOptions}"
+                            th:value="${option.value}" th:text="${option.label}"></option>
                 </select>
             </div>
             <div class="map-filter-field">
                 <label for="map-from-filter">Завршава се од</label>
-                <input id="map-from-filter" name="mapFrom" type="date"/>
+                <input id="map-from-filter" name="mapFrom" type="date"
+                       aria-describedby="map-default-time-note"/>
             </div>
             <div class="map-filter-field">
                 <label for="map-to-filter">Завршава се до</label>
@@ -177,7 +162,13 @@
             </div>
         </form>
 
-        <div id="map-state" class="map-notice" role="status" aria-live="polite" data-state="loading">
+        <p id="map-default-time-note" class="map-default-note">
+            Ако датум „од” није унет, карта приказује само аукције које се још нису завршиле
+            у тренутку захтева.
+        </p>
+
+        <div id="map-state" class="map-notice" role="status" aria-live="polite"
+             aria-atomic="true" data-state="loading">
             Учитавање аукција у видљивом делу карте…
         </div>
         <div id="map-limit-warning" class="map-notice map-notice-warning" role="status" hidden>

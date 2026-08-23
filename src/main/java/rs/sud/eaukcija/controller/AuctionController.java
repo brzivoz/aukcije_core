@@ -7,6 +7,8 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import rs.sud.eaukcija.map.MapAuctionFilterOptions;
 import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
 import rs.sud.eaukcija.repository.AuctionSpecifications;
@@ -22,14 +24,17 @@ public class AuctionController {
     private final AuctionRepository repo;
     private final SyncService syncService;
     private final ObjectProvider<AuctionLocationRepository> locationRepository;
+    private final boolean mapBrowserTestHooks;
 
     public AuctionController(
             AuctionRepository repo,
             SyncService syncService,
-            ObjectProvider<AuctionLocationRepository> locationRepository) {
+            ObjectProvider<AuctionLocationRepository> locationRepository,
+            @Value("${map.browser-test-hooks:false}") boolean mapBrowserTestHooks) {
         this.repo = repo;
         this.syncService = syncService;
         this.locationRepository = locationRepository;
+        this.mapBrowserTestHooks = mapBrowserTestHooks;
     }
 
     @GetMapping("/")
@@ -68,6 +73,10 @@ public class AuctionController {
         model.addAttribute("statuses", repo.findDistinctStatuses());
         model.addAttribute("totalCount", repo.count());
         model.addAttribute("detailsCount", repo.countByDetailsFetched(true));
+        model.addAttribute("mapStatusOptions", MapAuctionFilterOptions.statuses());
+        model.addAttribute("mapKindOptions", MapAuctionFilterOptions.kinds());
+        model.addAttribute("mapPrecisionOptions", MapAuctionFilterOptions.precisions());
+        model.addAttribute("mapBrowserTestHooks", mapBrowserTestHooks);
 
         // Preserve filter params
         model.addAttribute("selectedMunicipality", municipality);

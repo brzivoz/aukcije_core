@@ -110,6 +110,12 @@ unifying the legacy table's larger filter/search contract, navigation, and
 daily workflow across list and map. This keeps one controller/view contract and
 prevents the two issues from each building half of a replacement UI.
 
+The parser and page consume one `MapAuctionFilterOptions` catalog for status,
+kind, and precision values. The browser regression compares every rendered
+option to that server catalog and checks that the JavaScript precision-style
+keys match it, turning drift into a test/init failure instead of a silent API
+`400`.
+
 ## Auction map evidence
 
 `AuctionMapBrowserTest` stages the same real compact PMTiles v3 fixture as the
@@ -120,16 +126,30 @@ opens a keyboard-accessible list instead of hiding stacked auctions.
 
 The browser suite also proves DOM-safe rendering of hostile-looking title text,
 the fixed eAukcija link allowlist and `noopener noreferrer`, selection restore
-from a numeric URL id, visible focus, and a 390 px layout with no document-level
-horizontal overflow. A controlled browser-fetch boundary delays one viewport
-response, pans and zooms, observes `AbortSignal` cancellation, then exercises
-partial-limit, retained-data error, and empty states. Both tests finish with
-the shared exact localhost-only host assertion.
+from a numeric URL id, keyboard focus transfer to the selected auction's safe
+link, computed focus-indicator contrast of at least 3:1 on every tested surface,
+selected-polygon layer order, localized status/date fallbacks, and a 390 px
+layout with no document-level horizontal overflow. A controlled browser-fetch
+boundary delays one viewport response, pans and zooms, observes `AbortSignal`
+cancellation, forces a filter submit while the style is unavailable, and then
+exercises field-aware `400`, retryable `503`, partial-limit, retained-data
+error, and empty states. A third test uses a 1600 px viewport, zooms to the
+calculated responsive minimum, and proves the real API request remains below
+its area ceiling. All three finish with the shared localhost-only assertion.
+
+Cluster-leaf failures are visible and assertive rather than unhandled. Basemap
+resource errors are recorded as warnings but do not reject the initial map-load
+promise; only failure to reach `load` before the timeout tears initialization
+down. Submitting filters during startup/style work records a pending refresh
+which `styledata`/`idle` replays. A failed initialization can likewise be
+retried by applying the filters.
 
 Every green run retains desktop and narrow screenshots plus a JSON evidence
 manifest under `build/browser-test-results/evidence/issue-27-*`; CI publishes
-that directory in `browser-test-report`. The legacy shell smoke waits for
-`DOMContentLoaded`, because its boundary is the server-rendered list. Map
-completion is deliberately owned by `AuctionMapBrowserTest`, which waits for
-the map's explicit ready and viewport states rather than global network
+that directory in `browser-test-report`. Browser-only diagnostics are enabled
+by the test runtime property and are absent from the production `window`.
+The legacy shell smoke waits for `DOMContentLoaded`, because its boundary is
+the server-rendered list, and no longer makes a racy map-network claim. Map and
+localhost completion are deliberately owned by `AuctionMapBrowserTest`, which
+waits for explicit ready and viewport states rather than global network
 idleness.

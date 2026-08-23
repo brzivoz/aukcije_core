@@ -27,6 +27,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import rs.sud.eaukcija.basemap.BasemapTestBundle;
+import rs.sud.eaukcija.map.MapAuctionFilterOptions;
 
 class AuctionMapBrowserTest extends PostgisBrowserFixture {
 
@@ -53,6 +54,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         registry.add("basemap.assets.directory", () -> ASSET_ROOT.toString());
         registry.add("basemap.assets.poll-interval", () -> "PT0.05S");
         registry.add("map.data.stale-after", () -> "PT24H");
+        registry.add("map.browser-test-hooks", () -> "true");
     }
 
     @RegisterExtension
@@ -129,6 +131,15 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 .startsWith("browser-resolver-v1/browser-centroids-v1/");
         assertThat(page.locator("#map-last-sync").textContent()).doesNotContain("Није");
         assertThat(page.locator("#map-freshness-warning").isHidden()).isTrue();
+        assertThat(page.locator("#map-default-time-note").textContent())
+                .contains("само аукције које се још нису завршиле", "тренутку захтева");
+
+        assertThat(optionValues(page, "#map-status-filter"))
+                .containsExactlyElementsOf(values(MapAuctionFilterOptions.statuses()));
+        assertThat(optionValues(page, "#map-kind-filter"))
+                .containsExactlyElementsOf(values(MapAuctionFilterOptions.kinds()));
+        assertThat(optionValues(page, "#map-precision-filter"))
+                .containsExactlyElementsOf(values(MapAuctionFilterOptions.precisions()));
 
         for (String precision : PRECISIONS) {
             assertThat(page.locator(".map-legend li[data-precision='" + precision + "']").count())
@@ -140,6 +151,17 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 window.__auctionMap.map.getStyle().layers
                   .filter(layer => layer.id.startsWith('auction-point-')).length
                 """)).intValue()).isEqualTo(6);
+        assertThat((Boolean) page.evaluate("""
+                () => {
+                  const ids = window.__auctionMap.map.getStyle().layers.map(layer => layer.id);
+                  const selected = ids.indexOf('auction-selected-area');
+                  const precisionLayers = ids
+                    .map((id, index) => ({id, index}))
+                    .filter(layer => layer.id.startsWith('auction-area-')
+                      && layer.id !== 'auction-selected-area');
+                  return selected > Math.max(...precisionLayers.map(layer => layer.index));
+                }
+                """)).isTrue();
 
         page.waitForFunction("window.__auctionMap.renderedClusterCount() > 0");
         assertThat(((Number) page.evaluate("window.__auctionMap.renderedClusterCount()")).intValue())
@@ -155,13 +177,30 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.url()).contains("auction=34001").doesNotContain("%3Cimg", "onerror");
         assertThat(page.locator(".map-popup").textContent())
                 .contains("<img src=x onerror=window.__popupXss=true>")
-                .contains("RSD", "Парцела", "Проверена граница");
+                .contains("RSD", "Парцела", "Проверена граница", "Проверено")
+                .doesNotContain("Verified");
         assertThat(page.locator(".map-popup img").count()).isZero();
         assertThat(page.evaluate("window.__popupXss ?? null")).isNull();
         Locator source = page.locator(".map-popup a");
         assertThat(source.getAttribute("href"))
                 .isEqualTo("https://eaukcija.sud.rs/#/aukcije/34001");
         assertThat(source.getAttribute("rel")).isEqualTo("noopener noreferrer");
+        Locator selectedSource = page.locator("#map-selection .map-selection-source");
+        assertThat(selectedSource.getAttribute("href"))
+                .isEqualTo("https://eaukcija.sud.rs/#/aukcije/34001");
+        assertThat(selectedSource.getAttribute("rel")).isEqualTo("noopener noreferrer");
+        assertThat((Boolean) selectedSource.evaluate("element => element === document.activeElement"))
+                .isTrue();
+        assertThat((Boolean) selectedSource.evaluate("""
+                element => {
+                  const style = getComputedStyle(element);
+                  return element.matches(':focus-visible')
+                    && style.outlineStyle === 'solid'
+                    && parseFloat(style.outlineWidth) >= 3
+                    && style.boxShadow !== 'none';
+                }
+                """)).isTrue();
+        assertFocusContrast(page);
 
         page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         waitForReadyMap(page);
@@ -179,16 +218,44 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
 
         page.waitForTimeout(350);
         page.waitForFunction("window.__auctionMap.getDiagnostics().lastState === 'ready'");
+        page.evaluate("""
+                () => {
+                  const source = window.__auctionMap.map.getSource('auction-points');
+                  window.__realClusterLeaves = source.getClusterLeaves.bind(source);
+                  source.getClusterLeaves = () => Promise.reject(new Error('stale cluster'));
+                }
+                """);
+        page.evaluate("""
+                async () => {
+                  const map = window.__auctionMap.map;
+                  const cluster = map.queryRenderedFeatures({layers: ['auction-clusters']})[0];
+                  if (!cluster) throw new Error('no rendered cluster');
+                  await window.__auctionMap.showCluster(cluster);
+                }
+                """);
+        page.waitForSelector("#map-selection[role='alert']");
+        assertThat(page.locator("#map-selection").textContent()).contains("Група аукција се променила");
+        page.evaluate("""
+                () => {
+                  window.__auctionMap.map.getSource('auction-points').getClusterLeaves =
+                    window.__realClusterLeaves;
+                }
+                """);
         clickFirstCluster(page);
         page.waitForSelector("#map-selection:not([hidden]) .map-selection-button");
         assertThat(page.locator("#map-selection h4").textContent())
                 .isEqualTo("3 аукција на овој локацији");
         assertThat(page.locator("#map-selection .map-selection-button").count()).isEqualTo(3);
+        page.waitForFunction("""
+                window.__auctionMap.getDiagnostics().lastState === 'ready'
+                  && window.__auctionMap.getDiagnostics().pendingRefresh === false
+                """);
 
         Path evidence = evidenceDirectory();
         Files.createDirectories(evidence);
         Path desktop = evidence.resolve("issue-27-auction-map-desktop.png");
-        page.screenshot(new Page.ScreenshotOptions().setFullPage(true).setPath(desktop));
+        page.locator(".auction-map-panel").screenshot(
+                new Locator.ScreenshotOptions().setPath(desktop));
         assertThat(Files.size(desktop)).isGreaterThan(10_000);
 
         page.setViewportSize(390, 844);
@@ -203,7 +270,12 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 }
                 """)).isTrue();
         Path narrow = evidence.resolve("issue-27-auction-map-narrow.png");
-        page.screenshot(new Page.ScreenshotOptions().setFullPage(true).setPath(narrow));
+        page.waitForFunction("""
+                window.__auctionMap.getDiagnostics().lastState === 'ready'
+                  && window.__auctionMap.getDiagnostics().pendingRefresh === false
+                """);
+        page.locator(".auction-map-panel").screenshot(
+                new Locator.ScreenshotOptions().setPath(narrow));
         assertThat(Files.size(narrow)).isGreaterThan(10_000);
 
         browser.network().assertOnlyLocalhostRequests();
@@ -247,13 +319,76 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-state").textContent()).contains("ограничен");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
 
+        int beforeDeferredFilter = ((Number) page.evaluate(
+                "window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
+        page.evaluate("""
+                () => {
+                  const map = window.__auctionMap.map;
+                  window.__realIsStyleLoaded = map.isStyleLoaded.bind(map);
+                  map.isStyleLoaded = () => false;
+                }
+                """);
+        page.selectOption("#map-status-filter", "Verified");
+        page.locator("#map-filters button[type='submit']").click();
+        assertThat(page.url()).contains("mapStatus=Verified");
+        assertThat(page.locator("#map-state").getAttribute("data-state")).isEqualTo("loading");
+        assertThat((Boolean) page.evaluate(
+                "window.__auctionMap.getDiagnostics().pendingRefresh")).isTrue();
+        assertThat(((Number) page.evaluate(
+                "window.__auctionMap.getDiagnostics().requestsStarted")).intValue())
+                .isEqualTo(beforeDeferredFilter);
+        page.evaluate("""
+                () => {
+                  const map = window.__auctionMap.map;
+                  window.__mapResponses.push({status: 200, delay: 0, body: {
+                    type: 'FeatureCollection',
+                    features: [{
+                      type: 'Feature', id: '99001:feature',
+                      geometry: {type: 'Point', coordinates: [20.4605, 44.7902]},
+                      properties: {
+                        auctionId: 99001, title: 'Контролисани резултат', amount: 123000,
+                        currency: 'RSD', endTime: '2030-08-24T10:00:00Z',
+                        sourceStatus: 'Verified', propertyKind: 'Кућа', precision: 'ADDRESS',
+                        detailUrl: 'https://eaukcija.sud.rs/#/aukcije/99001'
+                      }
+                    }],
+                    numberReturned: 1, limit: 1000, truncated: false
+                  }});
+                  map.isStyleLoaded = window.__realIsStyleLoaded;
+                  map.fire({type: 'styledata'});
+                }
+                """);
+        page.waitForFunction("""
+                expected => window.__auctionMap.getDiagnostics().requestsStarted > expected
+                  && window.__auctionMap.getDiagnostics().lastState === 'ready'
+                  && window.__auctionMap.getDiagnostics().pendingRefresh === false
+                """, beforeDeferredFilter);
+
+        page.evaluate("""
+                () => window.__mapResponses.push({
+                  status: 400,
+                  delay: 0,
+                  body: {
+                    title: 'Invalid map request', code: 'INVALID_MAP_REQUEST', field: 'bbox',
+                    detail: 'bbox area must not exceed 1000000 square kilometres'
+                  }
+                })
+                """);
+        page.evaluate("window.__auctionMap.refreshNow()");
+        page.waitForFunction("window.__auctionMap.getDiagnostics().lastError === 'MAP_HTTP_400'");
+        assertThat(page.locator("#map-state").getAttribute("role")).isEqualTo("alert");
+        assertThat(page.locator("#map-state").getAttribute("aria-live")).isEqualTo("assertive");
+        assertThat(page.locator("#map-state").textContent())
+                .contains("bbox", "1000000", "Промените приказ или филтер")
+                .doesNotContain("Покушајте поново");
+
         page.evaluate("""
                 () => window.__mapResponses.push({status: 503, delay: 0})
                 """);
         page.evaluate("window.__auctionMap.refreshNow()");
-        page.waitForFunction("window.__auctionMap.getDiagnostics().lastState === 'error'");
+        page.waitForFunction("window.__auctionMap.getDiagnostics().lastError === 'MAP_HTTP_503'");
         assertThat(page.locator("#map-state").textContent())
-                .contains("Претходних 1 резултата остаје приказано");
+                .contains("Претходних 1 резултата остаје приказано", "Покушајте поново");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
 
         page.evaluate("""
@@ -272,8 +407,68 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("0");
         assertThat(page.locator("#map-limit-warning").isHidden()).isTrue();
 
+        page.evaluate("""
+                () => window.__mapResponses.push({
+                  status: 200,
+                  delay: 0,
+                  body: {
+                    type: 'FeatureCollection',
+                    features: [{
+                      type: 'Feature', id: '99002:feature',
+                      geometry: {type: 'Point', coordinates: [20.4605, 44.7902]},
+                      properties: {
+                        auctionId: 99002, title: 'Без датума', amount: 100,
+                        currency: 'USD', endTime: null, sourceStatus: 'Verified',
+                        propertyKind: 'Кућа', precision: 'ADDRESS',
+                        detailUrl: 'https://eaukcija.sud.rs/#/aukcije/99002'
+                      }
+                    }],
+                    numberReturned: 1, limit: 1000, truncated: false
+                  }
+                })
+                """);
+        page.evaluate("window.__auctionMap.refreshNow()");
+        page.waitForFunction("window.__auctionMap.getDiagnostics().lastFeatureCount === 1");
+        page.locator(".map-result-button").press("Enter");
+        assertThat(page.locator(".map-popup").textContent())
+                .contains("Није наведен", "RSD", "Проверено")
+                .doesNotContain("USD", "Verified");
+
         browser.network().assertOnlyLocalhostRequests();
         assertThat(browser.network().contactedHosts()).containsExactly("localhost");
+    }
+
+    @Test
+    void zoomingToResponsiveMinimumStaysWithinTheApiAreaContract() {
+        Page page = browser.page();
+        page.setViewportSize(1600, 900);
+        page.navigate(applicationUri().toString(),
+                new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        waitForReadyMap(page);
+
+        int requestsBefore = ((Number) page.evaluate(
+                "window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
+        double minimum = ((Number) page.evaluate("window.__auctionMap.map.getMinZoom()"))
+                .doubleValue();
+        assertThat(minimum).isGreaterThan(5.0);
+        page.evaluate("""
+                () => {
+                  const map = window.__auctionMap.map;
+                  map.jumpTo({zoom: map.getMinZoom()});
+                }
+                """);
+        page.waitForFunction("""
+                previous => window.__auctionMap.getDiagnostics().requestsStarted > previous
+                  && window.__auctionMap.getDiagnostics().lastState === 'ready'
+                  && window.__auctionMap.getDiagnostics().pendingRefresh === false
+                """, requestsBefore);
+
+        Map<String, Object> diagnostics = diagnostics(page);
+        assertThat(((Number) diagnostics.get("lastRequestAreaSquareKm")).doubleValue())
+                .isLessThanOrEqualTo(1_000_000);
+        assertThat(page.locator("#map-state").textContent())
+                .doesNotContain("Није могуће", "Покушајте поново");
+        browser.network().assertOnlyLocalhostRequests();
     }
 
     private void seedLocation(int index, long auctionId, String precision, String wkt) {
@@ -338,6 +533,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
     }
 
     private static void clickFirstCluster(Page page) {
+        page.locator("#auction-map").scrollIntoViewIfNeeded();
         @SuppressWarnings("unchecked")
         Map<String, Number> point = (Map<String, Number>) page.evaluate("""
                 () => {
@@ -350,6 +546,73 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 }
                 """);
         page.mouse().click(point.get("x").doubleValue(), point.get("y").doubleValue());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> optionValues(Page page, String selector) {
+        return (List<String>) page.evaluate("""
+                selector => [...document.querySelector(selector).options]
+                  .map(option => option.value)
+                  .filter(Boolean)
+                """, selector);
+    }
+
+    private static List<String> values(List<MapAuctionFilterOptions.Option> options) {
+        return options.stream().map(MapAuctionFilterOptions.Option::value).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> diagnostics(Page page) {
+        return (Map<String, Object>) page.evaluate("window.__auctionMap.getDiagnostics()");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertFocusContrast(Page page) {
+        Map<String, Number> ratios = (Map<String, Number>) page.evaluate("""
+                () => {
+                  const parse = value => value.match(/[0-9.]+/g).slice(0, 3).map(Number);
+                  const resolveColor = value => {
+                    const probe = document.createElement('span');
+                    probe.style.color = value;
+                    document.body.append(probe);
+                    const resolved = getComputedStyle(probe).color;
+                    probe.remove();
+                    return resolved;
+                  };
+                  const luminance = value => {
+                    const channels = parse(value).map(channel => {
+                      const normalized = channel / 255;
+                      return normalized <= .04045
+                        ? normalized / 12.92
+                        : ((normalized + .055) / 1.055) ** 2.4;
+                    });
+                    return .2126 * channels[0] + .7152 * channels[1] + .0722 * channels[2];
+                  };
+                  const contrast = (first, second) => {
+                    const light = Math.max(luminance(first), luminance(second));
+                    const dark = Math.min(luminance(first), luminance(second));
+                    return (light + .05) / (dark + .05);
+                  };
+                  const root = getComputedStyle(document.documentElement);
+                  const inner = resolveColor(root.getPropertyValue('--map-focus-inner').trim());
+                  const outer = resolveColor(root.getPropertyValue('--map-focus-outer').trim());
+                  const background = selector => getComputedStyle(document.querySelector(selector))
+                    .backgroundColor;
+                  return {
+                    result: contrast(outer, background('.map-result-button')),
+                    select: contrast(outer, background('#map-status-filter')),
+                    date: contrast(outer, background('#map-from-filter')),
+                    selection: contrast(outer, background('#map-selection')),
+                    popup: contrast(outer, background('.maplibregl-popup-content')),
+                    primary: contrast(inner, background('#map-filters button[type="submit"]')),
+                    twoTone: contrast(inner, outer)
+                  };
+                }
+                """);
+        assertThat(ratios)
+                .allSatisfy((surface, ratio) -> assertThat(ratio.doubleValue())
+                        .as("focus indicator contrast on %s", surface)
+                        .isGreaterThanOrEqualTo(3.0));
     }
 
     private static String mockViewportFetchScript() {

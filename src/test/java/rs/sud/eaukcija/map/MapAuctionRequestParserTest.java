@@ -56,6 +56,25 @@ class MapAuctionRequestParserTest {
     }
 
     @Test
+    void everyUiFilterOptionIsAcceptedByTheSameParserContract() {
+        for (MapAuctionFilterOptions.Option option : MapAuctionFilterOptions.statuses()) {
+            MultiValueMap<String, String> parameters = parameters("bbox", "18,41,24,47");
+            parameters.add("status", option.value());
+            assertThat(parser.parse(parameters).sourceStatus()).isEqualTo(option.value());
+        }
+        for (MapAuctionFilterOptions.Option option : MapAuctionFilterOptions.kinds()) {
+            MultiValueMap<String, String> parameters = parameters("bbox", "18,41,24,47");
+            parameters.add("kind", option.value());
+            assertThat(parser.parse(parameters).propertyKind()).isEqualTo(option.value());
+        }
+        for (MapAuctionFilterOptions.Option option : MapAuctionFilterOptions.precisions()) {
+            MultiValueMap<String, String> parameters = parameters("bbox", "18,41,24,47");
+            parameters.add("precision", option.value());
+            assertThat(parser.parse(parameters).precision().name()).isEqualTo(option.value());
+        }
+    }
+
+    @Test
     void acceptsAnAuctionExactlyOnEachWgs84OuterEdge() {
         MapAuctionRequest request = parser.parse(parameters("bbox", "-180,-90,180,-89.99"));
         assertThat(request.boundingBox().minLongitude()).isEqualTo(-180);

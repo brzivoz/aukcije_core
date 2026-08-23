@@ -2,7 +2,8 @@
     --map-ink: #17243a;
     --map-muted: #52606d;
     --map-border: #c7d0d9;
-    --map-focus: #ffbf47;
+    --map-focus-inner: #fff;
+    --map-focus-outer: #0b2e59;
     --precision-parcel: #7b2cbf;
     --precision-address: #006d77;
     --precision-street: #b45309;
@@ -128,6 +129,13 @@
 .map-filter-actions .btn {
     min-height: 38px;
     padding-inline: 12px;
+}
+
+.map-default-note {
+    margin: -2px 0 10px;
+    color: var(--map-muted);
+    font-size: .76rem;
+    line-height: 1.4;
 }
 
 .map-notice {
@@ -334,8 +342,16 @@
 .auction-map-panel select:focus-visible,
 .auction-map-panel input:focus-visible,
 .auction-map-panel a:focus-visible {
-    outline: 3px solid var(--map-focus);
-    outline-offset: 2px;
+    outline: 3px solid var(--map-focus-inner);
+    outline-offset: 0;
+    box-shadow: 0 0 0 5px var(--map-focus-outer);
+}
+
+.map-selection-source {
+    display: inline-block;
+    margin-top: 3px;
+    color: #162a83;
+    font-weight: 700;
 }
 
 .map-popup {

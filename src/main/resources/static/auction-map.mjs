@@ -9,46 +9,43 @@ const SELECTED_POINT_LAYER = 'auction-selected-point';
 const SELECTED_AREA_LAYER = 'auction-selected-area';
 const LOAD_DEBOUNCE_MS = 250;
 const RESULT_LIMIT = 1000;
+const MAX_BBOX_AREA_SQUARE_KM = 1_000_000;
+const REQUEST_AREA_SAFETY_FACTOR = .98;
+const EARTH_RADIUS_KM = 6_371.0088;
 const EMPTY_COLLECTION = Object.freeze({type: 'FeatureCollection', features: []});
 
 const PRECISIONS = Object.freeze({
     PARCEL: {
-        label: 'Парцела',
         explanation: 'Проверена граница или тачка парцеле.',
         color: '#7b2cbf',
         shape: 'diamond',
         dash: [10, 1]
     },
     ADDRESS: {
-        label: 'Адреса',
         explanation: 'Адресна тачка; не мора представљати обрис објекта или парцеле.',
         color: '#006d77',
         shape: 'square',
         dash: [3, 1]
     },
     STREET: {
-        label: 'Улица',
         explanation: 'Приближна тачка улице, без тврдње о тачној адреси.',
         color: '#b45309',
         shape: 'triangle',
         dash: [1, 1]
     },
     CADASTRAL_MUNICIPALITY: {
-        label: 'Центар катастарске општине',
         explanation: 'Центар катастарске општине; ово није адреса ни парцела.',
         color: '#0057b8',
         shape: 'hexagon',
         dash: [4, 2]
     },
     SETTLEMENT: {
-        label: 'Центар насеља',
         explanation: 'Центар насеља; стварна непокретност може бити удаљена.',
         color: '#9c2f58',
         shape: 'circle',
         dash: [2, 2]
     },
     MUNICIPALITY: {
-        label: 'Центар општине',
         explanation: 'Најшири приближни приказ, у центру општине.',
         color: '#4b5563',
         shape: 'cross',
@@ -78,6 +75,12 @@ const elements = {
     selection: document.getElementById('map-selection')
 };
 
+const FILTER_OPTIONS = Object.freeze({
+    status: selectOptionValues('map-status-filter'),
+    kind: selectOptionValues('map-kind-filter'),
+    precision: selectOptionValues('map-precision-filter')
+});
+
 const diagnostics = {
     requestsStarted: 0,
     requestsCompleted: 0,
@@ -87,7 +90,12 @@ const diagnostics = {
     lastState: 'loading',
     lastError: null,
     precisionStyles: Object.keys(PRECISIONS),
-    selectedAuctionId: null
+    selectedAuctionId: null,
+    pendingRefresh: false,
+    requestableMinZoom: null,
+    lastRequestAreaSquareKm: null,
+    basemapErrors: 0,
+    lastClusterError: null
 };
 
 const state = {
@@ -98,7 +106,10 @@ const state = {
     debounceTimer: null,
     activeRequest: null,
     requestSequence: 0,
-    metadataWarnings: new Set()
+    metadataWarnings: new Set(),
+    pendingRefresh: false,
+    sourcesReady: false,
+    initializationPromise: null
 };
 
 const publicApi = {
@@ -106,41 +117,72 @@ const publicApi = {
     map: null,
     refreshNow: () => refreshNow(),
     getDiagnostics: () => ({...diagnostics}),
-    renderedClusterCount: () => renderedClusterCount()
+    renderedClusterCount: () => renderedClusterCount(),
+    showCluster: cluster => showCluster(cluster)
 };
-window.__auctionMap = publicApi;
+if (document.querySelector('.auction-map-panel')?.dataset.mapTestHooks === 'true') {
+    window.__auctionMap = publicApi;
+}
 
 restoreFiltersFromUrl();
 bindFilterControls();
+const metadataPromise = loadMetadata();
 initialize();
 
 async function initialize() {
-    const metadata = loadMetadata();
+    if (state.initializationPromise) {
+        return state.initializationPromise;
+    }
+    publicApi.ready = false;
+    const attempt = initializeMap();
+    state.initializationPromise = attempt;
     try {
-        state.map = await createLocalBasemap({
+        await attempt;
+    } finally {
+        await metadataPromise;
+        publicApi.ready = true;
+        if (state.initializationPromise === attempt) {
+            state.initializationPromise = null;
+        }
+    }
+}
+
+async function initializeMap() {
+    try {
+        const map = await createLocalBasemap({
             container: 'auction-map',
             center: [20.46, 44.79],
             zoom: 14,
-            minZoom: 5,
+            minZoom: 0,
             maxZoom: 20,
             fadeDuration: reducedMotion() ? 0 : 150
         });
-        publicApi.map = state.map;
-        state.map.addControl(new NavigationControl({showCompass: false}), 'top-right');
-        await mapLoaded(state.map);
-        configureAccessibleMap(state.map);
-        addAuctionSourcesAndLayers(state.map);
-        bindMapInteractions(state.map);
-        state.map.on('moveend', () => scheduleLoad());
-        await loadViewport();
+        state.map = map;
+        publicApi.map = map;
+        map.addControl(new NavigationControl({showCompass: false}), 'top-right');
+        map.on('error', handleBasemapError);
+        await mapLoaded(map);
+        configureAccessibleMap(map);
+        assertPrecisionContract();
+        map.on('styledata', replayPendingRefresh);
+        map.on('idle', replayPendingRefresh);
+        addAuctionSourcesAndLayers(map);
+        state.sourcesReady = true;
+        synchronizeMinZoom(map);
+        map.on('resize', () => synchronizeMinZoom(map));
+        bindMapInteractions(map);
+        map.on('moveend', () => scheduleLoad());
+        requestRefresh();
+        await replayPendingRefresh();
     } catch (error) {
         diagnostics.lastError = errorName(error);
+        state.sourcesReady = false;
+        state.map?.remove();
+        state.map = null;
+        publicApi.map = null;
         setMapState(
                 'error',
                 'Карта тренутно није доступна. Проверите локални пакет основне карте и покушајте поново.');
-    } finally {
-        await metadata;
-        publicApi.ready = true;
     }
 }
 
@@ -254,6 +296,7 @@ function validIsoDate(value) {
 function scheduleLoad(delay = LOAD_DEBOUNCE_MS) {
     window.clearTimeout(state.debounceTimer);
     abortActiveRequest();
+    requestRefresh();
     setMapState(
             'loading',
             state.features.length
@@ -261,7 +304,7 @@ function scheduleLoad(delay = LOAD_DEBOUNCE_MS) {
                     : 'Учитавање аукција у видљивом делу карте…');
     state.debounceTimer = window.setTimeout(() => {
         state.debounceTimer = null;
-        loadViewport();
+        replayPendingRefresh();
     }, delay);
 }
 
@@ -269,14 +312,41 @@ async function refreshNow() {
     window.clearTimeout(state.debounceTimer);
     state.debounceTimer = null;
     abortActiveRequest();
-    if (!state.map?.isStyleLoaded()) {
+    requestRefresh();
+    setMapState(
+            'loading',
+            state.features.length
+                    ? 'Примена филтера; претходни резултати остају приказани док се карта освежава…'
+                    : 'Примена филтера и учитавање аукција…');
+    if (!state.map) {
+        return initialize();
+    }
+    return replayPendingRefresh();
+}
+
+function requestRefresh() {
+    state.pendingRefresh = true;
+    diagnostics.pendingRefresh = true;
+}
+
+async function replayPendingRefresh() {
+    if (!state.pendingRefresh
+            || !state.map
+            || !state.sourcesReady
+            || !state.map.isStyleLoaded()) {
         return;
     }
+    if (!ensureRequestableViewport(state.map)) {
+        return;
+    }
+    state.pendingRefresh = false;
+    diagnostics.pendingRefresh = false;
     return loadViewport();
 }
 
 async function loadViewport() {
-    if (!state.map) {
+    if (!state.map || !state.sourcesReady || !state.map.isStyleLoaded()) {
+        requestRefresh();
         return;
     }
     abortActiveRequest();
@@ -298,7 +368,7 @@ async function loadViewport() {
             signal: controller.signal
         });
         if (!response.ok) {
-            throw new Error(`MAP_HTTP_${response.status}`);
+            throw await mapResponseError(response);
         }
         const collection = validateCollection(await response.json());
         if (sequence !== state.requestSequence) {
@@ -331,9 +401,17 @@ async function loadViewport() {
         const retained = state.features.length
                 ? ` Претходних ${state.features.length} резултата остаје приказано.`
                 : '';
-        setMapState(
-                'error',
-                `Није могуће преузети аукције за овај приказ.${retained} Покушајте поново.`);
+        if (error instanceof MapHttpError && error.clientError) {
+            const field = error.field ? ` (${error.field})` : '';
+            const detail = error.detail ? `: ${error.detail}` : '';
+            setMapState(
+                    'error',
+                    `Захтев карте није прихваћен${field}${detail}.${retained} Промените приказ или филтер.`);
+        } else {
+            setMapState(
+                    'error',
+                    `Није могуће преузети аукције за овај приказ.${retained} Покушајте поново.`);
+        }
     } finally {
         if (state.activeRequest === controller) {
             state.activeRequest = null;
@@ -353,6 +431,7 @@ function abortActiveRequest() {
 
 function viewportUrl() {
     const bounds = state.map.getBounds();
+    diagnostics.lastRequestAreaSquareKm = boundingBoxAreaSquareKm(bounds);
     const query = new URLSearchParams();
     query.set('bbox', [
         bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()
@@ -367,6 +446,112 @@ function viewportUrl() {
     return `/api/map/auctions?${query.toString()}`;
 }
 
+function synchronizeMinZoom(map) {
+    const minimum = requestableMinZoom(map);
+    diagnostics.requestableMinZoom = minimum;
+    if (Math.abs(map.getMinZoom() - minimum) > .005) {
+        map.setMinZoom(minimum);
+    }
+}
+
+function requestableMinZoom(map) {
+    let lower = 0;
+    let upper = map.getMaxZoom();
+    for (let iteration = 0; iteration < 32; iteration++) {
+        const candidate = (lower + upper) / 2;
+        const area = boundingBoxAreaSquareKm(estimatedViewportBounds(map, candidate));
+        if (area > MAX_BBOX_AREA_SQUARE_KM * REQUEST_AREA_SAFETY_FACTOR) {
+            lower = candidate;
+        } else {
+            upper = candidate;
+        }
+    }
+    return Math.min(map.getMaxZoom(), Math.ceil(upper * 100) / 100);
+}
+
+function estimatedViewportBounds(map, zoom) {
+    const rectangle = map.getContainer().getBoundingClientRect();
+    const center = map.getCenter();
+    const worldSize = 512 * (2 ** zoom);
+    const centerX = (center.lng + 180) / 360;
+    const latitudeRadians = center.lat * Math.PI / 180;
+    const centerY = (1 - Math.log(
+            Math.tan(latitudeRadians) + (1 / Math.cos(latitudeRadians))) / Math.PI) / 2;
+    const halfWidth = Math.max(rectangle.width, 1) / (2 * worldSize);
+    const halfHeight = Math.max(rectangle.height, 1) / (2 * worldSize);
+    return {
+        west: (centerX - halfWidth) * 360 - 180,
+        east: (centerX + halfWidth) * 360 - 180,
+        north: latitudeFromMercatorY(centerY - halfHeight),
+        south: latitudeFromMercatorY(centerY + halfHeight)
+    };
+}
+
+function latitudeFromMercatorY(value) {
+    return Math.atan(Math.sinh(Math.PI * (1 - 2 * value))) * 180 / Math.PI;
+}
+
+function boundingBoxAreaSquareKm(bounds) {
+    const west = typeof bounds.getWest === 'function' ? bounds.getWest() : bounds.west;
+    const east = typeof bounds.getEast === 'function' ? bounds.getEast() : bounds.east;
+    const south = typeof bounds.getSouth === 'function' ? bounds.getSouth() : bounds.south;
+    const north = typeof bounds.getNorth === 'function' ? bounds.getNorth() : bounds.north;
+    const longitudeRadians = Math.abs((east - west) * Math.PI / 180);
+    const latitudeFactor = Math.abs(
+            Math.sin(north * Math.PI / 180) - Math.sin(south * Math.PI / 180));
+    return EARTH_RADIUS_KM * EARTH_RADIUS_KM * longitudeRadians * latitudeFactor;
+}
+
+function ensureRequestableViewport(map) {
+    synchronizeMinZoom(map);
+    const area = boundingBoxAreaSquareKm(map.getBounds());
+    diagnostics.lastRequestAreaSquareKm = area;
+    if (Number.isFinite(area)
+            && area <= MAX_BBOX_AREA_SQUARE_KM * REQUEST_AREA_SAFETY_FACTOR) {
+        return true;
+    }
+    const scale = Number.isFinite(area) && area > 0
+            ? .5 * Math.log2(area / (MAX_BBOX_AREA_SQUARE_KM * REQUEST_AREA_SAFETY_FACTOR))
+            : 1;
+    const targetZoom = Math.min(
+            map.getMaxZoom(),
+            Math.max(map.getMinZoom(), map.getZoom() + Math.max(scale, .1)));
+    map.setMinZoom(Math.max(map.getMinZoom(), Math.ceil(targetZoom * 100) / 100));
+    requestRefresh();
+    setMapState(
+            'loading',
+            'Приказ је аутоматски увећан да би захтев остао у дозвољеном обиму; учитавање аукција…');
+    map.jumpTo({zoom: targetZoom});
+    return false;
+}
+
+async function mapResponseError(response) {
+    let problem = null;
+    if (response.status >= 400 && response.status < 500) {
+        try {
+            problem = await response.json();
+        } catch (_error) {
+            problem = null;
+        }
+    }
+    return new MapHttpError(response.status, problem);
+}
+
+class MapHttpError extends Error {
+    constructor(status, problem) {
+        super(`MAP_HTTP_${status}`);
+        this.name = 'MapHttpError';
+        this.status = status;
+        this.clientError = status >= 400 && status < 500;
+        this.field = safeProblemText(problem?.field, 64);
+        this.detail = safeProblemText(problem?.detail, 300);
+    }
+}
+
+function safeProblemText(value, maximumLength) {
+    return typeof value === 'string' ? value.trim().slice(0, maximumLength) : '';
+}
+
 function validateCollection(value) {
     if (!value
             || value.type !== 'FeatureCollection'
@@ -378,6 +563,26 @@ function validateCollection(value) {
     return value;
 }
 
+function selectOptionValues(elementId) {
+    return Object.freeze([...document.getElementById(elementId).options]
+            .map(option => option.value)
+            .filter(Boolean));
+}
+
+function optionLabel(elementId, value) {
+    const option = [...document.getElementById(elementId).options]
+            .find(candidate => candidate.value === value);
+    return option?.textContent?.trim() || null;
+}
+
+function assertPrecisionContract() {
+    const styles = Object.keys(PRECISIONS);
+    if (styles.length !== FILTER_OPTIONS.precision.length
+            || styles.some(precision => !FILTER_OPTIONS.precision.includes(precision))) {
+        throw new Error('MAP_PRECISION_CONTRACT_MISMATCH');
+    }
+}
+
 function validFeature(feature) {
     const properties = feature?.properties;
     return feature?.type === 'Feature'
@@ -387,6 +592,7 @@ function validFeature(feature) {
             && properties
             && validAuctionId(String(properties.auctionId))
             && typeof properties.title === 'string'
+            && FILTER_OPTIONS.precision.includes(properties.precision)
             && Object.hasOwn(PRECISIONS, properties.precision)
             && typeof properties.detailUrl === 'string';
 }
@@ -413,14 +619,6 @@ function addAuctionSourcesAndLayers(map) {
     });
     map.addSource(AREA_SOURCE, {type: 'geojson', data: EMPTY_COLLECTION});
 
-    map.addLayer({
-        id: SELECTED_AREA_LAYER,
-        type: 'line',
-        source: AREA_SOURCE,
-        filter: ['==', ['get', 'auctionId'], -1],
-        paint: {'line-color': '#111827', 'line-width': 6, 'line-opacity': .75}
-    });
-
     for (const [precision, presentation] of Object.entries(PRECISIONS)) {
         map.addLayer({
             id: areaFillLayer(precision),
@@ -441,6 +639,15 @@ function addAuctionSourcesAndLayers(map) {
             }
         });
     }
+
+    // The selection outline must sit above every precision fill/outline.
+    map.addLayer({
+        id: SELECTED_AREA_LAYER,
+        type: 'line',
+        source: AREA_SOURCE,
+        filter: ['==', ['get', 'auctionId'], -1],
+        paint: {'line-color': '#111827', 'line-width': 6, 'line-opacity': .9}
+    });
 
     map.addLayer({
         id: SELECTED_POINT_LAYER,
@@ -597,12 +804,31 @@ async function showCluster(cluster) {
     const source = state.map.getSource(POINT_SOURCE);
     const clusterId = Number(cluster.properties.cluster_id);
     const count = Number(cluster.properties.point_count);
-    const leaves = await source.getClusterLeaves(clusterId, Math.min(count, RESULT_LIMIT), 0);
-    renderClusterSelection(leaves, count);
+    try {
+        const leaves = await source.getClusterLeaves(clusterId, Math.min(count, RESULT_LIMIT), 0);
+        diagnostics.lastClusterError = null;
+        renderClusterSelection(leaves, count);
+    } catch (_error) {
+        diagnostics.lastClusterError = 'CLUSTER_CHANGED';
+        renderClusterError();
+    }
+}
+
+function renderClusterError() {
+    elements.selection.replaceChildren();
+    elements.selection.setAttribute('role', 'alert');
+    elements.selection.setAttribute('aria-live', 'assertive');
+    const message = document.createElement('p');
+    message.textContent = 'Група аукција се променила током освежавања. Активирајте групу поново.';
+    elements.selection.append(message);
+    elements.selection.hidden = false;
+    elements.selection.focus({preventScroll: true});
 }
 
 function renderClusterSelection(features, total) {
     elements.selection.replaceChildren();
+    elements.selection.removeAttribute('role');
+    elements.selection.removeAttribute('aria-live');
     const heading = document.createElement('h4');
     heading.textContent = `${total} аукција на овој локацији`;
     elements.selection.append(heading);
@@ -611,7 +837,9 @@ function renderClusterSelection(features, total) {
         button.type = 'button';
         button.className = 'map-selection-button';
         button.textContent = `${feature.properties.title} — ${precisionLabel(feature)}`;
-        button.addEventListener('click', () => selectFeature(feature, {focusSelection: true}));
+        button.addEventListener('click', event => selectFeature(feature, {
+            focusDetails: event.detail === 0
+        }));
         elements.selection.append(button);
     }
     if (features.length < total) {
@@ -643,7 +871,10 @@ function renderResults(features) {
         meta.className = 'map-result-meta';
         meta.textContent = `${precisionLabel(feature)} · ${formatAmount(feature.properties)}`;
         button.append(title, meta);
-        button.addEventListener('click', () => selectFeature(feature, {moveMap: true}));
+        button.addEventListener('click', event => selectFeature(feature, {
+            moveMap: true,
+            focusDetails: event.detail === 0
+        }));
         item.append(button);
         elements.resultList.append(item);
     }
@@ -659,7 +890,7 @@ function selectFeature(feature, options = {}) {
     writeUrlState();
     updateSelectionLayers();
     updateResultSelection();
-    renderSelectedSummary(feature);
+    const summaryLink = renderSelectedSummary(feature);
     showPopup(feature);
     if (options.moveMap) {
         state.map.easeTo({
@@ -667,19 +898,27 @@ function selectFeature(feature, options = {}) {
             duration: reducedMotion() ? 0 : 300
         });
     }
-    if (options.focusSelection) {
-        elements.selection.focus({preventScroll: true});
+    if (options.focusDetails) {
+        (summaryLink || elements.selection).focus({preventScroll: true});
     }
 }
 
 function renderSelectedSummary(feature) {
     elements.selection.replaceChildren();
+    elements.selection.removeAttribute('role');
+    elements.selection.removeAttribute('aria-live');
     const heading = document.createElement('h4');
     heading.textContent = 'Изабрана аукција';
     const summary = document.createElement('p');
     summary.textContent = `${feature.properties.title} — ${precisionLabel(feature)}. ${precisionExplanation(feature)}`;
     elements.selection.append(heading, summary);
+    const sourceLink = createSourceLink(feature, 'Отвори изабрану аукцију на порталу еАукција');
+    if (sourceLink) {
+        sourceLink.className = 'map-selection-source';
+        elements.selection.append(sourceLink);
+    }
     elements.selection.hidden = false;
+    return sourceLink;
 }
 
 function updateResultSelection() {
@@ -737,7 +976,7 @@ function showPopup(feature) {
     const details = document.createElement('dl');
     appendDetail(details, 'Цена', formatAmount(feature.properties));
     appendDetail(details, 'Завршетак', formatEndTime(feature.properties.endTime));
-    appendDetail(details, 'Статус', feature.properties.sourceStatus || 'Није наведен');
+    appendDetail(details, 'Статус', statusLabel(feature.properties.sourceStatus));
     appendDetail(details, 'Прецизност', precisionLabel(feature));
     popupContent.append(details);
 
@@ -745,13 +984,8 @@ function showPopup(feature) {
     explanation.textContent = precisionExplanation(feature);
     popupContent.append(explanation);
 
-    const sourceUrl = allowlistedSourceUrl(feature.properties.detailUrl, feature.properties.auctionId);
-    if (sourceUrl) {
-        const sourceLink = document.createElement('a');
-        sourceLink.href = sourceUrl;
-        sourceLink.target = '_blank';
-        sourceLink.rel = 'noopener noreferrer';
-        sourceLink.textContent = 'Отвори на порталу еАукција';
+    const sourceLink = createSourceLink(feature, 'Отвори на порталу еАукција');
+    if (sourceLink) {
         popupContent.append(sourceLink);
     }
 
@@ -759,6 +993,19 @@ function showPopup(feature) {
             .setLngLat(representativeCoordinate(feature.geometry))
             .setDOMContent(popupContent)
             .addTo(state.map);
+}
+
+function createSourceLink(feature, text) {
+    const sourceUrl = allowlistedSourceUrl(feature.properties.detailUrl, feature.properties.auctionId);
+    if (!sourceUrl) {
+        return null;
+    }
+    const sourceLink = document.createElement('a');
+    sourceLink.href = sourceUrl;
+    sourceLink.target = '_blank';
+    sourceLink.rel = 'noopener noreferrer';
+    sourceLink.textContent = text;
+    return sourceLink;
 }
 
 function appendDetail(list, termText, valueText) {
@@ -821,12 +1068,17 @@ function collectCoordinatePairs(value, output) {
 }
 
 function precisionLabel(feature) {
-    return PRECISIONS[feature.properties.precision]?.label || 'Непозната прецизност';
+    return optionLabel('map-precision-filter', feature.properties.precision)
+            || 'Непозната прецизност';
 }
 
 function precisionExplanation(feature) {
     return PRECISIONS[feature.properties.precision]?.explanation
             || 'Прецизност локације није позната.';
+}
+
+function statusLabel(value) {
+    return optionLabel('map-status-filter', value) || 'Статус није познат';
 }
 
 function formatAmount(properties) {
@@ -836,7 +1088,7 @@ function formatAmount(properties) {
     try {
         return new Intl.NumberFormat('sr-RS', {
             style: 'currency',
-            currency: properties.currency === 'RSD' ? 'RSD' : 'RSD',
+            currency: 'RSD',
             maximumFractionDigits: 2
         }).format(properties.amount);
     } catch (_error) {
@@ -845,6 +1097,9 @@ function formatAmount(properties) {
 }
 
 function formatEndTime(value) {
+    if (value === null || value === undefined || value === '') {
+        return 'Није наведен';
+    }
     const instant = new Date(value);
     if (Number.isNaN(instant.getTime())) {
         return 'Није наведен';
@@ -908,7 +1163,15 @@ function setMapState(name, message) {
     diagnostics.lastState = name;
     elements.state.dataset.state = name;
     elements.state.setAttribute('role', name === 'error' ? 'alert' : 'status');
+    elements.state.setAttribute('aria-live', name === 'error' ? 'assertive' : 'polite');
     elements.state.textContent = message;
+}
+
+function handleBasemapError() {
+    diagnostics.basemapErrors++;
+    state.metadataWarnings.add(
+            'Основна карта је пријавила проблем са једним ресурсом; доступни слојеви и подаци остају приказани.');
+    renderMetadataWarnings();
 }
 
 function configureAccessibleMap(map) {
@@ -933,12 +1196,6 @@ function mapLoaded(map) {
         map.once('load', () => {
             window.clearTimeout(timeout);
             resolve();
-        });
-        map.once('error', event => {
-            if (!map.loaded()) {
-                window.clearTimeout(timeout);
-                reject(event.error || new Error('BASEMAP_LOAD_ERROR'));
-            }
         });
     });
 }

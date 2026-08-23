@@ -5,7 +5,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -30,21 +29,6 @@ public class MapAuctionRequestParser {
     private static final double EARTH_RADIUS_KM = 6_371.0088;
     private static final Set<String> ALLOWED_PARAMETERS =
             Set.of("bbox", "status", "kind", "precision", "from", "to", "limit");
-    private static final Map<String, String> ALLOWED_STATUSES = statuses();
-    private static final Set<String> ALLOWED_KINDS = Set.of(
-            "Гаража",
-            "Грађевинско земљиште",
-            "Земљиште",
-            "Кућа",
-            "Локал",
-            "Непокретности",
-            "Објекат",
-            "Остали пословни објекат",
-            "Парцела",
-            "Пољопривредно земљиште",
-            "Стамбена зграда са више станова",
-            "Стамбени објекат",
-            "Шумско земљиште");
 
     private final Clock clock;
 
@@ -63,15 +47,18 @@ public class MapAuctionRequestParser {
 
         String status = optional(parameters, "status");
         if (status != null) {
-            String canonical = ALLOWED_STATUSES.get(status.toLowerCase(Locale.ROOT));
+            String canonical = MapAuctionFilterOptions.canonicalStatus(status);
             if (canonical == null) {
-                throw invalid("status", "status must be one of " + ALLOWED_STATUSES.values());
+                throw invalid("status", "status must be one of "
+                        + MapAuctionFilterOptions.statuses().stream()
+                                .map(MapAuctionFilterOptions.Option::value)
+                                .toList());
             }
             status = canonical;
         }
 
         String kind = optional(parameters, "kind");
-        if (kind != null && !ALLOWED_KINDS.contains(kind)) {
+        if (kind != null && !MapAuctionFilterOptions.kindValues().contains(kind)) {
             throw invalid("kind", "kind is not in the supported eAukcija category allowlist");
         }
 
@@ -133,13 +120,15 @@ public class MapAuctionRequestParser {
         }
         try {
             LocationPrecision precision = LocationPrecision.valueOf(value.toUpperCase(Locale.ROOT));
-            if (precision == LocationPrecision.NONE) {
+            if (!MapAuctionFilterOptions.precisionValues().contains(precision.name())) {
                 throw new IllegalArgumentException();
             }
             return precision;
         } catch (IllegalArgumentException e) {
-            throw invalid("precision", "precision must be one of PARCEL, ADDRESS, STREET, "
-                    + "CADASTRAL_MUNICIPALITY, SETTLEMENT, MUNICIPALITY");
+            throw invalid("precision", "precision must be one of "
+                    + MapAuctionFilterOptions.precisions().stream()
+                            .map(MapAuctionFilterOptions.Option::value)
+                            .toList());
         }
     }
 
@@ -198,14 +187,5 @@ public class MapAuctionRequestParser {
 
     private static InvalidMapRequestException invalid(String field, String message) {
         return new InvalidMapRequestException(field, message);
-    }
-
-    private static Map<String, String> statuses() {
-        Map<String, String> statuses = new LinkedHashMap<>();
-        statuses.put("inprediction", "InPrediction");
-        statuses.put("published", "Published");
-        statuses.put("verification", "Verification");
-        statuses.put("verified", "Verified");
-        return Map.copyOf(statuses);
     }
 }

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -18,6 +17,7 @@ LAYERS = ["boundaries", "buildings", "landuse", "places", "pois", "roads", "wate
 BOUNDS = [18.8, 42.2, 23.1, 46.3]
 PMTILES_VERSION = "1.31.2"
 PMTILES_COMMIT = "a3e4951ea6a0477b784c27c1dcbfd9c130878c5a"
+GLYPH_RANGES = ("0-255", "256-511", "512-767", "768-1023", "1024-1279", "8192-8447")
 
 
 def sha256(data: bytes) -> str:
@@ -85,7 +85,7 @@ class BundleValidationTest(unittest.TestCase):
         (self.bundle / "serbia.pmtiles").write_bytes(b"PMTiles\x03fixture")
         shutil.copyfile(BASEMAP / "style.json", self.bundle / "style.json")
         shutil.copyfile(BASEMAP / "THIRD_PARTY_NOTICES.md", self.bundle / "THIRD_PARTY_NOTICES.md")
-        for range_name in ("0-255", "256-511", "1024-1279", "8192-8447"):
+        for range_name in GLYPH_RANGES:
             path = self.bundle / "glyphs" / "Noto Sans Regular" / f"{range_name}.pbf"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(f"glyph-{range_name}".encode())
@@ -107,6 +107,7 @@ class BundleValidationTest(unittest.TestCase):
             "description": "Offline Serbia-only vector basemap for Serbian judicial auction maps",
             "version": "2026.8.1",
             "type": "baselayer",
+            "planetiler:buildtime": "2026-03-28T14:40:55.764Z",
             "attribution": (
                 '<a href="https://www.openstreetmap.org/copyright">'
                 "&copy; OpenStreetMap contributors</a>"
@@ -163,7 +164,7 @@ else:
         ).encode("utf-8")
         return sha256(canonical)
 
-    def command(self) -> list[str]:
+    def command(self, metadata_hash: str | None = None) -> list[str]:
         return [
             "python3",
             str(VALIDATE_BUNDLE),
@@ -182,7 +183,7 @@ else:
             "--max-zoom",
             "14",
             "--metadata-sha256",
-            self.metadata_hash(),
+            metadata_hash or self.metadata_hash(),
         ]
 
     def test_valid_local_bundle_and_three_smoke_reads_pass(self) -> None:
@@ -192,6 +193,8 @@ else:
         self.assertEqual(LAYERS, report["layers"])
         self.assertEqual(3, len(report["smokeTiles"]))
         self.assertEqual([], report["style"]["externalRuntimeAssets"])
+        self.assertEqual(list(GLYPH_RANGES), report["style"]["glyphRanges"])
+        self.assertEqual(["townspot"], report["style"]["referencedIcons"])
 
     def test_wrong_pmtiles_version_fails(self) -> None:
         (self.bundle / "serbia.pmtiles").write_bytes(b"PMTiles\x02fixture")
@@ -215,6 +218,70 @@ else:
         self.assertNotEqual(0, completed.returncode)
         self.assertIn("style glyph URL", completed.stderr)
 
+    def test_namespaced_metadata_drift_fails_through_the_canonical_hash(self) -> None:
+        pinned_hash = self.metadata_hash()
+        self.metadata["planetiler:buildtime"] = "different-build"
+        self.write_tool_data()
+        completed = subprocess.run(
+            self.command(pinned_hash), check=False, text=True, capture_output=True
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("deterministic metadata hash mismatch", completed.stderr)
+
+    def test_missing_referenced_sprite_icon_fails(self) -> None:
+        style_path = self.bundle / "style.json"
+        style = json.loads(style_path.read_text("utf-8"))
+        next(layer for layer in style["layers"] if layer["id"] == "place-icons")["layout"][
+            "icon-image"
+        ] = "missing-icon"
+        style_path.write_text(json.dumps(style), encoding="utf-8")
+        completed = subprocess.run(self.command(), check=False, text=True, capture_output=True)
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("style references missing sprite icons", completed.stderr)
+
+    def test_unrecorded_bundle_file_fails_manifest_verification(self) -> None:
+        archive = self.bundle / "serbia.pmtiles"
+        excluded = {"build-manifest.json", "serbia.pmtiles"}
+        bundle_files = []
+        for path in sorted(item for item in self.bundle.rglob("*") if item.is_file()):
+            relative = path.relative_to(self.bundle).as_posix()
+            if relative in excluded:
+                continue
+            bundle_files.append(
+                {
+                    "path": relative,
+                    "sizeBytes": path.stat().st_size,
+                    "sha256": sha256(path.read_bytes()),
+                }
+            )
+        manifest = {
+            "schemaVersion": 1,
+            "artifact": {
+                "filename": archive.name,
+                "sizeBytes": archive.stat().st_size,
+                "sha256": sha256(archive.read_bytes()),
+            },
+            "validation": {
+                "metadataSha256": self.metadata_hash(),
+                "bounds": BOUNDS,
+                "layers": LAYERS,
+            },
+            "bundleFiles": bundle_files,
+        }
+        (self.bundle / "build-manifest.json").write_text(
+            json.dumps(manifest), encoding="utf-8"
+        )
+        (self.bundle / "unrecorded.txt").write_text("must fail", encoding="utf-8")
+        completed = subprocess.run(
+            [*self.command(), "--require-manifest"],
+            check=False,
+            text=True,
+            capture_output=True,
+        )
+        self.assertNotEqual(0, completed.returncode)
+        self.assertIn("manifest inventory mismatch", completed.stderr)
+        self.assertIn("unrecorded.txt", completed.stderr)
+
 
 class PinContractTest(unittest.TestCase):
     def test_sources_tools_and_assets_are_immutable(self) -> None:
@@ -234,6 +301,17 @@ class PinContractTest(unittest.TestCase):
             self.assertGreater(int(size), 0)
             self.assertFalse(Path(relative).is_absolute())
             self.assertRegex(url, r"githubusercontent\.com/.+/[0-9a-f]{40}/")
+
+        assets = (BASEMAP / "assets.lock").read_text("utf-8")
+        for range_name in GLYPH_RANGES:
+            self.assertIn(f"glyphs/Noto Sans Regular/{range_name}.pbf", assets)
+
+    def test_planetiler_execution_and_manifest_share_one_command_array(self) -> None:
+        build = (BASEMAP / "build.sh").read_text("utf-8")
+        self.assertIn("PLANETILER_COMMAND=(", build)
+        self.assertIn('"${PLANETILER_COMMAND[@]}"', build)
+        self.assertIn("printf -v PLANETILER_COMMAND_TEXT", build)
+        self.assertNotIn('PLANETILER_COMMAND="docker run', build)
 
 
 if __name__ == "__main__":

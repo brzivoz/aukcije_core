@@ -145,6 +145,18 @@
       }
     },
     {
+      "id": "place-icons",
+      "type": "symbol",
+      "source": "serbia",
+      "source-layer": "places",
+      "filter": ["in", ["get", "class"], ["literal", ["city", "town", "village"]]],
+      "layout": {
+        "icon-image": "townspot",
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.55, 10, 0.85],
+        "icon-allow-overlap": false
+      }
+    },
+    {
       "id": "place-labels",
       "type": "symbol",
       "source": "serbia",

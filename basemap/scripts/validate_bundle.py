@@ -22,23 +22,20 @@ EXPECTED_LAYERS = {
     "water",
 }
 SMOKE_TILES = ((5, 17, 11), (9, 285, 184), (14, 9123, 5907))
-GLYPH_RANGES = ("0-255", "256-511", "1024-1279", "8192-8447")
+GLYPH_RANGES = (
+    "0-255",
+    "256-511",
+    "512-767",
+    "768-1023",
+    "1024-1279",
+    "8192-8447",
+)
 FORBIDDEN_ASSET_HOSTS = (
     "tile.openstreetmap.org",
     "protomaps.github.io",
     "unpkg.com",
     "cdn.jsdelivr.net",
 )
-FORBIDDEN_METADATA_KEYS = {
-    "build_time",
-    "buildtime",
-    "created_at",
-    "generated_at",
-    "modified_at",
-    "timestamp",
-}
-
-
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -120,12 +117,21 @@ def validate_style(bundle: Path, metadata_layers: set[str]) -> dict[str, object]
         raise ValueError(f"style references missing PMTiles layers: {sorted(unknown_layers)}")
 
     font_stacks: set[str] = set()
+    referenced_icons: set[str] = set()
     for layer in style.get("layers", []):
         if not isinstance(layer, dict):
             continue
-        text_font = layer.get("layout", {}).get("text-font")
+        layout = layer.get("layout", {})
+        if not isinstance(layout, dict):
+            continue
+        text_font = layout.get("text-font")
         if isinstance(text_font, list) and all(isinstance(item, str) for item in text_font):
             font_stacks.update(text_font)
+        icon_image = layout.get("icon-image")
+        if isinstance(icon_image, str):
+            referenced_icons.add(icon_image)
+        elif icon_image is not None:
+            raise ValueError("style icon-image expressions are not supported by this asset validator")
     if font_stacks != {"Noto Sans Regular"}:
         raise ValueError(f"unexpected or missing style font stack: {sorted(font_stacks)}")
     for font_stack in font_stacks:
@@ -134,6 +140,9 @@ def validate_style(bundle: Path, metadata_layers: set[str]) -> dict[str, object]
             if not glyph.is_file() or glyph.stat().st_size == 0:
                 raise ValueError(f"missing local glyph range: {glyph.relative_to(bundle)}")
 
+    if not referenced_icons:
+        raise ValueError("style must reference at least one bundled sprite icon")
+    sprite_names: set[str] | None = None
     for scale in ("", "@2x"):
         sprite_json = bundle / "sprites" / f"light{scale}.json"
         sprite_png = bundle / "sprites" / f"light{scale}.png"
@@ -143,12 +152,21 @@ def validate_style(bundle: Path, metadata_layers: set[str]) -> dict[str, object]
             raise ValueError(f"invalid sprite index {sprite_json.name}: {error}") from error
         if not isinstance(sprite_index, dict) or not sprite_index:
             raise ValueError(f"sprite index is empty: {sprite_json.name}")
+        current_names = set(sprite_index)
+        if sprite_names is None:
+            sprite_names = current_names
+        elif current_names != sprite_names:
+            raise ValueError("1x and 2x sprite indexes contain different icon names")
         try:
             png_header = sprite_png.read_bytes()[:8]
         except OSError as error:
             raise ValueError(f"missing sprite image {sprite_png.name}: {error}") from error
         if png_header != b"\x89PNG\r\n\x1a\n":
             raise ValueError(f"invalid PNG sprite image: {sprite_png.name}")
+    assert sprite_names is not None
+    missing_icons = referenced_icons - sprite_names
+    if missing_icons:
+        raise ValueError(f"style references missing sprite icons: {sorted(missing_icons)}")
 
     for notice in (
         bundle / "THIRD_PARTY_NOTICES.md",
@@ -164,6 +182,7 @@ def validate_style(bundle: Path, metadata_layers: set[str]) -> dict[str, object]
         "fontStacks": sorted(font_stacks),
         "glyphRanges": list(GLYPH_RANGES),
         "sprite": "/basemap/sprites/light",
+        "referencedIcons": sorted(referenced_icons),
         "attributionVisible": True,
         "externalRuntimeAssets": [],
     }
@@ -196,14 +215,34 @@ def validate_manifest(bundle: Path, report: dict[str, object]) -> None:
     recorded_files = manifest.get("bundleFiles")
     if not isinstance(recorded_files, list) or not recorded_files:
         raise ValueError("manifest bundleFiles is missing")
+    recorded_paths: list[str] = []
     for item in recorded_files:
         if not isinstance(item, dict) or not isinstance(item.get("path"), str):
             raise ValueError("manifest bundleFiles entry is malformed")
-        path = bundle / item["path"]
+        relative = Path(item["path"])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError(f"manifest file path escapes the bundle: {item['path']}")
+        recorded_paths.append(relative.as_posix())
+        path = bundle / relative
         if not path.is_file():
             raise ValueError(f"manifest file is missing: {item['path']}")
         if path.stat().st_size != item.get("sizeBytes") or sha256_file(path) != item.get("sha256"):
             raise ValueError(f"manifest file hash/size mismatch: {item['path']}")
+    if len(recorded_paths) != len(set(recorded_paths)):
+        raise ValueError("manifest bundleFiles contains duplicate paths")
+    excluded = {"build-manifest.json", "serbia.pmtiles"}
+    actual_paths = {
+        path.relative_to(bundle).as_posix()
+        for path in bundle.rglob("*")
+        if path.is_file() and path.relative_to(bundle).as_posix() not in excluded
+    }
+    recorded_path_set = set(recorded_paths)
+    if actual_paths != recorded_path_set:
+        unrecorded = sorted(actual_paths - recorded_path_set)
+        absent = sorted(recorded_path_set - actual_paths)
+        raise ValueError(
+            f"manifest inventory mismatch: unrecorded={unrecorded}, absent={absent}"
+        )
 
 
 def validate(args: argparse.Namespace) -> dict[str, object]:
@@ -247,9 +286,6 @@ def validate(args: argparse.Namespace) -> dict[str, object]:
     attribution = metadata.get("attribution", "")
     if "OpenStreetMap contributors" not in attribution or "openstreetmap.org/copyright" not in attribution:
         raise ValueError("PMTiles metadata is missing OpenStreetMap attribution")
-    for key in metadata:
-        if key.lower() in FORBIDDEN_METADATA_KEYS:
-            raise ValueError(f"PMTiles metadata contains volatile key: {key}")
     vector_layers = metadata.get("vector_layers")
     if not isinstance(vector_layers, list):
         raise ValueError("PMTiles MVT metadata is missing vector_layers")

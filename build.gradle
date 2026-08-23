@@ -67,6 +67,7 @@ tasks.named('bootRun') {
     args = ['--spring.profiles.active=dev']
 }
 
+def basemapTestResult = layout.buildDirectory.file('basemap-test/result.txt')
 tasks.register('basemapTest', Exec) {
     group = 'verification'
     description = 'Run offline PMTiles source, pin, bundle, and failure-path regressions'
@@ -76,10 +77,17 @@ tasks.register('basemapTest', Exec) {
     inputs.files(fileTree('basemap') {
         include '**/*.py', '**/*.sh', '**/*.json', '**/*.yml', '**/*.env', '**/*.lock', '**/*.md'
     })
+    outputs.file(basemapTestResult)
+    doFirst {
+        basemapTestResult.get().asFile.parentFile.mkdirs()
+    }
+    doLast {
+        basemapTestResult.get().asFile.setText(
+                'basemap pipeline tests passed' + System.lineSeparator(), 'UTF-8')
+    }
 }
 
 tasks.named('test') {
-    dependsOn tasks.named('basemapTest')
     useJUnitPlatform()
 
     // Testcontainers falls back to Docker API 1.32 when no version is configured,
@@ -91,6 +99,10 @@ tasks.named('test') {
         events 'passed', 'skipped', 'failed'
         exceptionFormat 'short'
     }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('basemapTest')
 }
 
 tasks.register('playwrightInstall', JavaExec) {

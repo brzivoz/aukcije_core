@@ -1,6 +1,8 @@
 # sha256<TAB>size<TAB>bundle path<TAB>immutable source URL
 62c6d49b15fa836eb6aa45e259c7ca6762f44b011b09e47776efbe4a6db1b397	76044	glyphs/Noto Sans Regular/0-255.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/0-255.pbf
 2eca7561f9f566bcacfda5dd04fb5880baec1328ec0f5484678289a13994de8a	127726	glyphs/Noto Sans Regular/256-511.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/256-511.pbf
+6abc80badad0e823e228ab739515be257c8b33bc68bb077dd873030e9b2d143a	94728	glyphs/Noto Sans Regular/512-767.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/512-767.pbf
+537ccbee79180f4f8b3f6d2bdd27df979260ce1a0358c40d7aa7db505d9b03aa	77034	glyphs/Noto Sans Regular/768-1023.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/768-1023.pbf
 302231023f7048d9694a7b3f3b737c8bc378f5af0175aed5bb4f2f3b6188919a	125320	glyphs/Noto Sans Regular/1024-1279.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/1024-1279.pbf
 8ea977a587352fe31b4159ffdbc9a40be79056f2472017c742ea1e4a931864b9	64220	glyphs/Noto Sans Regular/8192-8447.pbf	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/fonts/Noto%20Sans%20Regular/8192-8447.pbf
 ed638688bc63afa2aa150c0dd3ff8a7ae00b6f061a36519dfabf2d3a3ebd8da8	64	sprites/light.json	https://raw.githubusercontent.com/protomaps/basemaps-assets/028c18f713baecad011301ff7a69acc39bcc2ae7/sprites/v3/light.json

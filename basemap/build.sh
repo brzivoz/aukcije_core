@@ -46,14 +46,60 @@ WORK_ROOT="$DATA_ROOT/work/$BUILD_ID"
 BUNDLE_ROOT="$WORK_ROOT/bundle"
 TARGET_ROOT="$DATA_ROOT/builds/$BUILD_ID"
 LOCK_ROOT="$DATA_ROOT/.build-$BUILD_ID.lock"
+LOCK_OWNER="$LOCK_ROOT/owner"
+LOCK_HOST=$(uname -n)
+EXTRACT_ROOT=
 
 mkdir -p "$SOURCE_ROOT" "$TOOL_ROOT" "$ASSET_ROOT" "$DATA_ROOT/builds" "$DATA_ROOT/work"
+remove_lock_directory() {
+  case "$LOCK_ROOT" in
+    "$DATA_ROOT"/.build-*.lock) find "$LOCK_ROOT" -depth -delete ;;
+    *) printf 'Refusing to remove unexpected lock path: %s\n' "$LOCK_ROOT" >&2; return 2 ;;
+  esac
+}
 if ! mkdir "$LOCK_ROOT" 2>/dev/null; then
-  printf 'Another build holds %s\n' "$LOCK_ROOT" >&2
-  exit 2
+  owner_pid=
+  owner_host=
+  if [[ -f "$LOCK_OWNER" ]]; then
+    IFS=$'\t' read -r owner_pid owner_host < "$LOCK_OWNER" || true
+  fi
+  if [[ "$owner_host" == "$LOCK_HOST" && "$owner_pid" =~ ^[0-9]+$ ]] \
+      && ! kill -0 "$owner_pid" 2>/dev/null; then
+    printf 'Recovering stale basemap build lock from dead pid %s: %s\n' \
+      "$owner_pid" "$LOCK_ROOT" >&2
+    remove_lock_directory
+    if ! mkdir "$LOCK_ROOT" 2>/dev/null; then
+      printf 'Another build acquired %s while stale-lock recovery ran\n' "$LOCK_ROOT" >&2
+      exit 2
+    fi
+  else
+    printf 'Another build holds %s (owner pid=%s host=%s)\n' \
+      "$LOCK_ROOT" "${owner_pid:-unknown}" "${owner_host:-unknown}" >&2
+    printf 'If no build is running, remove that exact lock directory and rerun.\n' >&2
+    exit 2
+  fi
 fi
+printf '%s\t%s\n' "$$" "$LOCK_HOST" > "$LOCK_OWNER"
+
+cleanup_extract() {
+  if [[ -n "$EXTRACT_ROOT" && -d "$EXTRACT_ROOT" ]]; then
+    case "$EXTRACT_ROOT" in
+      "$TOOL_ROOT"/.extract-*) find "$EXTRACT_ROOT" -depth -delete ;;
+      *) printf 'Refusing to clean unexpected extraction path: %s\n' "$EXTRACT_ROOT" >&2 ;;
+    esac
+  fi
+}
 cleanup_lock() {
-  rmdir "$LOCK_ROOT" 2>/dev/null || true
+  local owner_pid=
+  local owner_host=
+  if [[ -f "$LOCK_OWNER" ]]; then
+    IFS=$'\t' read -r owner_pid owner_host < "$LOCK_OWNER" || true
+  fi
+  if [[ "$owner_pid" == "$$" && "$owner_host" == "$LOCK_HOST" ]]; then
+    rm -f -- "$LOCK_OWNER"
+    rmdir "$LOCK_ROOT" 2>/dev/null || true
+  fi
+  cleanup_extract
 }
 trap cleanup_lock EXIT
 
@@ -65,10 +111,17 @@ download_once() {
   fi
   mkdir -p "$(dirname -- "$target")"
   local partial="${target}.part.$$"
-  curl --fail --location --retry 4 --retry-all-errors \
-    --user-agent 'aukcije_core basemap builder (https://github.com/brzivoz/aukcije_core)' \
-    --output "$partial" "$url"
-  mv "$partial" "$target"
+  if ! curl --fail --location --retry 4 --retry-all-errors \
+      --user-agent 'aukcije_core basemap builder (https://github.com/brzivoz/aukcije_core)' \
+      --output "$partial" "$url"; then
+    rm -f -- "$partial"
+    printf 'Download failed; removed partial file %s. Rerun to retry.\n' "$partial" >&2
+    return 2
+  fi
+  if ! mv "$partial" "$target"; then
+    rm -f -- "$partial"
+    return 2
+  fi
 }
 
 hash_file() {
@@ -87,6 +140,8 @@ verify_locked_file() {
     printf 'Pinned download mismatch: %s\n' "$path" >&2
     printf 'Expected sha256/size: %s / %s\n' "$expected_hash" "$expected_size" >&2
     printf 'Actual sha256/size:   %s / %s\n' "$actual_hash" "$actual_size" >&2
+    rm -f -- "$path"
+    printf 'Removed the invalid cache file; rerun to download it again.\n' >&2
     exit 2
   fi
 }
@@ -130,6 +185,13 @@ select_pmtiles_archive() {
 
 select_pmtiles_archive
 PMTILES_BIN="$TOOL_ROOT/$(uname -s)-$(uname -m)/pmtiles"
+for stale_extract in "$TOOL_ROOT"/.extract-*; do
+  [[ -d "$stale_extract" ]] || continue
+  stale_pid=${stale_extract##*.extract-}
+  if [[ "$stale_pid" =~ ^[0-9]+$ ]] && ! kill -0 "$stale_pid" 2>/dev/null; then
+    find "$stale_extract" -depth -delete
+  fi
+done
 if [[ ! -x "$PMTILES_BIN" ]]; then
   PMTILES_ARCHIVE="$TOOL_ROOT/$(basename -- "$PMTILES_ARCHIVE_URL")"
   download_once "$PMTILES_ARCHIVE_URL" "$PMTILES_ARCHIVE"
@@ -142,6 +204,8 @@ if [[ ! -x "$PMTILES_BIN" ]]; then
     tar -xzf "$PMTILES_ARCHIVE" -C "$EXTRACT_ROOT"
   fi
   mv "$EXTRACT_ROOT/pmtiles" "$PMTILES_BIN"
+  rmdir "$EXTRACT_ROOT"
+  EXTRACT_ROOT=
   chmod 0755 "$PMTILES_BIN"
 fi
 
@@ -165,13 +229,17 @@ SOURCE_CHECKSUM="$SOURCE_ROOT/$SOURCE_FILENAME.md5"
 download_once "$SOURCE_URL" "$SOURCE_PBF"
 download_once "$SOURCE_CHECKSUM_URL" "$SOURCE_CHECKSUM"
 mkdir -p "$WORK_ROOT"
-python3 "$SCRIPT_DIR/scripts/verify_source.py" \
-  --pbf "$SOURCE_PBF" \
-  --checksum "$SOURCE_CHECKSUM" \
-  --expected-name "$SOURCE_FILENAME" \
-  --expected-md5 "$SOURCE_MD5" \
-  --expected-sha256 "$SOURCE_SHA256" \
-  --expected-size "$SOURCE_SIZE" > "$WORK_ROOT/source-report.json"
+if ! python3 "$SCRIPT_DIR/scripts/verify_source.py" \
+    --pbf "$SOURCE_PBF" \
+    --checksum "$SOURCE_CHECKSUM" \
+    --expected-name "$SOURCE_FILENAME" \
+    --expected-md5 "$SOURCE_MD5" \
+    --expected-sha256 "$SOURCE_SHA256" \
+    --expected-size "$SOURCE_SIZE" > "$WORK_ROOT/source-report.json"; then
+  rm -f -- "$SOURCE_PBF" "$SOURCE_CHECKSUM"
+  printf 'Removed the invalid source and checksum cache files; rerun to download them again.\n' >&2
+  exit 2
+fi
 
 mkdir -p "$BUNDLE_ROOT"
 while IFS=$'\t' read -r asset_hash asset_size asset_path asset_url; do
@@ -189,32 +257,36 @@ docker run --rm \
   --volume "$SCRIPT_DIR:/config:ro" \
   "$PLANETILER_IMAGE" verify /config/profile.yml
 
-PLANETILER_COMMAND="docker run --rm -e JAVA_TOOL_OPTIONS=-Xmx$JAVA_HEAP -v <source-cache>:/inputs:ro -v <work>:/work -v basemap:/config:ro $PLANETILER_IMAGE generate-custom --schema=/config/profile.yml --osm-path=/inputs/$SOURCE_FILENAME --output=/work/bundle/serbia.pmtiles --tmpdir=/work/tmp --bounds=$BASEMAP_BOUNDS --minzoom=$BASEMAP_MIN_ZOOM --maxzoom=$BASEMAP_MAX_ZOOM --render-maxzoom=$BASEMAP_MAX_ZOOM --threads=$THREADS --storage=mmap --nodemap-type=sortedtable --nodemap-storage=mmap --mmap-temp=false --compress-temp=true --tile-format=mvt --tile-compression=gzip --use-wikidata=false --force"
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
-  --env "JAVA_TOOL_OPTIONS=-Xmx$JAVA_HEAP" \
-  --volume "$SOURCE_ROOT:/inputs:ro" \
-  --volume "$WORK_ROOT:/work" \
-  --volume "$SCRIPT_DIR:/config:ro" \
-  "$PLANETILER_IMAGE" generate-custom \
-  --schema=/config/profile.yml \
-  --osm-path="/inputs/$SOURCE_FILENAME" \
-  --output=/work/bundle/serbia.pmtiles \
-  --tmpdir=/work/tmp \
-  --bounds="$BASEMAP_BOUNDS" \
-  --minzoom="$BASEMAP_MIN_ZOOM" \
-  --maxzoom="$BASEMAP_MAX_ZOOM" \
-  --render-maxzoom="$BASEMAP_MAX_ZOOM" \
-  --threads="$THREADS" \
-  --storage=mmap \
-  --nodemap-type=sortedtable \
-  --nodemap-storage=mmap \
-  --mmap-temp=false \
-  --compress-temp=true \
-  --tile-format=mvt \
-  --tile-compression=gzip \
-  --use-wikidata=false \
+PLANETILER_COMMAND=(
+  docker run --rm
+  --user "$(id -u):$(id -g)"
+  --env "JAVA_TOOL_OPTIONS=-Xmx$JAVA_HEAP"
+  --volume "$SOURCE_ROOT:/inputs:ro"
+  --volume "$WORK_ROOT:/work"
+  --volume "$SCRIPT_DIR:/config:ro"
+  "$PLANETILER_IMAGE" generate-custom
+  --schema=/config/profile.yml
+  "--osm-path=/inputs/$SOURCE_FILENAME"
+  --output=/work/bundle/serbia.pmtiles
+  --tmpdir=/work/tmp
+  "--bounds=$BASEMAP_BOUNDS"
+  "--minzoom=$BASEMAP_MIN_ZOOM"
+  "--maxzoom=$BASEMAP_MAX_ZOOM"
+  "--render-maxzoom=$BASEMAP_MAX_ZOOM"
+  "--threads=$THREADS"
+  --storage=mmap
+  --nodemap-type=sortedtable
+  --nodemap-storage=mmap
+  --mmap-temp=false
+  --compress-temp=true
+  --tile-format=mvt
+  --tile-compression=gzip
+  --use-wikidata=false
   --force
+)
+printf -v PLANETILER_COMMAND_TEXT '%q ' "${PLANETILER_COMMAND[@]}"
+PLANETILER_COMMAND_TEXT=${PLANETILER_COMMAND_TEXT% }
+"${PLANETILER_COMMAND[@]}"
 
 python3 "$SCRIPT_DIR/scripts/validate_bundle.py" \
   --bundle "$BUNDLE_ROOT" \
@@ -240,7 +312,7 @@ python3 "$SCRIPT_DIR/scripts/write_manifest.py" \
   --planetiler-image "$PLANETILER_IMAGE" \
   --pmtiles-version "$PMTILES_VERSION" \
   --pmtiles-commit "$PMTILES_COMMIT" \
-  --command "$PLANETILER_COMMAND"
+  --command "$PLANETILER_COMMAND_TEXT"
 
 python3 "$SCRIPT_DIR/scripts/validate_bundle.py" \
   --bundle "$BUNDLE_ROOT" \
@@ -255,7 +327,7 @@ python3 "$SCRIPT_DIR/scripts/validate_bundle.py" \
 
 mv "$BUNDLE_ROOT" "$TARGET_ROOT"
 case "$WORK_ROOT" in
-  "$DATA_ROOT"/work/serbia-*) rm -rf "$WORK_ROOT" ;;
+  "$DATA_ROOT"/work/serbia-*) find "$WORK_ROOT" -depth -delete ;;
   *) printf 'Refusing to clean unexpected work path: %s\n' "$WORK_ROOT" >&2; exit 2 ;;
 esac
 printf '%s\n' "$TARGET_ROOT"

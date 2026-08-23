@@ -47,7 +47,10 @@ jobs:
           docker pull postgres:18-alpine@sha256:d3e1620b530c944afa6e887d22eb899824da68e19c52024bf98f5220c88a65b2
 
       - name: Run the full test suite
-        run: ./gradlew --no-daemon clean test
+        # `check` includes the Java/PostGIS tests and the Python basemap
+        # contract tests without making the ordinary `test` task require
+        # a host Python installation.
+        run: ./gradlew --no-daemon clean check
 
       - name: Upload test reports
         # Always, not just on failure: #16 requires a terminal CI result with
@@ -61,6 +64,7 @@ jobs:
           path: |
             build/reports/tests/test
             build/test-results/test
+            build/basemap-test/result.txt
           retention-days: 14
           if-no-files-found: warn
 

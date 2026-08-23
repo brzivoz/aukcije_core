@@ -152,7 +152,7 @@ flowchart TB
 
     subgraph M1A["M1a — Coarse Map MVP (first usable product)"]
         I36["#36 Registry centroid extract ✅"]
-        I24["#24 Reproducible Serbia PMTiles"]
+        I24["#24 Reproducible Serbia PMTiles ✅"]
         I34["#34 Browser harness + frontend ✅"]
         I20["#20 Spatial schema + bbox queries ✅"]
         I14["#14 Canonical KO dictionary ✅"]
@@ -160,7 +160,7 @@ flowchart TB
         I39["#39 Reviewed municipality aliases ✅"]
         I38["#38 Coarse location resolver ✅"]
         I25["#25 Range/ETag local serving"]
-        I26["#26 Bounded GeoJSON API"]
+        I26["#26 Bounded GeoJSON API ✅"]
         I27["#27 MapLibre precision-aware map"]
 
         I15 --> I36

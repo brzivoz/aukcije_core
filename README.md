@@ -110,7 +110,8 @@ for GeoJSON contract, validation, real PostGIS filtering, query-plan, and
 single-query evidence.
 See [issue #24 verification](documentation/2026-08-23-issue-24-verification.md)
 for the dated Serbia source, pinned build toolchain, byte-identical PMTiles,
-local asset gates, manifest, three tile reads, and localhost-only map render.
+local asset gates, manifest, three tile reads, and delivery-time localhost-only
+map render.
 See [browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for
 the Playwright harness, localhost-only network fixture, failure evidence,
 same-origin vendoring policy, and the decision to extend the Thymeleaf UI.
@@ -125,6 +126,10 @@ The JUnit and PostGIS integration suites run from one command:
 ```bash
 ./gradlew clean test
 ```
+
+Run the complete repository verification, including the Python basemap
+contracts, with `./gradlew clean check`. Keeping `basemapTest` on `check` means
+ordinary Java `test` does not acquire a host-Python dependency.
 
 **Prerequisite: a running Docker daemon.** The integration tests start a real
 `postgis/postgis:18-3.6` container through Testcontainers — the same image
@@ -159,7 +164,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
-| `basemapTest` | dated-source checksum failures, immutable tool/asset pins, PMTiles v3/layer/smoke validation, and external-style-asset rejection without a full map rebuild |
+| `basemapTest` | dated-source checksum failures, immutable tool/asset pins, canonical metadata drift, PMTiles v3/layer/smoke validation, complete manifest inventory, active sprite references, six glyph ranges, and external-style-asset rejection without a full map rebuild |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index

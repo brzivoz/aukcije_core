@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 import rs.sud.eaukcija.spatial.AuctionLocationRepository;
 import rs.sud.eaukcija.spatial.AuctionLocationView;
 
-/** Consumer-facing selected-location contract; precision is never inferred from coordinates. */
+/** Selected-location evidence contract; precision and publication safety are explicit. */
 @RestController
 @RequestMapping("/api/locations")
 @Profile("!local-h2")

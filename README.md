@@ -27,6 +27,7 @@ The GIS layers are being delivered incrementally — see the
 | Parcel + address resolution | planned (EPIC-03, EPIC-04) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
+| Bounded GeoJSON viewport API | working (indexed and precision-aware, #26) |
 | Basemap + map UI | planned (EPIC-06, EPIC-07) |
 
 ## Running
@@ -68,7 +69,13 @@ POST /api/sync/listings   start listings sync
 POST /api/sync/details    start details sync
 GET  /api/sync/status     sync progress
 GET  /api/locations/{id}  best selected location with explicit precision
+GET  /api/map/auctions     bounded GeoJSON features for one WGS84 viewport
 ```
+
+The map endpoint requires `bbox=minLon,minLat,maxLon,maxLat`; optional
+allowlisted filters are `status`, `kind`, `precision`, `from`, `to`, and
+`limit`. See [Map API](documentation/MAP_API.md) for the complete request,
+timezone, safety, deduplication, and truncation contract.
 
 The old H2 console and automatic DDL are disabled. An explicitly activated
 `local-h2` profile remains only for legacy compatibility after an archive has
@@ -96,6 +103,9 @@ for the V7 reference/resolution model, geometry gates, bounded repository
 contract, and reproducible PostGIS evidence.
 See [issue #38 verification](documentation/2026-08-23-issue-38-verification.md)
 for the complete 589-auction tier distribution and exact replay evidence.
+See [issue #26 verification](documentation/2026-08-23-issue-26-verification.md)
+for GeoJSON contract, validation, real PostGIS filtering, query-plan, and
+single-query evidence.
 
 ## Tests
 
@@ -122,6 +132,9 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
 | `SpatialResolutionSchemaIntegrationTest` | isolated PostGIS database; source CRS transform; point/polygon/multipolygon fidelity; invalid geometry/bounds/SRID rejection; recorded repair; write-free identity replay; immutable provenance; supersession; `STREET` representative-point semantics; and a default-planner exact-query proof over 20k geometries/100k attempts |
+| `MapAuctionRequestParserTest` / `MapAuctionControllerTest` | WGS84 order/ranges/edges/area, allowlisted filters, Belgrade date boundaries, structured errors, GeoJSON fields, safe links, and observable truncation |
+| `MapAuctionRepositoryIntegrationTest` / `MapAuctionRepositoryUnitTest` | stable multi-property deduplication, highest selected precision, bbox/date/status/kind/precision filters, amounts, inclusive edges, one bounded JDBC query, and no N+1 hydration |
+| `LocationSelectionSqlTest` | enum-generated precision ranking, unknown-tier fail-closed ordering, shared tie-breaks, and publication policy |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
 | `KoDictionaryPublisherTest` | official relationship preservation, shared normalization, manifest-v2 compatibility, distinct reviewed KO/municipality aliases, orphan-target rejection, alias/official collision retention, byte-identical replay, immutable publication, and failure-safe activation |
@@ -130,7 +143,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `StructuredKoMatchIntegrationTest` | V6 persistence, immutable snapshot/KO/municipality-alias provenance, candidate evidence, population report, and unchanged replay against real PostgreSQL |
 | `CoarseLocationResolverTest` | all honest coarse tiers, shared Serbian normalization, ambiguity fallthrough, structural reviewed-alias evidence, pre/post-filter settlement evidence, and upstream-versioned fingerprints |
 | `CoarseLocationResolutionIntegrationTest` | V7/V8/V9 persistence, complete #37/#39 run provenance, real-#37 alias evidence, missing-upstream refusal, republish refresh, unchanged replay, failure safety, and higher-tier non-downgrade against PostGIS |
-| `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision in JSON and rendered UI honesty notice |
+| `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision, extraction/publication state in JSON, review visibility, and rendered UI honesty notice |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its

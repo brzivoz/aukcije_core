@@ -20,12 +20,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
+import rs.sud.eaukcija.spatial.LocationSelectionSql;
 import rs.sud.eaukcija.komatching.StructuredKoMatchService;
 import rs.sud.eaukcija.spatial.LocationPrecision;
 
 /** Transactional #38 population orchestration over the active #36 and persisted #37 evidence. */
 @Service
 public class CoarseLocationResolutionService {
+
+    private static final String PROPOSED_PRECISION_RANK =
+            LocationSelectionSql.precisionRank("proposed_attempt.location_precision");
+    private static final String CURRENT_PRECISION_RANK =
+            LocationSelectionSql.precisionRank("current_attempt.location_precision");
 
     private static final long ADVISORY_LOCK_ID = 38_003_600_037L;
 
@@ -470,17 +476,10 @@ public class CoarseLocationResolutionService {
                        AND proposed_attempt.id = EXCLUDED.resolution_attempt_id
                        AND (
                            current_attempt.resolver = ?
-                           OR CASE proposed_attempt.location_precision
-                                  WHEN 'PARCEL' THEN 60 WHEN 'ADDRESS' THEN 50 WHEN 'STREET' THEN 40
-                                  WHEN 'CADASTRAL_MUNICIPALITY' THEN 30 WHEN 'SETTLEMENT' THEN 20
-                                  WHEN 'MUNICIPALITY' THEN 10 ELSE 0 END
-                              > CASE current_attempt.location_precision
-                                  WHEN 'PARCEL' THEN 60 WHEN 'ADDRESS' THEN 50 WHEN 'STREET' THEN 40
-                                  WHEN 'CADASTRAL_MUNICIPALITY' THEN 30 WHEN 'SETTLEMENT' THEN 20
-                                  WHEN 'MUNICIPALITY' THEN 10 ELSE 0 END
+                           OR %s > %s
                        )
                 )
-                """,
+                """.formatted(PROPOSED_PRECISION_RANK, CURRENT_PRECISION_RANK),
                 referenceId,
                 attemptId,
                 databaseTime(selectedAt),

@@ -24,6 +24,9 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import rs.sud.eaukcija.testsupport.PostgisTestContainer;
+import rs.sud.eaukcija.map.MapAuctionRepository;
+import rs.sud.eaukcija.map.MapAuctionRequest;
+import rs.sud.eaukcija.map.MapAuctionRepositoryTestAccess;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("test")
@@ -49,6 +52,9 @@ class SpatialResolutionSchemaIntegrationTest {
 
     @Autowired
     private SpatialViewportRepository viewportRepository;
+
+    @Autowired
+    private MapAuctionRepository mapAuctionRepository;
 
     @BeforeEach
     @AfterEach
@@ -307,6 +313,24 @@ class SpatialResolutionSchemaIntegrationTest {
         seedRealisticPlanPopulation(20_000, 5);
         List<String> plan = viewportRepository.explainSelectedWithin(belgrade, 100);
         assertThat(String.join("\n", plan))
+                .contains("idx_spatial_resolution_geometries_canonical")
+                .contains("idx_location_resolution_attempts_geometry")
+                .contains("st_intersects")
+                .doesNotContain("Seq Scan on location_resolution_attempts");
+
+        jdbc.update("""
+                UPDATE auctions
+                   SET end_date = TIMESTAMPTZ '2030-01-01T00:00:00Z',
+                       status = 'Verified',
+                       category_name = 'Парцела',
+                       starting_price = 100000
+                 WHERE id >= 1000001
+                """);
+        jdbc.execute("ANALYZE auctions");
+        List<String> mapPlan = MapAuctionRepositoryTestAccess.explain(mapAuctionRepository, new MapAuctionRequest(
+                belgrade, null, null, null,
+                Instant.parse("2026-08-23T00:00:00Z"), null, 100));
+        assertThat(String.join("\n", mapPlan))
                 .contains("idx_spatial_resolution_geometries_canonical")
                 .contains("idx_location_resolution_attempts_geometry")
                 .contains("st_intersects")

@@ -66,6 +66,8 @@ class AuctionControllerLocationPresentationTest {
                 LocationPrecision.SETTLEMENT,
                 "Центар насеља",
                 true,
+                "EXTRACTED",
+                true,
                 20.5,
                 44.5,
                 55L,

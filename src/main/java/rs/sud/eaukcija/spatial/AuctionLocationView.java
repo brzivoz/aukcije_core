@@ -3,7 +3,7 @@ package rs.sud.eaukcija.spatial;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Best currently selected location for one auction, including explicit NONE. */
+/** Best current location evidence, including explicit NONE and unpublishable review states. */
 public record AuctionLocationView(
         long auctionId,
         UUID propertyReferenceId,
@@ -11,6 +11,8 @@ public record AuctionLocationView(
         LocationPrecision precision,
         String precisionLabelSr,
         boolean coarse,
+        String extractionStatus,
+        boolean publishable,
         Double longitude,
         Double latitude,
         Long memberPointCount,

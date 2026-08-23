@@ -7,10 +7,13 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
+
+import rs.sud.eaukcija.map.MapAuctionRequestParser;
 
 /** Proves automatic H2 DDL is reachable only through the explicit transition profile. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
@@ -24,6 +27,9 @@ class LocalH2ProfileContextTest {
     @Autowired
     private DataSource dataSource;
 
+    @Autowired
+    private ApplicationContext context;
+
     @Test
     void h2AndAutomaticDdlRequireTheExplicitProfile() {
         assertThat(environment.getActiveProfiles()).containsExactly("local-h2");
@@ -33,5 +39,6 @@ class LocalH2ProfileContextTest {
 
         String product = new JdbcTemplate(dataSource).queryForObject("SELECT h2version()", String.class);
         assertThat(product).isNotBlank();
+        assertThat(context.getBeansOfType(MapAuctionRequestParser.class)).isEmpty();
     }
 }

@@ -132,8 +132,12 @@ class CoarseLocationResolutionIntegrationTest {
         assertThat(views.get(38001L).precision()).isEqualTo(LocationPrecision.CADASTRAL_MUNICIPALITY);
         assertThat(views.get(38001L).precisionLabelSr()).isEqualTo("Центар катастарске општине");
         assertThat(views.get(38001L).coarse()).isTrue();
+        assertThat(views.get(38001L).extractionStatus()).isEqualTo("EXTRACTED");
+        assertThat(views.get(38001L).publishable()).isTrue();
         assertThat(views.get(38001L).longitude()).isCloseTo(20.1, offset(0.0000001));
         assertThat(views.get(38005L).precision()).isEqualTo(LocationPrecision.NONE);
+        assertThat(views.get(38005L).extractionStatus()).isEqualTo("EXTRACTED");
+        assertThat(views.get(38005L).publishable()).isFalse();
         assertThat(views.get(38005L).longitude()).isNull();
         assertThat(views.get(38005L).precisionLabelSr()).isEqualTo("Није лоцирано");
 

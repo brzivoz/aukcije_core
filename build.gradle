@@ -22,8 +22,11 @@ def playwrightVersionMarker = playwrightBrowserDirectory.file('.playwright-versi
 
 sourceSets {
     browserTest {
-        java.srcDir 'src/browserTest/java'
-        resources.srcDir 'src/browserTest/resources'
+        // Gradle already supplies these conventional directories for a named
+        // source set. Set them explicitly instead of appending duplicates now
+        // that #25 adds binary browser fixtures.
+        java.setSrcDirs(['src/browserTest/java'])
+        resources.setSrcDirs(['src/browserTest/resources'])
         compileClasspath += sourceSets.main.output + sourceSets.test.output
         runtimeClasspath += sourceSets.main.output + sourceSets.test.output
     }
@@ -176,6 +179,13 @@ tasks.register('buildKoDictionary', JavaExec) {
     description = 'Build and atomically publish the canonical KO dictionary from the active centroid extract'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'rs.sud.eaukcija.addressregistry.KoDictionaryCli'
+}
+
+tasks.register('activateBasemap', JavaExec) {
+    group = 'application'
+    description = 'Validate and atomically activate or roll back an immutable basemap build'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.basemap.BasemapActivateCli'
 }
 
 tasks.register('matchStructuredKo', JavaExec) {

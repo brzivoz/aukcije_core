@@ -30,7 +30,8 @@ The GIS layers are being delivered incrementally — see the
 | Bounded GeoJSON viewport API | working (indexed and precision-aware, #26) |
 | Browser-test harness | working (Playwright, seeded PostGIS, localhost-only guard, #34) |
 | Offline Serbia PMTiles basemap | working (reproducible local bundle, #24) |
-| Map serving + map UI | planned (EPIC-06, EPIC-07) |
+| Local basemap serving | working (Range/ETag, atomic activation, offline proof, #25) |
+| Auction map UI | planned (EPIC-07, #27) |
 
 ## Running
 
@@ -72,6 +73,8 @@ POST /api/sync/details    start details sync
 GET  /api/sync/status     sync progress
 GET  /api/locations/{id}  best selected location with explicit precision
 GET  /api/map/auctions     bounded GeoJSON features for one WGS84 viewport
+GET  /api/basemap/status   active immutable basemap version and health
+GET  /basemap/*            same-origin PMTiles, style, sprites, and glyphs
 ```
 
 The map endpoint requires `bbox=minLon,minLat,maxLon,maxLat`; optional
@@ -112,12 +115,18 @@ See [issue #24 verification](documentation/2026-08-23-issue-24-verification.md)
 for the dated Serbia source, pinned build toolchain, byte-identical PMTiles,
 local asset gates, manifest, three tile reads, and delivery-time localhost-only
 map render.
+See [issue #25 verification](documentation/2026-08-23-issue-25-verification.md)
+for HTTP Range/ETag/concurrency evidence, atomic activation failure safety, the
+full-bundle activation result, and retained localhost-only multi-zoom render.
 See [browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for
 the Playwright harness, localhost-only network fixture, failure evidence,
 same-origin vendoring policy, and the decision to extend the Thymeleaf UI.
 See [Serbia basemap operations](basemap/README.md) for the one-command dated
 Geofabrik build, pinned Java 21 Planetiler toolchain, local style assets,
 validation gates, ODbL attribution, manifests, resources, and cleanup.
+See [local basemap serving operations](documentation/BASEMAP_SERVING_OPERATIONS.md)
+for checksum-gated activation, HTTP Range/ETag behavior, live health, rollback,
+the operator smoke page, and safe immutable-build retirement.
 
 ## Unit and integration tests
 
@@ -162,9 +171,12 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision, extraction/publication state in JSON, review visibility, and rendered UI honesty notice |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 | `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
+| `LocalBasemapBrowserTest` | actual compact PMTiles v3 through the production endpoint; same-origin MapLibre protocol/style/sprite/glyph/worker requests; zoom 5/9/14 plus pan; visible linked OSM attribution; exact localhost-only host and `206`/ETag evidence |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
 | `basemapTest` | dated-source checksum failures, immutable tool/asset pins, canonical metadata drift, PMTiles v3/layer/smoke validation, complete manifest inventory, host-neutral command/manifest equality and drift rejection, orphaned/concurrent lock recovery, active sprite references, six glyph ranges, and external-style-asset rejection without a full map rebuild |
+| `BasemapAssetHttpIntegrationTest` | full/prefix/open/suffix/invalid/conditional/concurrent PMTiles reads over real HTTP, correct content types, strong ETags, `304`, `416`, cache/version headers, and health |
+| `BasemapArtifactActivationTest` / `FrontendAssetLockTest` | failed-update last-good retention, atomic pointer reads, rollback, and exact vendored browser dependency license/hash/inventory pins |
 
 `SpatialQueryIntegrationTest` deliberately asserts scratch-query semantics only. Its
 fixture builds its own scratch table, so asserting that table's SRID or index
@@ -198,7 +210,9 @@ system libraries. To watch the suite locally:
 
 Reports land in `build/reports/tests/browserTest/index.html`. Failed tests retain
 `failure.png` and `trace.zip` under `build/browser-test-results/artifacts/`; CI
-publishes those files as `playwright-failure-evidence`. The shared network guard
+publishes those files as `playwright-failure-evidence`. The successful local-map
+proof also retains `build/browser-test-results/evidence/issue-25-local-basemap.png`
+in `browser-test-report`. The shared network guard
 aborts every non-loopback HTTP(S) request, closes every non-loopback WebSocket,
 and tests assert the exact contacted host set. See
 [browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for the

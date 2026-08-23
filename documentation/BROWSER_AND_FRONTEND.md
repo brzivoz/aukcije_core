@@ -61,21 +61,25 @@ assertion. This is the single offline-network mechanism #25 and #27 must reuse.
 The application keeps a no-Node, no-bundler frontend. Browser code is plain
 JavaScript/ES modules served by Spring Boot. A bundler would add a second build
 toolchain without current tree-shaking, transpilation, or multi-entry needs;
-MapLibre GL JS v6 and the PMTiles JavaScript package both publish browser-ready
-modules.
+MapLibre GL JS v6 publishes browser-ready modules, and PMTiles publishes a
+self-contained browser build. Application glue remains an ES module; the
+PMTiles browser build is loaded first as its pinned `globalThis.pmtiles`
+namespace so no bare `fflate` package import or import-map toolchain is needed.
 
-MapLibre GL JS, its CSS, and the PMTiles protocol library must be vendored below
-`src/main/resources/static/vendor/` when #27 first consumes them. Styles,
+MapLibre GL JS, its CSS, and the PMTiles protocol library are vendored below
+`src/main/resources/static/vendor/` by #25 because its replayable basemap render
+is the first consumer. Styles,
 workers, glyphs, sprites, map styles, PMTiles archives, and JavaScript imports
 must all resolve through same-origin relative or root-relative URLs. No page may
 load scripts, styles, fonts, icons, workers, tiles, telemetry, or source maps
 from a CDN or other public host. Ordinary user-initiated navigation links, such
 as the existing link to an auction on eaukcija.sud.rs, are not asset loads.
 
-The reviewed starting pins for #27 are MapLibre GL JS `6.1.0` and PMTiles
-JavaScript `4.4.0`. Issue #34 does not copy their bytes because no current page
-consumes them; #27 may keep these pins or upgrade them only through the review
-procedure below before it adds the first imports.
+The active pins are MapLibre GL JS `6.1.0` and PMTiles JavaScript `4.4.0`.
+`frontend-assets.lock.json` records the upstream package/release, license,
+shipped files, sizes, and SHA-256 values; `FrontendAssetLockTest` rejects byte
+or inventory drift. #27 reuses these pins or upgrades them only through the
+review procedure below.
 
 Every vendored dependency addition or upgrade must be one reviewed change that:
 
@@ -87,8 +91,8 @@ Every vendored dependency addition or upgrade must be one reviewed change that:
 4. updates imports and deletes the superseded version in the same commit; and
 5. runs `browserTest`, including the localhost-only assertion, before merge.
 
-The lock file is created with the first consumed dependency rather than
-predeclaring unshipped files or unverifiable checksums.
+The lock file was created with #25's first real consumer; no unshipped files or
+unverifiable checksums are predeclared.
 
 ## Fate of the Thymeleaf UI
 

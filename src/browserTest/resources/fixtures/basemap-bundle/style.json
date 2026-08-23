@@ -1,0 +1,183 @@
+{
+  "version": 8,
+  "name": "Aukcije Core Serbia light",
+  "metadata": {
+    "aukcije_core:offline": true,
+    "aukcije_core:attribution_required": true,
+    "aukcije_core:source_date": "2026-08-01"
+  },
+  "center": [20.4573, 44.7872],
+  "zoom": 7,
+  "glyphs": "/basemap/glyphs/{fontstack}/{range}.pbf",
+  "sprite": "/basemap/sprites/light",
+  "sources": {
+    "serbia": {
+      "type": "vector",
+      "url": "pmtiles:///basemap/serbia.pmtiles",
+      "attribution": "© <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\" rel=\"noopener noreferrer\">OpenStreetMap contributors</a>"
+    }
+  },
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {"background-color": "#f4f1e9"}
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "serbia",
+      "source-layer": "landuse",
+      "paint": {
+        "fill-color": [
+          "match", ["get", "class"],
+          ["forest", "wood"], "#d6e4cf",
+          ["park", "garden", "nature_reserve"], "#dcebd3",
+          ["industrial", "commercial"], "#e4ded8",
+          ["cemetery"], "#d8e2d2",
+          "#e8e4dc"
+        ],
+        "fill-opacity": 0.82
+      }
+    },
+    {
+      "id": "water-fill",
+      "type": "fill",
+      "source": "serbia",
+      "source-layer": "water",
+      "filter": ["==", ["geometry-type"], "Polygon"],
+      "paint": {"fill-color": "#a9d5e8"}
+    },
+    {
+      "id": "water-line",
+      "type": "line",
+      "source": "serbia",
+      "source-layer": "water",
+      "filter": ["==", ["geometry-type"], "LineString"],
+      "paint": {
+        "line-color": "#82bfd9",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.5, 14, 3]
+      }
+    },
+    {
+      "id": "boundaries",
+      "type": "line",
+      "source": "serbia",
+      "source-layer": "boundaries",
+      "paint": {
+        "line-color": "#8e7f88",
+        "line-dasharray": [3, 2],
+        "line-width": ["interpolate", ["linear"], ["zoom"], 4, 0.7, 10, 1.6]
+      }
+    },
+    {
+      "id": "roads-casing",
+      "type": "line",
+      "source": "serbia",
+      "source-layer": "roads",
+      "filter": [
+        "in", ["get", "class"],
+        ["literal", ["motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified", "service", "living_street", "pedestrian"]]
+      ],
+      "paint": {
+        "line-color": "#d0c7bc",
+        "line-width": ["interpolate", ["exponential", 1.5], ["zoom"], 5, 1, 14, 8]
+      }
+    },
+    {
+      "id": "roads",
+      "type": "line",
+      "source": "serbia",
+      "source-layer": "roads",
+      "paint": {
+        "line-color": [
+          "match", ["get", "class"],
+          ["motorway", "trunk"], "#f3a56b",
+          ["primary", "secondary"], "#f3c27c",
+          ["rail", "light_rail", "subway", "tram"], "#9a9290",
+          "#ffffff"
+        ],
+        "line-width": ["interpolate", ["exponential", 1.5], ["zoom"], 5, 0.7, 14, 6]
+      }
+    },
+    {
+      "id": "buildings",
+      "type": "fill",
+      "source": "serbia",
+      "source-layer": "buildings",
+      "minzoom": 13,
+      "paint": {
+        "fill-color": "#d8d0c8",
+        "fill-outline-color": "#c0b6ac"
+      }
+    },
+    {
+      "id": "pois",
+      "type": "circle",
+      "source": "serbia",
+      "source-layer": "pois",
+      "minzoom": 13,
+      "paint": {
+        "circle-color": "#6f8173",
+        "circle-radius": 3,
+        "circle-stroke-color": "#ffffff",
+        "circle-stroke-width": 1
+      }
+    },
+    {
+      "id": "road-labels",
+      "type": "symbol",
+      "source": "serbia",
+      "source-layer": "roads",
+      "minzoom": 11,
+      "filter": ["has", "name"],
+      "layout": {
+        "symbol-placement": "line",
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11,
+        "text-max-angle": 30
+      },
+      "paint": {
+        "text-color": "#625c56",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2
+      }
+    },
+    {
+      "id": "place-icons",
+      "type": "symbol",
+      "source": "serbia",
+      "source-layer": "places",
+      "filter": ["in", ["get", "class"], ["literal", ["city", "town", "village"]]],
+      "layout": {
+        "icon-image": "townspot",
+        "icon-size": ["interpolate", ["linear"], ["zoom"], 4, 0.55, 10, 0.85],
+        "icon-allow-overlap": false
+      }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "serbia",
+      "source-layer": "places",
+      "layout": {
+        "text-field": ["coalesce", ["get", "name_sr"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": [
+          "match", ["get", "class"],
+          "city", 16,
+          "town", 14,
+          12
+        ],
+        "text-offset": [0, 0.4],
+        "text-anchor": "top"
+      },
+      "paint": {
+        "text-color": "#30312f",
+        "text-halo-color": "#f4f1e9",
+        "text-halo-width": 1.4
+      }
+    }
+  ]
+}

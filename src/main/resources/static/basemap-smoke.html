@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Local basemap health</title>
+    <link rel="stylesheet" href="./vendor/maplibre-gl/6.1.0/maplibre-gl.css">
+    <style>
+        html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+        body { display: grid; grid-template-rows: auto 1fr; background: #f4f1e9; }
+        #status { padding: .55rem .8rem; color: #17243a; background: #fff; }
+        #map { min-height: 360px; }
+    </style>
+</head>
+<body>
+<div id="status" role="status">Loading validated local basemap…</div>
+<div id="map" role="img" aria-label="Local Serbia basemap"></div>
+<script src="./vendor/pmtiles/4.4.0/pmtiles.js"></script>
+<script type="module">
+    import {createLocalBasemap} from './basemap-map.mjs';
+
+    const smoke = {map: null, ready: false, errors: []};
+    window.__basemapSmoke = smoke;
+    const statusElement = document.getElementById('status');
+
+    try {
+        const healthResponse = await fetch('./api/basemap/status', {cache: 'no-store'});
+        const health = await healthResponse.json();
+        if (!healthResponse.ok || !health.healthy) {
+            throw new Error(`No healthy basemap is active (${health.warning ?? health.state})`);
+        }
+
+        const map = await createLocalBasemap({
+            container: 'map',
+            center: [20.46, 44.79],
+            zoom: 5,
+            fadeDuration: 0
+        });
+        smoke.map = map;
+        map.on('error', event => {
+            const message = event?.error?.message ?? String(event?.error ?? event);
+            smoke.errors.push(message);
+        });
+        await new Promise((resolve, reject) => {
+            const timeout = window.setTimeout(
+                () => reject(new Error('Timed out waiting for local basemap render')), 20000);
+            map.once('idle', () => {
+                window.clearTimeout(timeout);
+                resolve();
+            });
+        });
+        smoke.ready = true;
+        statusElement.textContent = `Active local basemap: ${health.activeVersion}`;
+    } catch (error) {
+        smoke.errors.push(error.message);
+        statusElement.textContent = `Basemap unavailable: ${error.message}`;
+        statusElement.dataset.failed = 'true';
+        throw error;
+    }
+</script>
+</body>
+</html>

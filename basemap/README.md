@@ -35,11 +35,12 @@ marks, 1x/2x sprites, full asset licenses,
 `THIRD_PARTY_NOTICES.md`, `validation-report.json`, and `build-manifest.json`.
 Large generated files are ignored and must not be committed.
 
-The style's same-origin root is `/basemap`: serve the bundle files below that
-path so the retained PMTiles, sprite, and glyph paths stay deployment-portable.
-Issue #25 owns the production range/ETag endpoint, atomic activation, and the
-replayable localhost-only multi-zoom render. Issue #27 owns the production
-MapLibre consumer and its UI render evidence.
+The style's same-origin root is `/basemap`. Issue #25 now serves the active
+bundle there with strong ETags and HTTP ranges, validates and atomically swaps
+the `ACTIVE` pointer, and retains a replayable localhost-only multi-zoom render.
+See [local basemap serving operations](../documentation/BASEMAP_SERVING_OPERATIONS.md)
+for activation, health, rollback, and retirement. Issue #27 owns the production
+auction-map consumer and its UI render evidence.
 When passing the parsed style object to MapLibre GL JS 6, expand the leading
 `/basemap` sprite and glyph paths against `window.location.origin`; MapLibre's
 sprite parser requires an absolute URL even though the retained artifact must
@@ -47,9 +48,9 @@ remain deployment-portable. Expand the PMTiles source to
 `pmtiles://${window.location.origin}/basemap/serbia.pmtiles` at the same point.
 The one-off issue #24 browser proof used exactly that same-origin transformation
 and blocked every non-loopback request. It proves this artifact rendered at
-delivery time; it is not presented as a committed browser regression. The
-repository-replayable consumer proof belongs to #25/#27 and must reuse #34's
-network guard.
+delivery time. Issue #25 now repeats that contract in `basemap-map.mjs` and a
+committed multi-zoom browser regression using #34's network guard; #27 reuses
+the same loader for the auction-map UX.
 
 ## Validation contract
 

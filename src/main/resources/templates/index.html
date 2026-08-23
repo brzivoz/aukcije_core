@@ -4,6 +4,8 @@
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>еАукција - Претрага непокретности</title>
+    <link rel="stylesheet" href="/vendor/maplibre-gl/6.1.0/maplibre-gl.css"/>
+    <link rel="stylesheet" href="/auction-map.css"/>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
@@ -38,6 +40,9 @@
         .results-info { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 0.9rem; color: #666; }
 
         table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .table-scroll { width: 100%; max-width: 100%; overflow-x: auto; border-radius: 8px; }
+        .table-scroll table { min-width: 900px; }
+        .table-scroll:focus-visible { outline: 3px solid #ffbf47; outline-offset: 2px; }
         th { background: #f5f5f5; padding: 10px 12px; text-align: left; font-size: 0.8rem; text-transform: uppercase; color: #666; border-bottom: 2px solid #e0e0e0; white-space: nowrap; }
         th a { color: #666; text-decoration: none; }
         th a:hover { color: #1a237e; }
@@ -96,6 +101,119 @@
             </div>
         </div>
     </div>
+
+    <section class="auction-map-panel" aria-labelledby="auction-map-heading">
+        <div class="auction-map-heading-row">
+            <div>
+                <p class="map-eyebrow">Локална интерактивна карта</p>
+                <h2 id="auction-map-heading">Аукције непокретности у Србији</h2>
+                <p id="auction-map-description" class="map-introduction">
+                    Приказ је приближан када је познат само центар области. Облик и текст ознаке
+                    показују прецизност; центар области никада не представља адресу или парцелу.
+                </p>
+            </div>
+            <dl class="map-versions" aria-label="Верзије и свежина карте">
+                <div><dt>Основна карта</dt><dd id="basemap-version">Учитавање…</dd></div>
+                <div><dt>Подаци</dt><dd id="map-data-version">Учитавање…</dd></div>
+                <div><dt>Последње успешно освежавање</dt><dd id="map-last-sync">Учитавање…</dd></div>
+            </dl>
+        </div>
+
+        <div id="map-freshness-warning" class="map-notice map-notice-warning" role="status" hidden></div>
+
+        <form id="map-filters" class="map-filter-form" aria-label="Филтери карте">
+            <div class="map-filter-field">
+                <label for="map-status-filter">Статус</label>
+                <select id="map-status-filter" name="mapStatus">
+                    <option value="">Сви статуси</option>
+                    <option value="InPrediction">У најави</option>
+                    <option value="Published">Објављено</option>
+                    <option value="Verification">Провера</option>
+                    <option value="Verified">Проверено</option>
+                </select>
+            </div>
+            <div class="map-filter-field">
+                <label for="map-kind-filter">Врста</label>
+                <select id="map-kind-filter" name="mapKind">
+                    <option value="">Све врсте</option>
+                    <option value="Гаража">Гаража</option>
+                    <option value="Грађевинско земљиште">Грађевинско земљиште</option>
+                    <option value="Земљиште">Земљиште</option>
+                    <option value="Кућа">Кућа</option>
+                    <option value="Локал">Локал</option>
+                    <option value="Непокретности">Непокретности</option>
+                    <option value="Објекат">Објекат</option>
+                    <option value="Остали пословни објекат">Остали пословни објекат</option>
+                    <option value="Парцела">Парцела</option>
+                    <option value="Пољопривредно земљиште">Пољопривредно земљиште</option>
+                    <option value="Стамбена зграда са више станова">Стамбена зграда са више станова</option>
+                    <option value="Стамбени објекат">Стамбени објекат</option>
+                    <option value="Шумско земљиште">Шумско земљиште</option>
+                </select>
+            </div>
+            <div class="map-filter-field">
+                <label for="map-precision-filter">Прецизност</label>
+                <select id="map-precision-filter" name="mapPrecision">
+                    <option value="">Све прецизности</option>
+                    <option value="PARCEL">Парцела</option>
+                    <option value="ADDRESS">Адреса</option>
+                    <option value="STREET">Улица</option>
+                    <option value="CADASTRAL_MUNICIPALITY">Центар катастарске општине</option>
+                    <option value="SETTLEMENT">Центар насеља</option>
+                    <option value="MUNICIPALITY">Центар општине</option>
+                </select>
+            </div>
+            <div class="map-filter-field">
+                <label for="map-from-filter">Завршава се од</label>
+                <input id="map-from-filter" name="mapFrom" type="date"/>
+            </div>
+            <div class="map-filter-field">
+                <label for="map-to-filter">Завршава се до</label>
+                <input id="map-to-filter" name="mapTo" type="date"/>
+            </div>
+            <div class="map-filter-actions">
+                <button type="submit" class="btn btn-primary">Примени на карту</button>
+                <button type="button" id="map-filter-reset" class="btn btn-secondary">Обриши</button>
+            </div>
+        </form>
+
+        <div id="map-state" class="map-notice" role="status" aria-live="polite" data-state="loading">
+            Учитавање аукција у видљивом делу карте…
+        </div>
+        <div id="map-limit-warning" class="map-notice map-notice-warning" role="status" hidden>
+            Приказан је само ограничен број резултата. Увећајте карту или сузите филтере.
+        </div>
+
+        <div class="auction-map-layout">
+            <aside class="map-sidebar" aria-label="Легенда и резултати карте">
+                <section class="map-legend" aria-labelledby="map-legend-heading">
+                    <h3 id="map-legend-heading">Прецизност локације</h3>
+                    <ul>
+                        <li data-precision="PARCEL"><span class="legend-shape shape-parcel" aria-hidden="true"></span><span><strong>Парцела</strong> — проверена граница или тачка парцеле</span></li>
+                        <li data-precision="ADDRESS"><span class="legend-shape shape-address" aria-hidden="true"></span><span><strong>Адреса</strong> — адресна тачка</span></li>
+                        <li data-precision="STREET"><span class="legend-shape shape-street" aria-hidden="true"></span><span><strong>Улица</strong> — приближна тачка улице</span></li>
+                        <li data-precision="CADASTRAL_MUNICIPALITY"><span class="legend-shape shape-ko" aria-hidden="true"></span><span><strong>Центар КО</strong> — центар катастарске општине</span></li>
+                        <li data-precision="SETTLEMENT"><span class="legend-shape shape-settlement" aria-hidden="true"></span><span><strong>Центар насеља</strong> — није адреса</span></li>
+                        <li data-precision="MUNICIPALITY"><span class="legend-shape shape-municipality" aria-hidden="true"></span><span><strong>Центар општине</strong> — најшири приближни приказ</span></li>
+                    </ul>
+                </section>
+                <section class="map-results" aria-labelledby="map-results-heading">
+                    <div class="map-results-heading-row">
+                        <h3 id="map-results-heading">У видљивом делу</h3>
+                        <span id="map-result-count" aria-live="polite">0</span>
+                    </div>
+                    <div id="map-selection" class="map-selection" tabindex="-1" hidden></div>
+                    <ol id="map-result-list"></ol>
+                </section>
+            </aside>
+            <div class="map-canvas-frame">
+                <div id="auction-map"
+                     role="region"
+                     aria-label="Интерактивна карта аукција. Тастери са стрелицама померају карту, плус и минус мењају увећање."
+                     aria-describedby="auction-map-description map-state"></div>
+            </div>
+        </div>
+    </section>
 
     <!-- Filters -->
     <form class="filters" method="get" action="/">
@@ -171,6 +289,7 @@
         Ознака „центар“ је приближна локација области, не адреса, улица или парцела.
     </p>
 
+    <div class="table-scroll" role="region" aria-label="Табеларни резултати аукција" tabindex="0">
     <table>
         <thead>
         <tr>
@@ -191,7 +310,7 @@
             <td>
                 <a class="auction-link"
                    th:href="'https://eaukcija.sud.rs/#/aukcije/' + ${a.id}"
-                   th:text="${a.auctionNumber}" target="_blank"></a>
+                   th:text="${a.auctionNumber}" target="_blank" rel="noopener noreferrer"></a>
             </td>
             <td class="desc-cell" th:text="${a.shortDescription}"></td>
             <td th:text="${a.municipality ?: '—'}"></td>
@@ -215,6 +334,7 @@
         </tr>
         </tbody>
     </table>
+    </div>
 
     <!-- Pagination -->
     <div class="pagination" th:if="${auctions.totalPages > 1}">
@@ -275,5 +395,7 @@
         pollStatus();
     }
 </script>
+<script src="/vendor/pmtiles/4.4.0/pmtiles.js"></script>
+<script type="module" src="/auction-map.mjs"></script>
 </body>
 </html>

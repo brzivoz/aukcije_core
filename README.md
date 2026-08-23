@@ -31,7 +31,7 @@ The GIS layers are being delivered incrementally — see the
 | Browser-test harness | working (Playwright, seeded PostGIS, localhost-only guard, #34) |
 | Offline Serbia PMTiles basemap | working (reproducible local bundle, #24) |
 | Local basemap serving | working (Range/ETag, atomic activation, offline proof, #25) |
-| Auction map UI | planned (EPIC-07, #27) |
+| Auction map UI | working (offline MapLibre, clustered and precision-aware, #27) |
 
 ## Running
 
@@ -73,6 +73,7 @@ POST /api/sync/details    start details sync
 GET  /api/sync/status     sync progress
 GET  /api/locations/{id}  best selected location with explicit precision
 GET  /api/map/auctions     bounded GeoJSON features for one WGS84 viewport
+GET  /api/map/status       retained map-data version and freshness state
 GET  /api/basemap/status   active immutable basemap version and health
 GET  /basemap/*            same-origin PMTiles, style, sprites, and glyphs
 ```
@@ -111,6 +112,10 @@ for the complete 589-auction tier distribution and exact replay evidence.
 See [issue #26 verification](documentation/2026-08-23-issue-26-verification.md)
 for GeoJSON contract, validation, real PostGIS filtering, query-plan, and
 single-query evidence.
+See [issue #27 verification](documentation/2026-08-23-issue-27-verification.md)
+for the usable precision-aware map, clustered shared-centroid behavior,
+safe popup/URL state, responsive screenshots, cancellation/state matrix, and
+localhost-only browser proof.
 See [issue #24 verification](documentation/2026-08-23-issue-24-verification.md)
 for the dated Serbia source, pinned build toolchain, byte-identical PMTiles,
 local asset gates, manifest, three tile reads, and delivery-time localhost-only
@@ -159,6 +164,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SpatialResolutionSchemaIntegrationTest` | isolated PostGIS database; source CRS transform; point/polygon/multipolygon fidelity; invalid geometry/bounds/SRID rejection; recorded repair; write-free identity replay; immutable provenance; supersession; `STREET` representative-point semantics; and a default-planner exact-query proof over 20k geometries/100k attempts |
 | `MapAuctionRequestParserTest` / `MapAuctionControllerTest` | WGS84 order/ranges/edges/area, allowlisted filters, Belgrade date boundaries, structured errors, GeoJSON fields, safe links, and observable truncation |
 | `MapAuctionRepositoryIntegrationTest` / `MapAuctionRepositoryUnitTest` | stable multi-property deduplication, highest selected precision, bbox/date/status/kind/precision filters, amounts, inclusive edges, one bounded JDBC query, and no N+1 hydration |
+| `MapDataStatusServiceTest` / `MapDataStatusControllerTest` | retained successful resolution version/timestamp, mapped counts, configurable stale boundary, never-synchronized disclosure, and no-store HTTP metadata |
 | `LocationSelectionSqlTest` | enum-generated precision ranking, unknown-tier fail-closed ordering, shared tie-breaks, and publication policy |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
@@ -172,6 +178,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
 | `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
 | `LocalBasemapBrowserTest` | actual compact PMTiles v3 through the production endpoint; same-origin MapLibre protocol/style/sprite/glyph/worker requests; zoom 5/9/14 plus pan; visible linked OSM attribution; exact localhost-only host and `206`/ETag evidence |
+| `AuctionMapBrowserTest` | real local basemap plus PostGIS GeoJSON; all six precision styles; shared-centroid cluster/list; keyboard selection; escaped popup and allowlisted source link; allowlisted URL restoration; debounced pan/zoom abort; retained loading/empty/error/limit state; desktop/narrow evidence; exact localhost-only traffic |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
 | `basemapTest` | dated-source checksum failures, immutable tool/asset pins, canonical metadata drift, PMTiles v3/layer/smoke validation, complete manifest inventory, host-neutral command/manifest equality and drift rejection, orphaned/concurrent lock recovery, active sprite references, six glyph ranges, and external-style-asset rejection without a full map rebuild |
@@ -210,9 +217,10 @@ system libraries. To watch the suite locally:
 
 Reports land in `build/reports/tests/browserTest/index.html`. Failed tests retain
 `failure.png` and `trace.zip` under `build/browser-test-results/artifacts/`; CI
-publishes those files as `playwright-failure-evidence`. The successful local-map
-proof also retains `build/browser-test-results/evidence/issue-25-local-basemap.png`
-in `browser-test-report`. The shared network guard
+publishes those files as `playwright-failure-evidence`. Successful map proofs
+retain the #25 basemap screenshot and #27 desktop/narrow product screenshots
+plus JSON manifests under `build/browser-test-results/evidence/`; CI publishes
+that directory in `browser-test-report`. The shared network guard
 aborts every non-loopback HTTP(S) request, closes every non-loopback WebSocket,
 and tests assert the exact contacted host set. See
 [browser and frontend decisions](documentation/BROWSER_AND_FRONTEND.md) for the

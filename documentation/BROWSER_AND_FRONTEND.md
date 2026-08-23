@@ -94,13 +94,38 @@ Every vendored dependency addition or upgrade must be one reviewed change that:
 5. runs `browserTest`, including the localhost-only assertion, before merge.
 
 The lock file was created with #25's first real consumer; no unshipped files or
-unverifiable checksums are predeclared.
+unverifiable checksums are predeclared. #27 reuses those bytes directly from
+the main Thymeleaf page through `auction-map.mjs`; it adds no package manager,
+remote runtime asset, or second frontend build.
 
 ## Fate of the Thymeleaf UI
 
 The current `AuctionController` and `index.html` remain the product shell. #27
 extends that page in place with the precision-aware map and a list/map layout;
 it does not replace Thymeleaf with a client-side application. #28 then evolves
-the same shell into the daily list-map workflow and owns URL-state round trips,
-filters, selection, and navigation. This keeps one controller/view contract and
-prevents #27 and #28 from each building half of a replacement UI.
+the same shell into the broader daily list-map workflow. The live #27 contract
+owns map-specific URL state now: only allowlisted status/kind/precision values,
+ISO dates, and a numeric auction id are written. #28 retains ownership of
+unifying the legacy table's larger filter/search contract, navigation, and
+daily workflow across list and map. This keeps one controller/view contract and
+prevents the two issues from each building half of a replacement UI.
+
+## Auction map evidence
+
+`AuctionMapBrowserTest` stages the same real compact PMTiles v3 fixture as the
+basemap smoke, boots the complete application, and seeds PostGIS with one
+polygon plus point locations at every declared precision. Three records share
+one exact centroid and remain a cluster through the test zoom; activating it
+opens a keyboard-accessible list instead of hiding stacked auctions.
+
+The browser suite also proves DOM-safe rendering of hostile-looking title text,
+the fixed eAukcija link allowlist and `noopener noreferrer`, selection restore
+from a numeric URL id, visible focus, and a 390 px layout with no document-level
+horizontal overflow. A controlled browser-fetch boundary delays one viewport
+response, pans and zooms, observes `AbortSignal` cancellation, then exercises
+partial-limit, retained-data error, and empty states. Both tests finish with
+the shared exact localhost-only host assertion.
+
+Every green run retains desktop and narrow screenshots plus a JSON evidence
+manifest under `build/browser-test-results/evidence/issue-27-*`; CI publishes
+that directory in `browser-test-report`.

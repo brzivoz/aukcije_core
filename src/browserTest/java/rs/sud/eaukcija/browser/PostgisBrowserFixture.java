@@ -70,6 +70,7 @@ public abstract class PostgisBrowserFixture {
     protected void clearBrowserData() {
         jdbc.execute("""
                 TRUNCATE TABLE
+                    coarse_location_resolution_runs,
                     current_location_resolutions,
                     location_resolution_attempts,
                     location_resolution_cache_records,

@@ -105,8 +105,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-test-report
-          # #25 retains a successful localhost-only multi-zoom map render;
-          # failure-only screenshots/traces remain in the next artifact.
+          # #25 retains a successful localhost-only multi-zoom basemap render;
+          # #27 adds desktop/narrow product-map screenshots and a JSON manifest.
+          # Failure-only screenshots/traces remain in the next artifact.
           path: |
             build/reports/tests/browserTest
             build/test-results/browserTest

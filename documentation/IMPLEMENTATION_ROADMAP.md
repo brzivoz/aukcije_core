@@ -161,7 +161,7 @@ flowchart TB
         I38["#38 Coarse location resolver ✅"]
         I25["#25 Range/ETag local serving ✅"]
         I26["#26 Bounded GeoJSON API ✅"]
-        I27["#27 MapLibre precision-aware map"]
+        I27["#27 MapLibre precision-aware map ✅"]
 
         I15 --> I36
         I16 --> I36
@@ -260,11 +260,11 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | Wave | Issues | Evidence required before advancing |
 |---|---|---|
 | 0 ✅ | #16, #13, #32 | Terminal CI foundation; #13 option-B private WFS decision, one-shot lookup, and offline evidence verifier; committed #32 hit-rate measurement with hand spot-checks |
-| 1 | **#15 ✅, #36 ✅, #34 ✅**, #24 | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
+| 1 ✅ | **#15 ✅, #36 ✅, #34 ✅, #24 ✅** | PostGIS migration/startup proof; centroid extract reproducible from the snapshot hash with a duplicate/reject report; validated PMTiles manifest; browser harness with a passing negative control |
 | 2 ✅ | **#14 ✅, #20 ✅, #25 ✅** | Reproducible KO dictionary with duplicate-name report; migrated spatial model with indexed bbox plan and no parser dependency; Range/ETag and localhost-only browser network proof |
 | 3 ✅ | **#37 ✅, #39 ✅, #38 ✅** | Zero exact-match false positives matching structured `Place.Cadastral`; reviewed municipality aliases republished through #14/#37 with genuine ambiguity retained; coarse resolution at KO/settlement/municipality with precision recorded honestly and no centroid labelled as an address |
-| 4 | #26 | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |
-| 5 | #27 | Accessible offline map browser suite, including multi-auction handling at a shared centroid (correction 22) and localhost-only network proof |
+| 4 ✅ | **#26 ✅** | GeoJSON contract evidence, bounded reads, no N+1, precision surfaced per feature |
+| 5 ✅ | **#27 ✅** | Accessible offline map browser suite, including multi-auction handling at a shared centroid (correction 22) and localhost-only network proof |
 
 **← First usable product ships here.** Everything below raises precision and hardens operations; none of it gates a working map.
 

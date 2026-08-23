@@ -96,6 +96,39 @@ an auction crossing its end time while avoiding another database query when a
 map client revisits the same viewport. Query parameters remain part of the HTTP
 cache key.
 
+## Map-data version and freshness
+
+`GET /api/map/status` is a separate anonymous, `Cache-Control: no-store`
+metadata endpoint used by the map shell. It reads the newest transactionally
+completed `coarse_location_resolution_runs` row; an in-progress or rolled-back
+population run can never become the visible version.
+
+```json
+{
+  "available": true,
+  "state": "AVAILABLE",
+  "dataVersion": "coarse-location-v1/centroids-2026-08/4a7d2c981de0",
+  "lastSuccessfulSync": "2026-08-23T10:00:00Z",
+  "stale": false,
+  "populationCount": 589,
+  "mappedAuctionCount": 587,
+  "warning": null
+}
+```
+
+The version combines the retained resolver version, centroid-extract version,
+and a twelve-character prefix of the exact source checksum. The timestamp is
+the successful run's durable `finished_at`, not page-load time or process-local
+state. `mappedAuctionCount` is the population less explicit `NONE` results.
+`map.data.stale-after` (default `PT24H`, environment override
+`MAP_DATA_STALE_AFTER`) controls the stale boundary.
+
+If no completed run exists, the endpoint deliberately returns
+`available=false`, `stale=true`, null version/timestamp, and
+`warning=NO_SUCCESSFUL_MAP_SYNC`. The UI renders that warning and never turns
+missing freshness into an apparently current dataset. A stale successful run
+uses `warning=MAP_DATA_STALE` while retaining its exact version and timestamp.
+
 ## Property and resolution semantics
 
 The database owns one current selected attempt per property reference. Only

@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BASEMAP = REPO_ROOT / "basemap"
 VERIFY_SOURCE = BASEMAP / "scripts" / "verify_source.py"
 VALIDATE_BUNDLE = BASEMAP / "scripts" / "validate_bundle.py"
+ACQUIRE_LOCK = BASEMAP / "scripts" / "acquire_lock.py"
 LAYERS = ["boundaries", "buildings", "landuse", "places", "pois", "roads", "water"]
 BOUNDS = [18.8, 42.2, 23.1, 46.3]
 PMTILES_VERSION = "1.31.2"
@@ -342,6 +343,98 @@ else:
         )
         self.assertNotEqual(0, completed.returncode)
         self.assertIn("manifest command does not match", completed.stderr)
+
+
+class LockAcquisitionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.data_root = Path(self.temp.name) / "basemap"
+        self.data_root.mkdir()
+        self.lock_root = self.data_root / ".build-fixture.lock"
+        self.host = "fixture-host"
+        self.dead_pid = 999_999
+        while self.process_is_alive(self.dead_pid):
+            self.dead_pid += 1
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    @staticmethod
+    def process_is_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+
+    def command(self, action: str) -> list[str]:
+        return [
+            "python3",
+            str(ACQUIRE_LOCK),
+            action,
+            "--data-root",
+            str(self.data_root),
+            "--lock-root",
+            str(self.lock_root),
+            "--pid",
+            str(os.getpid()),
+            "--host",
+            self.host,
+        ]
+
+    def create_stale_lock(self, with_recovery_claim: bool = False) -> None:
+        self.lock_root.mkdir()
+        (self.lock_root / "owner").write_text(
+            f"{self.dead_pid}\t{self.host}\n", encoding="utf-8"
+        )
+        if with_recovery_claim:
+            (self.lock_root / ".recovery").mkdir()
+
+    def test_orphaned_recovery_claim_self_heals(self) -> None:
+        self.create_stale_lock(with_recovery_claim=True)
+        completed = subprocess.run(
+            self.command("acquire"), check=True, text=True, capture_output=True
+        )
+        self.assertIn("Recovering stale basemap build lock", completed.stderr)
+        self.assertFalse((self.lock_root / ".recovery").exists())
+        self.assertEqual(
+            f"{os.getpid()}\t{self.host}\n",
+            (self.lock_root / "owner").read_text("utf-8"),
+        )
+        subprocess.run(self.command("release"), check=True)
+        self.assertFalse(self.lock_root.exists())
+
+        self.lock_root.mkdir()
+        incomplete = subprocess.run(
+            self.command("acquire"), check=True, text=True, capture_output=True
+        )
+        self.assertIn("Recovering incomplete basemap build lock", incomplete.stderr)
+        subprocess.run(self.command("release"), check=True)
+
+    def test_concurrent_stale_lock_recovery_has_exactly_one_winner(self) -> None:
+        self.create_stale_lock()
+        contenders = [
+            subprocess.Popen(
+                self.command("acquire"),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            for _ in range(2)
+        ]
+        results = [contender.communicate() for contender in contenders]
+        return_codes = sorted(contender.returncode for contender in contenders)
+        self.assertEqual([0, 2], return_codes)
+        refusal = next(
+            stderr
+            for contender, (_, stderr) in zip(contenders, results)
+            if contender.returncode == 2
+        )
+        self.assertIn("Another build holds", refusal)
+        self.assertIn("remove that exact lock directory and rerun", refusal)
+        subprocess.run(self.command("release"), check=True)
 
 
 class PinContractTest(unittest.TestCase):

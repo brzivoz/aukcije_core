@@ -33,6 +33,7 @@ CONFIG_HASH=$(python3 "$SCRIPT_DIR/scripts/config_hash.py" \
   "$SCRIPT_DIR/profile.yml" \
   "$SCRIPT_DIR/style.json" \
   "$SCRIPT_DIR/THIRD_PARTY_NOTICES.md" \
+  "$SCRIPT_DIR/scripts/acquire_lock.py" \
   "$SCRIPT_DIR/scripts/config_hash.py" \
   "$SCRIPT_DIR/scripts/verify_source.py" \
   "$SCRIPT_DIR/scripts/validate_bundle.py" \
@@ -46,8 +47,6 @@ WORK_ROOT="$DATA_ROOT/work/$BUILD_ID"
 BUNDLE_ROOT="$WORK_ROOT/bundle"
 TARGET_ROOT="$DATA_ROOT/builds/$BUILD_ID"
 LOCK_ROOT="$DATA_ROOT/.build-$BUILD_ID.lock"
-LOCK_OWNER="$LOCK_ROOT/owner"
-LOCK_RECOVERY_CLAIM="$LOCK_ROOT/.recovery"
 LOCK_HOST=$(uname -n)
 EXTRACT_ROOT=
 
@@ -119,55 +118,6 @@ for command_name in docker curl tar unzip; do
   fi
 done
 
-mkdir -p "$SOURCE_ROOT" "$TOOL_ROOT" "$ASSET_ROOT" "$DATA_ROOT/builds" "$DATA_ROOT/work"
-remove_lock_directory() {
-  case "$LOCK_ROOT" in
-    "$DATA_ROOT"/.build-*.lock) find "$LOCK_ROOT" -depth -delete ;;
-    *) printf 'Refusing to remove unexpected lock path: %s\n' "$LOCK_ROOT" >&2; return 2 ;;
-  esac
-}
-if ! mkdir "$LOCK_ROOT" 2>/dev/null; then
-  owner_pid=
-  owner_host=
-  if [[ -f "$LOCK_OWNER" ]]; then
-    IFS=$'\t' read -r owner_pid owner_host < "$LOCK_OWNER" || true
-  fi
-  if [[ "$owner_host" == "$LOCK_HOST" && "$owner_pid" =~ ^[0-9]+$ ]] \
-      && ! kill -0 "$owner_pid" 2>/dev/null; then
-    observed_owner_pid=$owner_pid
-    observed_owner_host=$owner_host
-    if ! mkdir "$LOCK_RECOVERY_CLAIM" 2>/dev/null; then
-      printf 'Another process is already recovering stale lock %s\n' "$LOCK_ROOT" >&2
-      exit 2
-    fi
-    owner_pid=
-    owner_host=
-    if [[ -f "$LOCK_OWNER" ]]; then
-      IFS=$'\t' read -r owner_pid owner_host < "$LOCK_OWNER" || true
-    fi
-    if [[ "$owner_pid" != "$observed_owner_pid" || "$owner_host" != "$observed_owner_host" ]] \
-        || kill -0 "$owner_pid" 2>/dev/null; then
-      rmdir "$LOCK_RECOVERY_CLAIM" 2>/dev/null || true
-      printf 'Basemap lock owner changed while stale-lock recovery was claimed: %s\n' \
-        "$LOCK_ROOT" >&2
-      exit 2
-    fi
-    printf 'Recovering stale basemap build lock from dead pid %s: %s\n' \
-      "$owner_pid" "$LOCK_ROOT" >&2
-    remove_lock_directory
-    if ! mkdir "$LOCK_ROOT" 2>/dev/null; then
-      printf 'Another build acquired %s while stale-lock recovery ran\n' "$LOCK_ROOT" >&2
-      exit 2
-    fi
-  else
-    printf 'Another build holds %s (owner pid=%s host=%s)\n' \
-      "$LOCK_ROOT" "${owner_pid:-unknown}" "${owner_host:-unknown}" >&2
-    printf 'If no build is running, remove that exact lock directory and rerun.\n' >&2
-    exit 2
-  fi
-fi
-printf '%s\t%s\n' "$$" "$LOCK_HOST" > "$LOCK_OWNER"
-
 cleanup_extract() {
   if [[ -n "$EXTRACT_ROOT" && -d "$EXTRACT_ROOT" ]]; then
     case "$EXTRACT_ROOT" in
@@ -177,18 +127,21 @@ cleanup_extract() {
   fi
 }
 cleanup_lock() {
-  local owner_pid=
-  local owner_host=
-  if [[ -f "$LOCK_OWNER" ]]; then
-    IFS=$'\t' read -r owner_pid owner_host < "$LOCK_OWNER" || true
-  fi
-  if [[ "$owner_pid" == "$$" && "$owner_host" == "$LOCK_HOST" ]]; then
-    rm -f -- "$LOCK_OWNER"
-    rmdir "$LOCK_ROOT" 2>/dev/null || true
-  fi
+  python3 "$SCRIPT_DIR/scripts/acquire_lock.py" release \
+    --data-root "$DATA_ROOT" \
+    --lock-root "$LOCK_ROOT" \
+    --pid "$$" \
+    --host "$LOCK_HOST" >/dev/null 2>&1 || true
   cleanup_extract
 }
 trap cleanup_lock EXIT
+
+mkdir -p "$SOURCE_ROOT" "$TOOL_ROOT" "$ASSET_ROOT" "$DATA_ROOT/builds" "$DATA_ROOT/work"
+python3 "$SCRIPT_DIR/scripts/acquire_lock.py" acquire \
+  --data-root "$DATA_ROOT" \
+  --lock-root "$LOCK_ROOT" \
+  --pid "$$" \
+  --host "$LOCK_HOST"
 
 download_once() {
   local url=$1

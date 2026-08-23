@@ -112,11 +112,16 @@ longer references it. Never delete the whole shared `data/` tree.
 
 Normal download/extraction errors clean their own `.part.<pid>` and
 `.extract-<pid>` paths. A dead local owner PID is recovered automatically from
-`data/basemap/.build-<id>.lock/owner`. Recovery first takes an atomic claim and
-re-reads the observed owner, so simultaneous recoverers cannot delete a newly
-acquired lock. If a lock has missing/unreadable owner metadata, first verify
-that no build is running, then remove only the exact lock directory printed by
-the error and rerun.
+`data/basemap/.build-<id>.lock/owner`. Acquisition and release are serialized by
+an OS file lock on the persistent, empty `data/basemap/.build-lock-manager`
+coordination file. The kernel releases that mutex if a recovering process dies,
+so it cannot leave a second blocking claim behind. A dead-owner lock, an
+incomplete lock, and the legacy orphaned `.recovery` directory all self-heal;
+simultaneous recoverers produce one owner. Any refusal because the recorded
+owner is live, belongs to another host, or cannot be safely interpreted also
+prints the manual remedy: first verify that no build is running, then remove
+only the exact lock directory printed by the error and rerun. The empty manager
+file is not a held build lock and may remain between builds.
 
 ## Attribution and distribution
 

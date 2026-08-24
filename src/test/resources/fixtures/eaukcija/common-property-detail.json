@@ -1,0 +1,28 @@
+{
+  "ResultCode": "0",
+  "ResultMessage": "OK",
+  "Data": {
+    "Id": 280466,
+    "AuctionNumber": "З280466",
+    "StartDate": "2026-03-10T07:00:00Z",
+    "EndDate": "2026-03-10T11:00:00Z",
+    "PublicationDate": "2026-02-24T10:30:00Z",
+    "StartingPrice": 159600.00,
+    "EstimatedPrice": 228000.00,
+    "CurrentPrice": null,
+    "MaxOfferedPrice": null,
+    "BidStep": 5000.00,
+    "ShortDescription": "Заједничка продаја",
+    "Description": "Синтетички детаљ за уговор заједничке продаје.",
+    "Status": "Verified",
+    "IsFirstSale": true,
+    "PropertyType": "CommonProperties",
+    "ExecutorName": "Синтетички извршитељ",
+    "Category": {
+      "Id": 121,
+      "Name": "Заједничка целина"
+    },
+    "Place": null,
+    "Images": ["iVBORw0KGgoAAAANSUhEUgAA-common-detail-redaction-sentinel"]
+  }
+}

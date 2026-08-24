@@ -1,6 +1,6 @@
 {
-  "ResultCode": "OK",
-  "ResultMessage": null,
+  "ResultCode": "0",
+  "ResultMessage": "OK",
   "Data": {
     "TotalCount": 0,
     "Auctions": []

@@ -84,12 +84,74 @@ class PostgisSchemaIntegrationTest {
                         "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
                         "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql",
-                        "V9__coarse_location_upstream_provenance.sql")
+                        "V9__coarse_location_upstream_provenance.sql",
+                        "V10__eaukcija_sync_runs.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
         assertThat(failures).isZero();
+    }
+
+    @Test
+    void flywayOwnsTheDurableSyncLedgerAndSuccessPublicationContract() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_schema = 'public'
+                   AND table_name IN (
+                       'eaukcija_taxonomies', 'sync_runs', 'sync_run_root_results',
+                       'sync_run_child_results',
+                       'sync_run_errors', 'auction_source_category_memberships',
+                       'sync_run_auction_observations', 'sync_enrichment_queue'
+                   )
+                 ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "auction_source_category_memberships",
+                        "eaukcija_taxonomies",
+                        "sync_enrichment_queue",
+                        "sync_run_auction_observations",
+                        "sync_run_child_results",
+                        "sync_run_errors",
+                        "sync_run_root_results",
+                        "sync_runs");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'sync_run_errors'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                "run_id", "ordinal", "occurred_at", "stage",
+                        "root_category_id", "child_category_id", "page_number", "auction_id", "http_status",
+                        "error_code", "retryable", "attempt_number");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'sync_run_child_results'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                        "run_id", "parent_root_category_id", "child_category_id",
+                        "source_total_count", "rows_observed", "unique_ids", "duplicate_ids",
+                        "pages_expected", "pages_completed", "total_consistent",
+                        "subset_of_parent_root", "complete");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'auctions'
+                """, String.class)).contains(
+                        "listing_fingerprint", "details_fetched_at", "source_detail_category_id",
+                        "sale_scope", "normalized_property_kind", "taxonomy_sha256",
+                        "last_successful_sync_run_id", "absence_count", "last_seen_at");
+        assertThat(jdbc.queryForList("""
+                SELECT indexname
+                  FROM pg_indexes
+                 WHERE schemaname = 'public'
+                   AND tablename IN ('sync_runs', 'sync_enrichment_queue')
+                """, String.class)).contains(
+                        "uq_sync_runs_single_running",
+                        "idx_sync_enrichment_queue_pending");
     }
 
     @Test

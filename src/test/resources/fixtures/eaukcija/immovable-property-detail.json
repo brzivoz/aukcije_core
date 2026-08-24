@@ -1,6 +1,6 @@
 {
-  "ResultCode": "OK",
-  "ResultMessage": null,
+  "ResultCode": "0",
+  "ResultMessage": "OK",
   "Data": {
     "Id": 180466,
     "AuctionNumber": "Н180466",
@@ -28,6 +28,7 @@
       "ZipCode": "18320",
       "Municipality": "Димитровград",
       "Cadastral": "Димитровград"
-    }
+    },
+    "Images": ["iVBORw0KGgoAAAANSUhEUgAA-detail-redaction-sentinel"]
   }
 }

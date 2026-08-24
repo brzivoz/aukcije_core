@@ -1,6 +1,6 @@
 {
-  "ResultCode": "OK",
-  "ResultMessage": null,
+  "ResultCode": "0",
+  "ResultMessage": "OK",
   "Data": {
     "TotalCount": 3,
     "Auctions": [
@@ -16,6 +16,7 @@
         "Status": "Verified",
         "IsFirstSale": true,
         "PropertyType": "ImmovableProperties",
+        "Thumbnail": "iVBORw0KGgoAAAANSUhEUgAA-redaction-sentinel",
         "UnmappedFutureField": "must be ignored, not fatal"
       },
       {

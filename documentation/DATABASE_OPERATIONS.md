@@ -130,29 +130,43 @@ restored history and schema before traffic is served.
 
 ## Clean re-sync
 
-Take and verify a PostgreSQL backup first. With the application stopped, clear
-only the derived auction rows; do not remove the named volume or Flyway history:
+Take and verify a PostgreSQL backup first. Do not truncate `auctions`: current
+auction rows are connected to taxonomy, source-membership, successful-run, and
+location evidence. A manual truncate can destroy the retained proof needed to
+understand the replacement. A normal source refresh is the complete atomic run
+below. The first PostgreSQL migration from a legacy H2 archive starts from an
+empty PostgreSQL database and also needs no manual truncate.
+
+If a damaged installation genuinely requires a from-empty rebuild, preserve the
+old database and create a separate empty target. Let Flyway migrate that target,
+run synchronization there, verify it, and switch only after acceptance. Do not
+remove the named volume or edit Flyway/run history as a shortcut.
+
+Start the application, trigger one complete run with a fresh idempotency key,
+and retain its run ID:
 
 ```bash
-docker compose exec -T db psql \
-  --username="$AUKCIJE_DB_USER" --dbname="$AUKCIJE_DB_NAME" \
-  --set=ON_ERROR_STOP=1 --command='TRUNCATE TABLE auctions;'
+export EAUKCIJA_SYNC_KEY="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+export EAUKCIJA_RUN_ID="$(curl --fail-with-body \
+  --request POST \
+  --header "Idempotency-Key: $EAUKCIJA_SYNC_KEY" \
+  http://localhost:8081/api/sync/runs | jq --raw-output '.runId')"
+curl --fail-with-body \
+  "http://localhost:8081/api/sync/runs/$EAUKCIJA_RUN_ID" | jq
 ```
 
-Start the application, trigger listings and then details, and inspect status:
+HTTP `202 Accepted` only confirms that the durable run was claimed. Poll the
+returned URL until it is terminal, and do not delete the H2 archive unless the
+status is `SUCCEEDED`. A `PARTIAL` or `FAILED` run deliberately leaves the prior
+auction state untouched. Compare the PostgreSQL row count, distinct source IDs,
+representative Serbian text, prices, timestamps, municipality/category facets,
+and valid detail timestamps. The automated repository fixture test establishes
+the current baseline of 86 source rows collapsing to 83 stable auction IDs.
 
-```bash
-curl --fail-with-body --request POST http://localhost:8081/api/sync/listings
-curl --fail-with-body http://localhost:8081/api/sync/status
-curl --fail-with-body --request POST http://localhost:8081/api/sync/details
-curl --fail-with-body http://localhost:8081/api/sync/status
-```
-
-Do not delete the H2 archive after a merely successful HTTP response. Compare
-the PostgreSQL row count, distinct source IDs, representative Serbian text,
-prices, timestamps, municipality/category facets, and detail count. The
-automated repository fixture test establishes the current baseline of 86 source
-rows collapsing to 83 stable auction IDs.
+See [eAukcija synchronization operations](EAUKCIJA_SYNC_OPERATIONS.md) for
+idempotent retry, status fields, safe configuration bounds, and stale-run
+recovery. Do not update or delete retained terminal run evidence with manual
+SQL.
 
 ## Shutdown and removal
 

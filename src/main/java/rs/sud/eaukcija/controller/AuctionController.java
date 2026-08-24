@@ -14,6 +14,7 @@ import rs.sud.eaukcija.repository.AuctionRepository;
 import rs.sud.eaukcija.repository.AuctionSpecifications;
 import rs.sud.eaukcija.service.SyncService;
 import rs.sud.eaukcija.spatial.AuctionLocationRepository;
+import rs.sud.eaukcija.sync.persistence.SyncRunStatus;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -91,11 +92,21 @@ public class AuctionController {
         model.addAttribute("sortDir", sortDir);
         model.addAttribute("currentPage", page);
 
-        // Sync status
-        model.addAttribute("syncing", syncService.isSyncing());
-        model.addAttribute("syncStatus", syncService.getSyncStatus());
-        model.addAttribute("syncProgress", syncService.getProgress());
-        model.addAttribute("syncTotal", syncService.getTotalPages());
+        // Durable sync status; local-h2 deliberately exposes no run ledger.
+        var latestRun = syncService.findLatestRun();
+        var activeRun = latestRun.filter(run -> run.status() == SyncRunStatus.RUNNING);
+        model.addAttribute("syncEnabled", syncService.isEnabled());
+        model.addAttribute("activeSyncRunId", activeRun.map(run -> run.runId().toString()).orElse(""));
+        model.addAttribute("syncing", activeRun.isPresent());
+        model.addAttribute("syncStatus", latestRun
+                .map(run -> run.status() + " — " + run.stage())
+                .orElse(syncService.isEnabled() ? "Није покренуто" : "Недоступно у local-h2 профилу"));
+        model.addAttribute("syncProgress", latestRun
+                .map(run -> run.pagesCompleted() + run.detailsSucceeded())
+                .orElse(0L));
+        model.addAttribute("syncTotal", latestRun
+                .map(run -> run.pagesExpected() + run.detailsRequired())
+                .orElse(0L));
 
         return "index";
     }

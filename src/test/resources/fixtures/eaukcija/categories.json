@@ -1,0 +1,71 @@
+{
+  "ResultCode": "0",
+  "ResultMessage": "OK",
+  "Data": [
+    {
+      "title": "Заједничка продаја",
+      "value": "8",
+      "key": "category8",
+      "children": [
+        {
+          "title": "Заједничка непокретност",
+          "value": "135",
+          "key": "category135",
+          "children": [],
+          "categoryType": "CommonProperties"
+        },
+        {
+          "title": "Заједничка целина",
+          "value": "121",
+          "key": "category121",
+          "children": [],
+          "categoryType": "CommonProperties"
+        },
+        {
+          "title": "Заједнички објекат",
+          "value": "124",
+          "key": "category124",
+          "children": [],
+          "categoryType": "CommonProperties"
+        }
+      ],
+      "categoryType": "CommonProperties"
+    },
+    {
+      "title": "Непокретности",
+      "value": "7",
+      "key": "category7",
+      "children": [
+        {
+          "title": "Посебан део објекта",
+          "value": "49",
+          "key": "category49",
+          "children": [],
+          "categoryType": "ImmovableProperties"
+        },
+        {
+          "title": "Парцела",
+          "value": "47",
+          "key": "category47",
+          "children": [],
+          "categoryType": "ImmovableProperties"
+        },
+        {
+          "title": "Објекат",
+          "value": "48",
+          "key": "category48",
+          "children": [],
+          "categoryType": "ImmovableProperties"
+        }
+      ],
+      "categoryType": "ImmovableProperties"
+    },
+    {
+      "title": "Покретне ствари",
+      "value": "2",
+      "key": "category2",
+      "children": [],
+      "categoryType": "MovableProperties"
+    }
+  ]
+}

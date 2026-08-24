@@ -30,9 +30,24 @@ public class EAukcijaApiTypes {
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CategoryNode(
+            @JsonProperty("title") String title,
+            @JsonProperty("value") int value,
+            @JsonProperty("key") String key,
+            @JsonProperty("children") List<CategoryNode> children,
+            @JsonProperty("categoryType") String categoryType
+    ) {}
+
+    public record CategoryTree(
+            List<CategoryNode> roots,
+            String canonicalJson,
+            String canonicalSha256
+    ) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public record AuctionListData(
             @JsonProperty("Auctions") List<AuctionSummary> auctions,
-            @JsonProperty("TotalCount") int totalCount
+            @JsonProperty("TotalCount") Integer totalCount
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

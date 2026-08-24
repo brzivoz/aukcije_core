@@ -48,13 +48,28 @@ class DatabaseLifecycleIntegrationTest {
             assertThat(context.isRunning()).isTrue();
         }
 
+        assertThat(queryBoolean(jdbcUrl, container,
+                "SELECT to_regclass('public.sync_run_child_results') IS NOT NULL")).isTrue();
+        assertThat(queryStrings(jdbcUrl, container, """
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'sync_run_child_results'
+                 ORDER BY ordinal_position
+                """)).containsExactly(
+                        "run_id", "parent_root_category_id", "child_category_id",
+                        "source_total_count", "rows_observed", "unique_ids", "duplicate_ids",
+                        "pages_expected", "pages_completed", "total_consistent",
+                        "subset_of_parent_root", "complete");
+
         assertThat(queryStrings(jdbcUrl, container,
                 "SELECT script FROM flyway_schema_history WHERE success ORDER BY installed_rank"))
                 .containsExactly("V1__enable_postgis.sql", "V2__baseline_auctions.sql",
                         "V3__auction_filter_indexes.sql", "V4__address_registry_snapshots.sql",
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
                         "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql",
-                        "V9__coarse_location_upstream_provenance.sql");
+                        "V9__coarse_location_upstream_provenance.sql",
+                        "V10__eaukcija_sync_runs.sql");
     }
 
     @Test

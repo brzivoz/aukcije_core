@@ -3,6 +3,10 @@ package rs.sud.eaukcija.model;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.UUID;
+
+import rs.sud.eaukcija.sync.persistence.NormalizedPropertyKind;
+import rs.sud.eaukcija.sync.persistence.SaleScope;
 
 @Entity
 @Table(name = "auctions")
@@ -45,6 +49,30 @@ public class Auction {
     private String cadastral;
 
     private boolean detailsFetched;
+
+    @Column(length = 64)
+    private String listingFingerprint;
+
+    private Instant detailsFetchedAt;
+
+    private Integer sourceDetailCategoryId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private SaleScope saleScope;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 16)
+    private NormalizedPropertyKind normalizedPropertyKind;
+
+    @Column(length = 64)
+    private String taxonomySha256;
+
+    private UUID lastSuccessfulSyncRunId;
+
+    private long absenceCount;
+
+    private Instant lastSeenAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -111,4 +139,37 @@ public class Auction {
 
     public boolean isDetailsFetched() { return detailsFetched; }
     public void setDetailsFetched(boolean detailsFetched) { this.detailsFetched = detailsFetched; }
+
+    public String getListingFingerprint() { return listingFingerprint; }
+    public void setListingFingerprint(String listingFingerprint) { this.listingFingerprint = listingFingerprint; }
+
+    public Instant getDetailsFetchedAt() { return detailsFetchedAt; }
+    public void setDetailsFetchedAt(Instant detailsFetchedAt) { this.detailsFetchedAt = detailsFetchedAt; }
+
+    public Integer getSourceDetailCategoryId() { return sourceDetailCategoryId; }
+    public void setSourceDetailCategoryId(Integer sourceDetailCategoryId) {
+        this.sourceDetailCategoryId = sourceDetailCategoryId;
+    }
+
+    public SaleScope getSaleScope() { return saleScope; }
+    public void setSaleScope(SaleScope saleScope) { this.saleScope = saleScope; }
+
+    public NormalizedPropertyKind getNormalizedPropertyKind() { return normalizedPropertyKind; }
+    public void setNormalizedPropertyKind(NormalizedPropertyKind normalizedPropertyKind) {
+        this.normalizedPropertyKind = normalizedPropertyKind;
+    }
+
+    public String getTaxonomySha256() { return taxonomySha256; }
+    public void setTaxonomySha256(String taxonomySha256) { this.taxonomySha256 = taxonomySha256; }
+
+    public UUID getLastSuccessfulSyncRunId() { return lastSuccessfulSyncRunId; }
+    public void setLastSuccessfulSyncRunId(UUID lastSuccessfulSyncRunId) {
+        this.lastSuccessfulSyncRunId = lastSuccessfulSyncRunId;
+    }
+
+    public long getAbsenceCount() { return absenceCount; }
+    public void setAbsenceCount(long absenceCount) { this.absenceCount = absenceCount; }
+
+    public Instant getLastSeenAt() { return lastSeenAt; }
+    public void setLastSeenAt(Instant lastSeenAt) { this.lastSeenAt = lastSeenAt; }
 }

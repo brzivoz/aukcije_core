@@ -1,5 +1,5 @@
 {
-  "ResultCode": "ERROR",
-  "ResultMessage": "Грешка приликом обраде захтева",
+  "ResultCode": "1",
+  "ResultMessage": "password=do-not-log token=secret-person=Петар",
   "Data": null
 }

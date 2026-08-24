@@ -84,14 +84,13 @@
 <div class="container">
 
     <!-- Sync Panel -->
-    <div class="sync-panel">
+    <div class="sync-panel" id="syncPanel"
+         th:attr="data-active-run-id=${activeSyncRunId},data-sync-enabled=${syncEnabled}">
         <h3>Синхронизација података</h3>
         <div class="sync-buttons">
-            <button class="btn btn-primary" onclick="startSync('listings')" id="btnListings">
-                1. Преузми листинге (све странице)
-            </button>
-            <button class="btn btn-secondary" onclick="startSync('details')" id="btnDetails">
-                2. Преузми детаље (локације)
+            <button class="btn btn-primary" onclick="startSync()" id="btnSync"
+                    th:disabled="${!syncEnabled or syncing}">
+                Покрени потпуну синхронизацију
             </button>
             <span class="sync-status" id="syncStatus" th:text="${syncStatus}"></span>
             <div class="progress-bar" id="progressBar"
@@ -346,44 +345,142 @@
 </div>
 
 <script>
-    function startSync(type) {
-        fetch('/api/sync/' + type, { method: 'POST' })
-            .then(r => r.json())
-            .then(d => {
-                document.getElementById('syncStatus').textContent = d.message;
-                pollStatus();
-            });
-        document.getElementById('btnListings').disabled = true;
-        document.getElementById('btnDetails').disabled = true;
-        document.getElementById('progressBar').style.display = 'inline-block';
+    const syncPanel = document.getElementById('syncPanel');
+    const syncButton = document.getElementById('btnSync');
+    const syncRunStorageKey = 'eaukcija.sync.runId';
+    const syncIdempotencyStorageKey = 'eaukcija.sync.idempotencyKey';
+    const syncRunIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const syncStatuses = new Set(['RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED']);
+    const syncStages = new Set(['CLAIMED', 'CATEGORIES', 'LISTINGS', 'DETAILS', 'PROMOTING', 'COMPLETED']);
+
+    function resetSyncUi(message, clearIdempotencyKey) {
+        sessionStorage.removeItem(syncRunStorageKey);
+        if (clearIdempotencyKey) {
+            sessionStorage.removeItem(syncIdempotencyStorageKey);
+        }
+        document.getElementById('syncStatus').textContent = message;
+        document.getElementById('progressFill').style.width = '0%';
+        document.getElementById('progressBar').style.display = 'none';
+        syncButton.disabled = syncPanel.dataset.syncEnabled !== 'true';
     }
 
-    function pollStatus() {
-        fetch('/api/sync/status')
-            .then(r => r.json())
-            .then(d => {
-                document.getElementById('syncStatus').textContent = d.status;
-                if (d.total > 0) {
-                    let pct = Math.round((d.progress / d.total) * 100);
-                    document.getElementById('progressFill').style.width = pct + '%';
-                }
-                if (d.syncing) {
-                    setTimeout(pollStatus, 1000);
-                } else {
-                    document.getElementById('btnListings').disabled = false;
-                    document.getElementById('btnDetails').disabled = false;
-                    // Reload page to refresh data
-                    setTimeout(() => location.reload(), 500);
-                }
-            });
+    function fixedTriggerError(status, code) {
+        if (status === 400 || code === 'INVALID_IDEMPOTENCY_KEY') {
+            return 'Неважећи идентификатор захтева. Покушајте поново.';
+        }
+        if (status === 403 || code === 'SYNC_LOCAL_ONLY') {
+            return 'Синхронизација се може покренути само локално.';
+        }
+        if (status === 409 || code === 'SYNC_ALREADY_RUNNING') {
+            return 'Друга синхронизација је већ у току.';
+        }
+        if (status === 503) {
+            return 'Синхронизација тренутно није доступна.';
+        }
+        return 'Синхронизација није прихваћена.';
     }
 
-    // Auto-poll if sync was in progress
-    if (/*[[${syncing}]]*/ false) {
-        document.getElementById('btnListings').disabled = true;
-        document.getElementById('btnDetails').disabled = true;
+    async function startSync() {
+        let idempotencyKey = sessionStorage.getItem(syncIdempotencyStorageKey);
+        if (!idempotencyKey) {
+            idempotencyKey = crypto.randomUUID();
+            sessionStorage.setItem(syncIdempotencyStorageKey, idempotencyKey);
+        }
+        syncButton.disabled = true;
         document.getElementById('progressBar').style.display = 'inline-block';
-        pollStatus();
+        document.getElementById('syncStatus').textContent = 'Покретање…';
+
+        try {
+            const response = await fetch('/api/sync/runs', {
+                method: 'POST',
+                headers: {'Idempotency-Key': idempotencyKey}
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                if (response.status === 409 && syncRunIdPattern.test(body.activeRunId || '')) {
+                    sessionStorage.setItem(syncRunStorageKey, body.activeRunId);
+                    await pollStatus(body.activeRunId);
+                    return;
+                }
+                if (response.status === 503 && syncRunIdPattern.test(body.runId || '')) {
+                    sessionStorage.setItem(syncRunStorageKey, body.runId);
+                    await pollStatus(body.runId);
+                    return;
+                }
+                if (response.status === 400) {
+                    sessionStorage.removeItem(syncIdempotencyStorageKey);
+                }
+                resetSyncUi(fixedTriggerError(response.status, body.code), false);
+                return;
+            }
+            if (!syncRunIdPattern.test(body.runId || '')) {
+                resetSyncUi('Сервис је вратио неважећи одговор о синхронизацији.', false);
+                return;
+            }
+            sessionStorage.setItem(syncRunStorageKey, body.runId);
+            await pollStatus(body.runId);
+        } catch (error) {
+            document.getElementById('syncStatus').textContent =
+                'Мрежна грешка при покретању синхронизације.';
+            document.getElementById('progressBar').style.display = 'none';
+            syncButton.disabled = syncPanel.dataset.syncEnabled !== 'true';
+        }
+    }
+
+    async function pollStatus(runId, consecutiveFailures = 0) {
+        try {
+            const response = await fetch('/api/sync/runs/' + encodeURIComponent(runId), {
+                cache: 'no-store'
+            });
+            const run = await response.json().catch(() => null);
+            if (!response.ok) {
+                if (response.status >= 400 && response.status < 500) {
+                    resetSyncUi(
+                        response.status === 404
+                            ? 'Сачувана синхронизација више не постоји.'
+                            : 'Сачувани идентификатор синхронизације није важећи.',
+                        true);
+                    return;
+                }
+                throw new Error('retryable-status-failure');
+            }
+            if (run === null
+                    || !syncStatuses.has(run.status)
+                    || !syncStages.has(run.stage)) {
+                throw new Error('invalid-status-contract');
+            }
+            document.getElementById('syncStatus').textContent = run.status + ' — ' + run.stage;
+            const total = run.pagesExpected + run.detailsRequired;
+            const completed = run.pagesCompleted + run.detailsSucceeded;
+            const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+            document.getElementById('progressFill').style.width = pct + '%';
+            if (run.status === 'RUNNING') {
+                syncButton.disabled = true;
+                setTimeout(() => pollStatus(runId, 0), 1000);
+            } else {
+                sessionStorage.removeItem(syncRunStorageKey);
+                sessionStorage.removeItem(syncIdempotencyStorageKey);
+                setTimeout(() => location.reload(), 500);
+            }
+        } catch (error) {
+            document.getElementById('syncStatus').textContent =
+                'Статус синхронизације тренутно није доступан.';
+            if (consecutiveFailures >= 4) {
+                document.getElementById('syncStatus').textContent =
+                    'Провера статуса је паузирана после више грешака. Покушајте поново.';
+                syncButton.disabled = syncPanel.dataset.syncEnabled !== 'true';
+                return;
+            }
+            const delay = Math.min(30000, 1000 * (2 ** consecutiveFailures));
+            setTimeout(() => pollStatus(runId, consecutiveFailures + 1), delay);
+        }
+    }
+
+    const activeRunId = syncPanel.dataset.activeRunId || sessionStorage.getItem(syncRunStorageKey);
+    if (activeRunId) {
+        syncButton.disabled = true;
+        document.getElementById('progressBar').style.display = 'inline-block';
+        pollStatus(activeRunId);
     }
 </script>
 <script src="/vendor/pmtiles/4.4.0/pmtiles.js"></script>

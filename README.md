@@ -10,13 +10,13 @@ and is building toward a locally hosted map of Serbia.
 
 ## Status
 
-The ingest layer is a working proof of concept ported from an earlier prototype.
-The GIS layers are being delivered incrementally — see the
-[epics](../../issues?q=is%3Aissue+label%3Aepic).
+The ingest layer uses durable, source-safe synchronization runs with retained
+status and atomic promotion. The GIS layers are being delivered incrementally —
+see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 
 | Layer | State |
 |---|---|
-| eAukcija ingest (listings + details) | working |
+| eAukcija ingest (complete durable runs) | working (#17) |
 | Local filtering / list UI | working |
 | Property reference extraction | planned (EPIC-02) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
@@ -98,9 +98,11 @@ packaged application has no default: starting it without exactly one of `dev`,
 `test`, `prod`, or `local-h2` is rejected before the datasource or web server
 starts.
 
-1. **Преузми листинге** — fetches all listing pages.
-2. **Преузми детаље** — fetches per-auction details (location, category, description).
-3. Filter and sort locally.
+1. Start one synchronization run; it fetches and validates the configured
+   category roots, direct-child membership pages, and required auction details.
+2. Follow the returned run ID until it reaches `SUCCEEDED`. Partial and failed
+   runs leave the previously successful auction state untouched.
+3. Filter, map, and sort the locally promoted data.
 
 PostgreSQL data persists in the named Compose volume mounted at the PostgreSQL
 18 path `/var/lib/postgresql`. Flyway owns the schema and Hibernate validates it
@@ -109,14 +111,13 @@ at startup.
 ### Application API
 
 ```
-POST /api/sync/listings   start listings sync
-POST /api/sync/details    start details sync
-GET  /api/sync/status     sync progress
-GET  /api/locations/{id}  best selected location with explicit precision
-GET  /api/map/auctions     bounded GeoJSON features for one WGS84 viewport
-GET  /api/map/status       retained map-data version and freshness state
-GET  /api/basemap/status   active immutable basemap version and health
-GET  /basemap/*            same-origin PMTiles, style, sprites, and glyphs
+POST /api/sync/runs          start one complete run; requires Idempotency-Key
+GET  /api/sync/runs/{runId} retained run status and completeness evidence
+GET  /api/locations/{id}    best selected location with explicit precision
+GET  /api/map/auctions      bounded GeoJSON features for one WGS84 viewport
+GET  /api/map/status        retained map-data version and freshness state
+GET  /api/basemap/status    active immutable basemap version and health
+GET  /basemap/*             same-origin PMTiles, style, sprites, and glyphs
 ```
 
 The map endpoint requires `bbox=minLon,minLat,maxLon,maxLat`; optional
@@ -130,6 +131,14 @@ been taken; it is never the default runtime.
 
 See [Database operations](documentation/DATABASE_OPERATIONS.md) for profile,
 backup/restore, legacy-H2 archive, clean re-sync, and failure-recovery commands.
+See [eAukcija synchronization operations](documentation/EAUKCIJA_SYNC_OPERATIONS.md)
+for the idempotent trigger, durable status, atomic promotion, retry limits,
+configuration bounds, and stale-run recovery. The related
+[source acceptable-use note](documentation/EAUKCIJA_SOURCE_ACCEPTABLE_USE.md)
+records the reviewed source posture and conservative traffic defaults.
+See [issues #12/#17 verification](documentation/2026-08-24-issue-17-verification.md)
+for taxonomy scope, child-subset and atomic-promotion evidence, exact focused
+suite counts, clean PostgreSQL/check results, and fresh browser proof.
 See [Centroid extract operations](documentation/CENTROID_EXTRACT_OPERATIONS.md)
 for the database-free coarse-location artifact, reviewed checksums,
 reproducible publication, status, and failure recovery.
@@ -192,12 +201,16 @@ EPIC-05 targets — rather than substituting H2. Without Docker the integration
 tests fail rather than silently skipping.
 
 No test touches a live network. eaukcija.sud.rs responses are served from
-`src/test/resources/fixtures/eaukcija/` through `MockRestServiceServer`.
+`src/test/resources/fixtures/eaukcija/` through local HTTP stubs.
 
 | Suite | Covers |
 |---|---|
-| `EAukcijaClientTest` | request shape, listing/detail parsing, empty page, API error envelope, transport failure, malformed body |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V9, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, and the canonical-derivation trigger |
+| `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, bounded streaming/content types, invalid/null data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
+| `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, duplicate/conflict/short-page/changed-total refusal, client-failure coordinates/retries, new/changed/stale refresh policy, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on partial work |
+| `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
+| `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child evidence, exact captured-taxonomy completeness/subset gates, scoped absences, atomic promotion/rollback, and success-only observations/enrichment |
+| `SyncPropertiesTest` / `SyncExecutionConfigurationTest` | orchestration defaults/bounds, single named queue-free worker, immediate interruption, and bounded Spring context shutdown |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V10, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync evidence/success gates, and the canonical-derivation trigger |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
@@ -217,7 +230,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `CoarseLocationResolutionIntegrationTest` | V7/V8/V9 persistence, complete #37/#39 run provenance, real-#37 alias evidence, missing-upstream refusal, republish refresh, unchanged replay, failure safety, and higher-tier non-downgrade against PostGIS |
 | `LocationControllerTest` / `AuctionControllerLocationPresentationTest` | explicit machine/Serbian precision, extraction/publication state in JSON, review visibility, and rendered UI honesty notice |
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, atomic promotion, post-commit retention, rollback |
-| `ExistingPageBrowserTest` | three real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
+| `ExistingPageBrowserTest` | seven real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, stale-run recovery, transient-to-terminal polling, secret-bearing JSON/non-JSON error redaction, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
 | `LocalBasemapBrowserTest` | actual compact PMTiles v3 through the production endpoint; same-origin MapLibre protocol/style/sprite/glyph/worker requests; zoom 5/9/14 plus pan; visible linked OSM attribution; exact localhost-only host and `206`/ETag evidence |
 | `AuctionMapBrowserTest` | real local basemap plus PostGIS GeoJSON; all six precision styles; shared-centroid cluster/list; keyboard selection; escaped popup and allowlisted source link; allowlisted URL restoration; coalesced pan/zoom refresh with an idle-or-250-ms fallback; retained loading/empty/error/limit state; desktop/narrow evidence; exact localhost-only traffic |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
@@ -269,14 +282,16 @@ fixture and asset-upgrade contract.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V9 it
+`src/main/resources/db/migration/` is the only schema authority. Through V10 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias
 provenance, structured-KO and coarse-location population-run reports, canonical property/parcel identities,
 source plus WGS84 resolution geometry, append-only attempt evidence, separate
-cache records, mutable selected-resolution pointers, and the viewport GiST
-plus reverse-FK indexes. Canonical WGS84 is derived by a normal-write trigger so
+cache records, mutable selected-resolution pointers, the viewport GiST plus
+reverse-FK indexes, and durable eAukcija sync runs, bounded error/root evidence,
+category membership, success-only observations/enrichment work, freshness, and
+absence counters. Canonical WGS84 is derived by a normal-write trigger so
 backup restore does not re-run PROJ-dependent transforms. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
 Migration validation, Hibernate validation, and an explicit PostGIS startup
@@ -294,16 +309,20 @@ override it for a different engine:
 
 ## Upstream data source
 
-eaukcija.sud.rs is a React SPA backed by a public JSON API. There is no HTML
-scraping:
+eaukcija.sud.rs is a React SPA backed by an undocumented JSON backend. There is
+no HTML scraping, but these routes are not a published or supported public API:
 
 ```
+POST /WebApi.Proxy/api/EAukcija/GetCategories                 {}
 POST /WebApi.Proxy/api/EAukcija/GetAuctionsByCategoryId     { CategoryId, ItemCount, PageCount }
 POST /WebApi.Proxy/api/EAukcija/GetImmovablePropertyDetails { AuctionId }
+POST /WebApi.Proxy/api/EAukcija/GetCommonPropertyDetails    { AuctionId }
 ```
 
-Category ids: `7` Непокретности (parent), `47` Парцела, `48` Објекат,
-`49` Посебан део објекта, `8` заједничка продаја.
+Configured roots are `7` Непокретности and `8` заједничка продаја. Reviewed
+direct children are `47` Парцела, `48` Објекат, `49` Посебан део објекта and
+common-scope `121`, `124`, `135`. Roots define discovery; child requests only
+prove membership and normalized kind, so they never duplicate detail work.
 
 A per-auction canonical URL is not returned by the API. It is derived as
 `https://eaukcija.sud.rs/#/aukcije/{Id}`.

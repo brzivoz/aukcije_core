@@ -41,6 +41,7 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     // Spring Boot 3.4.3 manages Flyway 10.x. Pin the newest Java-17 Flyway 11
     // line that retains the configuration API used by Boot 3.4.
     implementation "org.flywaydb:flyway-core:${flywayVersion}"
@@ -60,6 +61,7 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
 
     browserTestImplementation "com.microsoft.playwright:playwright:${playwrightVersion}"
 }

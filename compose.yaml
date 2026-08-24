@@ -3,6 +3,9 @@ name: aukcije-core
 services:
   db:
     image: postgis/postgis:18-3.6@sha256:db8c151a4e1f4686b1a985a3490cf96f9f8c8c2725f58a46ef7a57e52f167cc3
+    # The reviewed digest is amd64-only. Declare the intentional emulation so
+    # Docker Desktop on Apple Silicon does not report an ambiguous mismatch.
+    platform: linux/amd64
     environment:
       POSTGRES_DB: ${AUKCIJE_DB_NAME:-aukcije}
       POSTGRES_USER: ${AUKCIJE_DB_USER:-aukcije}

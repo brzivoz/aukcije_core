@@ -32,9 +32,10 @@ digest-pinned, the named volume is mounted at PostgreSQL 18's
 `/var/lib/postgresql` parent path, and the service has a healthcheck, CPU,
 memory, and shared-memory limits.
 
-The pinned PostGIS digest currently publishes an amd64 image. Docker Desktop on
-Apple Silicon therefore warns about a platform mismatch and runs the database
-under emulation; this is expected until a reviewed multi-architecture digest is
+The pinned PostGIS digest currently publishes an amd64 image. Compose explicitly
+selects `linux/amd64`, so Docker Desktop on Apple Silicon runs the database under
+emulation without an ambiguous platform-mismatch warning. The lower native
+performance remains expected until a reviewed multi-architecture digest is
 adopted.
 
 ## First clean start
@@ -43,15 +44,15 @@ Generate a strong local-only password with a password manager and put that one
 line in the ignored `.secrets/postgres-password` file. Then:
 
 ```bash
-docker compose up -d --wait db
-AUKCIJE_DB_PASSWORD="$(tr -d '\r\n' < .secrets/postgres-password)" \
-  ./gradlew bootRun
+./start.sh
 ```
 
-The Gradle `bootRun` task selects `dev` for local ergonomics. This task-level
-argument is not packaged into the application; jar/deployment startup still
-requires an explicit database profile and fails before context creation when it
-is missing or ambiguous.
+The launcher builds the executable jar, selects the `dev` profile, starts the
+Compose database, waits for HTTP readiness, and records the managed Java PID.
+When the default host port `5432` is occupied and no explicit port is configured,
+it selects a free port from `5433` through `5499` for both Compose and Spring.
+Jar/deployment startup outside this launcher still requires an explicit database
+profile and fails before context creation when it is missing or ambiguous.
 
 Flyway creates PostGIS and the auction baseline on an empty database. Startup
 must stop on an unavailable database, bad credentials, unavailable/missing
@@ -158,8 +159,9 @@ rows collapsing to 83 stable auction IDs.
 Stop services without removing persisted data:
 
 ```bash
-docker compose down
+./stop.sh
 ```
 
+Use `./stop.sh --keep-db` to stop only the managed Java process.
 `docker compose down --volumes` destroys the PostgreSQL data volume and is not
 part of normal operation or the H2 transition.

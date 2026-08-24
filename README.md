@@ -35,27 +35,68 @@ The GIS layers are being delivered incrementally — see the
 
 ## Running
 
-The explicit `dev` profile requires PostgreSQL/PostGIS. Create an ignored local
-secret, start the digest-pinned database, and pass the same password only to the
-application process:
+### Prerequisites
+
+- Java 17
+- Docker with Docker Compose
+
+The explicit `dev` profile requires PostgreSQL/PostGIS. On a new checkout,
+create the ignored database-password file once:
 
 ```bash
 mkdir -p .secrets
-# Put a generated local password in .secrets/postgres-password (one line).
-docker compose up -d --wait db
-AUKCIJE_DB_PASSWORD="$(tr -d '\r\n' < .secrets/postgres-password)" \
-  ./gradlew bootRun
+openssl rand -hex 32 > .secrets/postgres-password
+chmod 600 .secrets/postgres-password
 ```
 
-Compose reads `.env`; Spring Boot does not. If `.env` changes the database name,
-user, or port, export the matching `AUKCIJE_DB_*` variables before `bootRun`;
-set `AUKCIJE_DB_HOST` directly in the application environment when needed.
+Do not regenerate that file while reusing an existing `postgres-data` volume:
+PostgreSQL applies the password only when it initializes a new database. To
+customize the database name, user, or host port, copy `.env.example` to `.env`
+and edit the non-secret values there.
+
+### Launch
+
+From the repository root, run:
+
+```bash
+./start.sh
+```
+
+The script loads non-secret overrides from `.env`, builds the executable jar,
+starts the digest-pinned database, starts the application in the background,
+and waits for <http://localhost:8081> to respond. If the default PostgreSQL
+host port `5432` is occupied and no port was explicitly configured, the script
+selects the first free port from `5433` through `5499` and passes the same value
+to Compose and Spring. Set `AUKCIJE_DB_PORT` in `.env` when a stable alternate
+port is required. Runtime files are ignored:
+
+- `.run/aukcije-core.pid` identifies the exact managed Java process.
+- `.run/aukcije-core.log` contains application output; follow it with
+  `tail -f .run/aukcije-core.log`.
+
+### Stop
+
+Stop the managed application and local database with:
+
+```bash
+./stop.sh
+```
+
+The stop script validates the recorded PID before sending `SIGTERM`, waits for
+the application to exit, and then runs `docker compose down`. Normal shutdown
+preserves the named `postgres-data` volume, so the next launch retains the
+database. To stop only the application and leave PostgreSQL running, use
+`./stop.sh --keep-db`. Do not run `docker compose down --volumes` unless you
+intentionally want to delete all local PostgreSQL data.
+
+Compose and `start.sh` read `.env`; Spring Boot itself does not. If `.env`
+changes the database name, user, or port and you launch manually with
+`./gradlew bootRun`, export the matching `AUKCIJE_DB_*` variables first. Set
+`AUKCIJE_DB_HOST` directly in the application environment when needed.
 The Gradle `bootRun` task supplies `dev` for this local workflow only. The
 packaged application has no default: starting it without exactly one of `dev`,
 `test`, `prod`, or `local-h2` is rejected before the datasource or web server
 starts.
-
-Serves on <http://localhost:8081>.
 
 1. **Преузми листинге** — fetches all listing pages.
 2. **Преузми детаље** — fetches per-auction details (location, category, description).

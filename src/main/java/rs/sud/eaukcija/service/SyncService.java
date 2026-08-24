@@ -1,6 +1,7 @@
 package rs.sud.eaukcija.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,6 +31,7 @@ import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionListData;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionSummary;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryNode;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryTree;
+import rs.sud.eaukcija.client.EAukcijaApiTypes.RejectedAuctionSummary;
 import rs.sud.eaukcija.client.EAukcijaCallResult;
 import rs.sud.eaukcija.client.EAukcijaClient;
 import rs.sud.eaukcija.client.EAukcijaClientException;
@@ -42,12 +44,16 @@ import rs.sud.eaukcija.sync.SyncFailure;
 import rs.sud.eaukcija.sync.SyncProgressTracker;
 import rs.sud.eaukcija.sync.SyncProperties;
 import rs.sud.eaukcija.sync.TaxonomyClassifier;
+import rs.sud.eaukcija.sync.persistence.AuctionDetailQuarantine;
+import rs.sud.eaukcija.sync.persistence.AuctionListingQuarantine;
 import rs.sud.eaukcija.sync.persistence.AuctionPromotionCandidate;
 import rs.sud.eaukcija.sync.persistence.AuctionPromotionService;
 import rs.sud.eaukcija.sync.persistence.CategoryMembership;
 import rs.sud.eaukcija.sync.persistence.CategoryMembershipType;
 import rs.sud.eaukcija.sync.persistence.EnrichmentReason;
 import rs.sud.eaukcija.sync.persistence.NormalizedPropertyKind;
+import rs.sud.eaukcija.sync.persistence.PersistedAuctionDetailQuarantine;
+import rs.sud.eaukcija.sync.persistence.PersistedAuctionListingQuarantine;
 import rs.sud.eaukcija.sync.persistence.PersistedSyncRunError;
 import rs.sud.eaukcija.sync.persistence.SaleScope;
 import rs.sud.eaukcija.sync.persistence.SyncRunClaimRequest;
@@ -68,6 +74,8 @@ import rs.sud.eaukcija.sync.persistence.WorkerLockLease;
 public class SyncService {
 
     static final String TAXONOMY_NORMALIZER_VERSION = "eaukcija-taxonomy-v1";
+    private static final int DETAIL_PROGRESS_CHECKPOINT_ITEMS = 25;
+    private static final Duration DETAIL_PROGRESS_CHECKPOINT_INTERVAL = Duration.ofSeconds(30);
 
     private static final Logger log = LoggerFactory.getLogger(SyncService.class);
 
@@ -136,6 +144,14 @@ public class SyncService {
         return syncProperties.isEnabled() ? runs.errors(runId) : List.of();
     }
 
+    public List<PersistedAuctionDetailQuarantine> detailQuarantines(UUID runId) {
+        return syncProperties.isEnabled() ? runs.detailQuarantines(runId) : List.of();
+    }
+
+    public List<PersistedAuctionListingQuarantine> listingQuarantines(UUID runId) {
+        return syncProperties.isEnabled() ? runs.listingQuarantines(runId) : List.of();
+    }
+
     public List<SyncRunRootResult> rootResults(UUID runId) {
         return syncProperties.isEnabled() ? runs.rootResults(runId) : List.of();
     }
@@ -155,6 +171,16 @@ public class SyncService {
     @EventListener(ApplicationReadyEvent.class)
     public void recoverStaleRunsAfterStartup() {
         try {
+            if (!syncProperties.isEnabled()) {
+                return;
+            }
+            Optional<UUID> activeRunId = runs.activeRunId();
+            if (activeRunId.isEmpty()
+                    || !runs.isStale(
+                            activeRunId.orElseThrow(),
+                            syncProperties.getRunningStaleAfter())) {
+                return;
+            }
             recoverStaleRuns();
         } catch (RuntimeException recoveryFailure) {
             // Application-event infrastructure logs uncaught listener failures with
@@ -175,7 +201,9 @@ public class SyncService {
         }
         try (WorkerLockLease lease = acquired.orElseThrow()) {
             List<UUID> recovered = runs.recoverOrphanedRunningRuns(
-                    lease, syncProperties.getRunningStaleAfter());
+                    lease,
+                    syncProperties.getRunningStaleAfter(),
+                    syncProperties.getMaxErrors());
             recovered.forEach(runId -> log.warn(
                     "Recovered stale eAukcija sync run runId={} code=STALE_RUN_RECOVERED", runId));
             return recovered;
@@ -186,12 +214,17 @@ public class SyncService {
         if (!syncProperties.isEnabled()) {
             throw new SyncUnavailableException("durable sync is unavailable for the active database profile");
         }
-        recoverStaleRuns();
-        SyncRunClaimResult claim = runs.claim(new SyncRunClaimRequest(
+        SyncRunClaimRequest request = new SyncRunClaimRequest(
                 idempotencyKey.toString(),
                 clientProperties.getRootCategoryIds(),
                 clientProperties.getPageSize(),
-                triggerKind));
+                triggerKind);
+        Optional<UUID> activeRunId = runs.activeRunId();
+        if (activeRunId.isPresent()
+                && runs.isStale(activeRunId.orElseThrow(), syncProperties.getRunningStaleAfter())) {
+            recoverStaleRuns();
+        }
+        SyncRunClaimResult claim = runs.claim(request);
         if (claim.replayed()) {
             return claim;
         }
@@ -300,11 +333,16 @@ public class SyncService {
                     SyncRunStage.CATEGORIES, "CATEGORY_DRIFT", null, null, null);
         }
         Map<Long, StagedAuction> union = new LinkedHashMap<>();
+        Map<Long, AuctionListingQuarantine> listingQuarantines = new LinkedHashMap<>();
+        Set<Long> observedRootAuctionIds = new LinkedHashSet<>();
         Map<Integer, Set<Long>> rootAuctionIds = new LinkedHashMap<>();
         long[] totalRows = {0};
         for (int rootId : clientProperties.getRootCategoryIds()) {
             rootAuctionIds.put(rootId,
-                    fetchCompleteRoot(runId, rootId, taxonomyIndex, union, totalRows, tracker));
+                    fetchCompleteRoot(
+                            runId, rootId, taxonomyIndex, union, listingQuarantines,
+                            observedRootAuctionIds,
+                            totalRows, tracker));
         }
         // Retain the exact expected child set before any child request. A crash
         // or first-page timeout therefore still leaves attributable, immutable
@@ -324,12 +362,16 @@ public class SyncService {
                         child,
                         rootAuctionIds.get(rootId),
                         union,
+                        listingQuarantines,
+                        observedRootAuctionIds,
                         totalRows,
                         tracker);
             }
         }
 
-        tracker.listingCounts(totalRows[0], union.size(), totalRows[0] - union.size());
+        long listingUniqueCount = listingUniqueCount(union, listingQuarantines);
+        tracker.listingCounts(
+                totalRows[0], listingUniqueCount, totalRows[0] - listingUniqueCount);
         runs.updateProgress(runId, tracker.snapshot(SyncRunStage.LISTINGS));
 
         Map<Long, Auction> existing = new HashMap<>();
@@ -348,40 +390,36 @@ public class SyncService {
                         SyncRunStage.DETAILS, "CATEGORY_DRIFT", null, null, staged.summary.id());
             }
         }
-        long required = ordered.stream()
-                .filter(staged -> detailRequired(
-                        existing.get(staged.summary.id()),
-                        staged.fingerprint,
-                        staleBefore,
-                        staged.classification.saleScope()))
-                .count();
+        long required = 0;
+        for (StagedAuction staged : ordered) {
+            staged.existing = existing.get(staged.summary.id());
+            staged.detailRequired = detailRequired(
+                    staged.existing,
+                    staged.fingerprint,
+                    staleBefore,
+                    staged.classification.saleScope());
+            if (staged.detailRequired) {
+                required++;
+            }
+            staged.enrichmentReason = staged.existing == null
+                    ? EnrichmentReason.NEW
+                    : !staged.fingerprint.equals(staged.existing.getListingFingerprint())
+                    ? EnrichmentReason.LISTING_CHANGED
+                    : staged.detailRequired
+                    ? EnrichmentReason.DETAIL_REFRESHED
+                    : EnrichmentReason.NONE;
+        }
         tracker.detailsRequired(required);
         runs.updateProgress(runId, tracker.snapshot(SyncRunStage.DETAILS));
 
+        List<AuctionDetailQuarantine> quarantines = new ArrayList<>();
+        int detailOutcomesSinceCheckpoint = 0;
+        Instant detailCheckpointAt = Instant.now(clock);
         for (StagedAuction staged : ordered) {
-            Auction prior = existing.get(staged.summary.id());
-            staged.enrichmentReason = prior == null
-                    ? EnrichmentReason.NEW
-                    : !staged.fingerprint.equals(prior.getListingFingerprint())
-                    ? EnrichmentReason.LISTING_CHANGED
-                    : detailRequired(
-                            prior,
-                            staged.fingerprint,
-                            staleBefore,
-                            staged.classification.saleScope())
-                    ? EnrichmentReason.DETAIL_REFRESHED
-                    : EnrichmentReason.NONE;
-            if (!detailRequired(
-                    prior,
-                    staged.fingerprint,
-                    staleBefore,
-                    staged.classification.saleScope())) {
-                staged.existing = prior;
+            if (!staged.detailRequired) {
                 continue;
             }
-            staged.existing = prior;
             tracker.detailAttempted();
-            runs.updateProgress(runId, tracker.snapshot(SyncRunStage.DETAILS));
             try {
                 EAukcijaCallResult<AuctionDetail> detail = switch (staged.classification.saleScope()) {
                     case IMMOVABLE -> client.getImmovablePropertyDetails(staged.summary.id());
@@ -392,26 +430,54 @@ public class SyncService {
                 staged.detailRefreshed = true;
                 staged.detailFetchedAt = Instant.now(clock);
                 tracker.detailSucceeded();
-                runs.updateProgress(runId, tracker.snapshot(SyncRunStage.DETAILS));
             } catch (EAukcijaClientException failure) {
-                tracker.detailFailed();
-                throw SyncFailure.client(
+                SyncFailure detailFailure = SyncFailure.client(
                         SyncRunStage.DETAILS, null, null, staged.summary.id(), failure);
+                if (!quarantinableDetailFailure(failure)
+                        || quarantines.size() >= syncProperties.getMaxQuarantinedDetails()) {
+                    tracker.detailFailed();
+                    throw detailFailure;
+                }
+                tracker.retries(detailFailure.retries());
+                tracker.detailQuarantined();
+                tracker.resolvedError();
+                runs.appendError(
+                        runId,
+                        detailFailure.evidence(),
+                        true,
+                        tracker.errorCount() <= syncProperties.getMaxErrors());
+                staged.quarantined = true;
+                quarantines.add(new AuctionDetailQuarantine(
+                        staged.summary.id(), staged.fingerprint, failure.code().name()));
+                log.warn("Quarantined invalid eAukcija detail runId={} auctionId={} code={}",
+                        runId, staged.summary.id(), failure.code());
+            }
+            detailOutcomesSinceCheckpoint++;
+            Instant checkpointNow = Instant.now(clock);
+            if (detailOutcomesSinceCheckpoint == DETAIL_PROGRESS_CHECKPOINT_ITEMS
+                    || !checkpointNow.isBefore(detailCheckpointAt.plus(
+                            DETAIL_PROGRESS_CHECKPOINT_INTERVAL))) {
+                runs.updateProgress(runId, tracker.snapshot(SyncRunStage.DETAILS));
+                detailOutcomesSinceCheckpoint = 0;
+                detailCheckpointAt = checkpointNow;
             }
         }
 
-        List<AuctionPromotionCandidate> candidates = new ArrayList<>(ordered.size());
+        List<AuctionPromotionCandidate> candidates = new ArrayList<>(ordered.size() - quarantines.size());
         long unknownKinds = 0;
         for (StagedAuction staged : ordered) {
+            if (staged.classification.propertyKind() == NormalizedPropertyKind.UNKNOWN) {
+                unknownKinds++;
+            }
+            if (staged.quarantined) {
+                continue;
+            }
             Auction current = AuctionSyncMapper.merge(
                     staged.existing,
                     staged.summary,
                     staged.detail,
                     staged.fingerprint,
                     staged.detailFetchedAt == null ? observedAt : staged.detailFetchedAt);
-            if (staged.classification.propertyKind() == NormalizedPropertyKind.UNKNOWN) {
-                unknownKinds++;
-            }
             candidates.add(new AuctionPromotionCandidate(
                     current,
                     staged.fingerprint,
@@ -427,13 +493,20 @@ public class SyncService {
         tracker.unknownKinds(unknownKinds);
         runs.updateProgress(runId, tracker.snapshot(SyncRunStage.PROMOTING));
         try {
-            promotion.promote(runId, taxonomy.canonicalSha256(), observedAt, candidates);
+            promotion.promote(
+                    runId,
+                    taxonomy.canonicalSha256(),
+                    observedAt,
+                    candidates,
+                    quarantines,
+                    List.copyOf(listingQuarantines.values()));
         } catch (RuntimeException persistenceFailure) {
             throw SyncFailure.contract(
                     SyncRunStage.PROMOTING, "PROMOTION_FAILED", null, null, null);
         }
-        log.info("eAukcija sync succeeded runId={} uniqueAuctions={} retries={}",
-                runId, union.size(), tracker.snapshot(SyncRunStage.COMPLETED).retryCount());
+        log.info("eAukcija sync succeeded runId={} uniqueAuctions={} listingQuarantined={} detailQuarantined={} retries={}",
+                runId, listingUniqueCount, listingQuarantines.size(), quarantines.size(),
+                tracker.snapshot(SyncRunStage.COMPLETED).retryCount());
     }
 
     private EAukcijaCallResult<CategoryTree> fetchTaxonomy() {
@@ -468,6 +541,8 @@ public class SyncService {
             int rootId,
             TaxonomyIndex taxonomy,
             Map<Long, StagedAuction> union,
+            Map<Long, AuctionListingQuarantine> listingQuarantines,
+            Set<Long> observedRootAuctionIds,
             long[] totalRows,
             SyncProgressTracker tracker) {
         RootAccumulator root = new RootAccumulator(rootId);
@@ -499,7 +574,7 @@ public class SyncService {
                             SyncRunStage.LISTINGS, "TOTAL_CHANGED", rootId, page, null);
                 }
 
-                int rowCount = data.auctions().size();
+                int rowCount = data.auctions().size() + data.rejectedAuctions().size();
                 if (root.sourceTotal == 0 && rowCount != 0) {
                     throw SyncFailure.contract(
                             SyncRunStage.LISTINGS, "ZERO_TOTAL_WITH_ROWS", rootId, page, null);
@@ -513,10 +588,29 @@ public class SyncService {
                             SyncRunStage.LISTINGS, "SHORT_INTERMEDIATE_PAGE", rootId, page, null);
                 }
                 int uniqueBefore = root.uniqueIds.size();
+                for (RejectedAuctionSummary rejected : data.rejectedAuctions()) {
+                    root.rowsObserved++;
+                    totalRows[0]++;
+                    root.uniqueIds.add(rejected.auctionId());
+                    observedRootAuctionIds.add(rejected.auctionId());
+                    quarantineListing(
+                            runId,
+                            rootId,
+                            null,
+                            page,
+                            rejected,
+                            union,
+                            listingQuarantines,
+                            tracker);
+                }
                 for (AuctionSummary summary : data.auctions()) {
                     root.rowsObserved++;
                     totalRows[0]++;
                     root.uniqueIds.add(summary.id());
+                    observedRootAuctionIds.add(summary.id());
+                    if (listingQuarantines.containsKey(summary.id())) {
+                        continue;
+                    }
                     String fingerprint = ListingFingerprint.sha256(summary);
                     StagedAuction present = union.get(summary.id());
                     if (present == null) {
@@ -533,7 +627,8 @@ public class SyncService {
                             SyncRunStage.LISTINGS, "UNIQUE_IDS_EXCEED_TOTAL", rootId, page, null);
                 }
                 root.pagesCompleted++;
-                tracker.pageCompleted(rowCount, union.size(), totalRows[0] - union.size());
+                long uniqueCount = listingUniqueCount(union, listingQuarantines);
+                tracker.pageCompleted(rowCount, uniqueCount, totalRows[0] - uniqueCount);
                 runs.updateProgress(runId, tracker.snapshot(SyncRunStage.LISTINGS));
 
                 if (root.uniqueIds.size() == root.sourceTotal) {
@@ -563,6 +658,8 @@ public class SyncService {
             }
             return Set.copyOf(root.uniqueIds);
         } catch (SyncFailure failure) {
+            long uniqueCount = observedRootAuctionIds.size();
+            tracker.listingCounts(totalRows[0], uniqueCount, totalRows[0] - uniqueCount);
             if (root.initialized()) {
                 runs.recordRootResult(runId, root.result(false));
             }
@@ -576,6 +673,8 @@ public class SyncService {
             CategoryNode child,
             Set<Long> rootAuctionIds,
             Map<Long, StagedAuction> union,
+            Map<Long, AuctionListingQuarantine> listingQuarantines,
+            Set<Long> observedRootAuctionIds,
             long[] totalRows,
             SyncProgressTracker tracker) {
         ChildAccumulator observed = new ChildAccumulator(rootId, child.value());
@@ -611,7 +710,7 @@ public class SyncService {
                             rootId, child.value(), page, null);
                 }
 
-                int rowCount = data.auctions().size();
+                int rowCount = data.auctions().size() + data.rejectedAuctions().size();
                 if (observed.sourceTotal == 0 && rowCount != 0) {
                     throw SyncFailure.childContract(
                             SyncRunStage.LISTINGS, "CHILD_ZERO_TOTAL_WITH_ROWS",
@@ -628,6 +727,29 @@ public class SyncService {
                             rootId, child.value(), page, null);
                 }
                 int uniqueBefore = observed.uniqueIds.size();
+                for (RejectedAuctionSummary rejected : data.rejectedAuctions()) {
+                    observed.rowsObserved++;
+                    if (!rootAuctionIds.contains(rejected.auctionId())) {
+                        observed.subsetOfParentRoot = false;
+                        throw SyncFailure.childContract(
+                                SyncRunStage.LISTINGS,
+                                "CHILD_ID_OUTSIDE_ROOT",
+                                rootId,
+                                child.value(),
+                                page,
+                                rejected.auctionId());
+                    }
+                    observed.uniqueIds.add(rejected.auctionId());
+                    quarantineListing(
+                            runId,
+                            rootId,
+                            child.value(),
+                            page,
+                            rejected,
+                            union,
+                            listingQuarantines,
+                            tracker);
+                }
                 for (AuctionSummary summary : data.auctions()) {
                     observed.rowsObserved++;
                     if (!rootAuctionIds.contains(summary.id())) {
@@ -641,17 +763,11 @@ public class SyncService {
                                 summary.id());
                     }
                     observed.uniqueIds.add(summary.id());
-                    StagedAuction staged = union.get(summary.id());
-                    if (staged == null) {
-                        throw SyncFailure.childContract(
-                                SyncRunStage.LISTINGS,
-                                "CHILD_ID_OUTSIDE_DISCOVERY",
-                                rootId,
-                                child.value(),
-                                page,
-                                summary.id());
+                    if (listingQuarantines.containsKey(summary.id())) {
+                        continue;
                     }
-                    staged.contributingChildren.add(child.value());
+                    // The root-subset check above proves the union entry exists.
+                    union.get(summary.id()).contributingChildren.add(child.value());
                 }
                 if (observed.uniqueIds.size() > observed.sourceTotal) {
                     throw SyncFailure.childContract(
@@ -659,7 +775,8 @@ public class SyncService {
                             rootId, child.value(), page, null);
                 }
                 observed.pagesCompleted++;
-                tracker.pageCompleted(0, union.size(), totalRows[0] - union.size());
+                long uniqueCount = listingUniqueCount(union, listingQuarantines);
+                tracker.pageCompleted(0, uniqueCount, totalRows[0] - uniqueCount);
                 runs.updateProgress(runId, tracker.snapshot(SyncRunStage.LISTINGS));
 
                 if (observed.uniqueIds.size() == observed.sourceTotal) {
@@ -686,9 +803,72 @@ public class SyncService {
                         rootId, child.value(), null, null);
             }
         } catch (SyncFailure failure) {
+            long uniqueCount = observedRootAuctionIds.size();
+            tracker.listingCounts(totalRows[0], uniqueCount, totalRows[0] - uniqueCount);
             runs.recordChildResult(runId, observed.result(false));
             throw failure;
         }
+    }
+
+    private void quarantineListing(
+            UUID runId,
+            int rootId,
+            Integer childId,
+            int page,
+            RejectedAuctionSummary rejected,
+            Map<Long, StagedAuction> union,
+            Map<Long, AuctionListingQuarantine> quarantines,
+            SyncProgressTracker tracker) {
+        if (quarantines.containsKey(rejected.auctionId())) {
+            return;
+        }
+        SyncFailure listingFailure = childId == null
+                ? SyncFailure.contract(
+                        SyncRunStage.LISTINGS,
+                        rejected.errorCode().name(),
+                        rootId,
+                        page,
+                        rejected.auctionId())
+                : SyncFailure.childContract(
+                        SyncRunStage.LISTINGS,
+                        rejected.errorCode().name(),
+                        rootId,
+                        childId,
+                        page,
+                        rejected.auctionId());
+        if (quarantines.size() >= syncProperties.getMaxQuarantinedListings()) {
+            throw listingFailure;
+        }
+
+        tracker.listingRowQuarantined();
+        tracker.resolvedError();
+        runs.appendError(
+                runId,
+                listingFailure.evidence(),
+                true,
+                tracker.errorCount() <= syncProperties.getMaxErrors());
+        union.remove(rejected.auctionId());
+        quarantines.put(rejected.auctionId(), new AuctionListingQuarantine(
+                rejected.auctionId(),
+                rejected.sourceRowSha256(),
+                rejected.errorCode().name(),
+                rootId,
+                childId,
+                page));
+        log.warn(
+                "Quarantined invalid eAukcija listing runId={} rootId={} childId={} page={} auctionId={} code={}",
+                runId,
+                rootId,
+                childId,
+                page,
+                rejected.auctionId(),
+                rejected.errorCode());
+    }
+
+    private static long listingUniqueCount(
+            Map<Long, StagedAuction> union,
+            Map<Long, AuctionListingQuarantine> listingQuarantines) {
+        return (long) union.size() + listingQuarantines.size();
     }
 
     private static boolean detailRequired(
@@ -702,6 +882,27 @@ public class SyncService {
                 || !fingerprint.equals(existing.getListingFingerprint())
                 || existing.getDetailsFetchedAt().isBefore(staleBefore)
                 || existing.getSaleScope() != targetScope;
+    }
+
+    private static boolean quarantinableDetailFailure(EAukcijaClientException failure) {
+        return switch (failure.code()) {
+            case BODY_TOO_LARGE,
+                    INVALID_CONTENT_TYPE,
+                    INVALID_JSON,
+                    INVALID_ENVELOPE,
+                    APPLICATION_ERROR,
+                    INVALID_DATA -> true;
+            case HTTP_STATUS -> failure.httpStatus() != null
+                    && failure.httpStatus() != 401
+                    && failure.httpStatus() != 403
+                    && failure.httpStatus() != 408
+                    && failure.httpStatus() != 429
+                    && failure.httpStatus() != 500
+                    && failure.httpStatus() != 502
+                    && failure.httpStatus() != 503
+                    && failure.httpStatus() != 504;
+            default -> false;
+        };
     }
 
     private static List<CategoryMembership> memberships(StagedAuction staged, TaxonomyIndex taxonomy) {
@@ -730,6 +931,8 @@ public class SyncService {
         try {
             if (tracker.errorCount() <= syncProperties.getMaxErrors()) {
                 runs.appendError(runId, failure.evidence());
+            } else {
+                runs.appendError(runId, failure.evidence(), false, false);
             }
             SyncRunStatus status = tracker.hasSourceProgress()
                     ? SyncRunStatus.PARTIAL
@@ -752,6 +955,8 @@ public class SyncService {
         private AuctionDetail detail;
         private Instant detailFetchedAt;
         private boolean detailRefreshed;
+        private boolean detailRequired;
+        private boolean quarantined;
         private EnrichmentReason enrichmentReason;
 
         private StagedAuction(AuctionSummary summary, String fingerprint) {

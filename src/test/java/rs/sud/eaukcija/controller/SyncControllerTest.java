@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,6 +34,8 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import rs.sud.eaukcija.service.SyncService;
 import rs.sud.eaukcija.service.SyncSubmissionException;
 import rs.sud.eaukcija.service.SyncUnavailableException;
+import rs.sud.eaukcija.sync.persistence.PersistedAuctionDetailQuarantine;
+import rs.sud.eaukcija.sync.persistence.PersistedAuctionListingQuarantine;
 import rs.sud.eaukcija.sync.persistence.PersistedSyncRunError;
 import rs.sud.eaukcija.sync.persistence.SyncAlreadyRunningException;
 import rs.sud.eaukcija.sync.persistence.SyncRunChildResult;
@@ -60,6 +63,11 @@ class SyncControllerTest {
 
     @MockitoBean
     private SyncService syncService;
+
+    @BeforeEach
+    void durableSyncIsEnabledByDefault() {
+        when(syncService.isEnabled()).thenReturn(true);
+    }
 
     @Test
     void loopbackTriggerReturnsAcceptedLocationNoStoreAndRunBody() throws Exception {
@@ -136,6 +144,8 @@ class SyncControllerTest {
         verify(syncService, never()).findRun(any());
         verify(syncService, never()).rootResults(any());
         verify(syncService, never()).childResults(any());
+        verify(syncService, never()).listingQuarantines(any());
+        verify(syncService, never()).detailQuarantines(any());
         verify(syncService, never()).errors(any());
     }
 
@@ -216,15 +226,17 @@ class SyncControllerTest {
                 2,
                 2,
                 7,
+                1,
                 7,
                 0,
                 1,
-                4,
-                4,
+                5,
+                5,
                 3,
                 1,
-                2,
                 1,
+                2,
+                2,
                 1);
         SyncRunRootResult root = new SyncRunRootResult(7, 7, 7, 7, 0, 1, 1, true, true);
         SyncRunChildResult child = new SyncRunChildResult(
@@ -244,6 +256,21 @@ class SyncControllerTest {
         when(syncService.findRun(RUN_ID)).thenReturn(Optional.of(view));
         when(syncService.rootResults(RUN_ID)).thenReturn(List.of(root));
         when(syncService.childResults(RUN_ID)).thenReturn(List.of(child));
+        when(syncService.listingQuarantines(RUN_ID)).thenReturn(List.of(
+                new PersistedAuctionListingQuarantine(
+                        180465L,
+                        "c".repeat(64),
+                        "INVALID_DATA",
+                        7,
+                        47,
+                        1,
+                        Instant.parse("2026-08-24T08:03:00Z"))));
+        when(syncService.detailQuarantines(RUN_ID)).thenReturn(List.of(
+                new PersistedAuctionDetailQuarantine(
+                        180467L,
+                        "b".repeat(64),
+                        "INVALID_DATA",
+                        Instant.parse("2026-08-24T08:03:30Z"))));
         when(syncService.errors(RUN_ID)).thenReturn(List.of(error));
 
         mvc.perform(get(statusUrl(RUN_ID)))
@@ -264,14 +291,16 @@ class SyncControllerTest {
                 .andExpect(jsonPath("$.pagesExpected").value(2))
                 .andExpect(jsonPath("$.pagesCompleted").value(2))
                 .andExpect(jsonPath("$.listingRowsObserved").value(7))
+                .andExpect(jsonPath("$.listingRowsQuarantined").value(1))
                 .andExpect(jsonPath("$.uniqueAuctionCount").value(7))
                 .andExpect(jsonPath("$.unknownPropertyKindCount").value(1))
-                .andExpect(jsonPath("$.detailsRequired").value(4))
-                .andExpect(jsonPath("$.detailsAttempted").value(4))
+                .andExpect(jsonPath("$.detailsRequired").value(5))
+                .andExpect(jsonPath("$.detailsAttempted").value(5))
                 .andExpect(jsonPath("$.detailsSucceeded").value(3))
+                .andExpect(jsonPath("$.detailsQuarantined").value(1))
                 .andExpect(jsonPath("$.detailsFailed").value(1))
                 .andExpect(jsonPath("$.retryCount").value(2))
-                .andExpect(jsonPath("$.errorCount").value(1))
+                .andExpect(jsonPath("$.errorCount").value(2))
                 .andExpect(jsonPath("$.unresolvedErrorCount").value(1))
                 .andExpect(jsonPath("$.rootResults[0].rootCategoryId").value(7))
                 .andExpect(jsonPath("$.rootResults[0].sourceTotalCount").value(7))
@@ -282,6 +311,21 @@ class SyncControllerTest {
                 .andExpect(jsonPath("$.childResults[0].duplicateIds").value(1))
                 .andExpect(jsonPath("$.childResults[0].subsetOfParentRoot").value(true))
                 .andExpect(jsonPath("$.childResults[0].complete").value(true))
+                .andExpect(jsonPath("$.listingQuarantines[0].auctionId").value(180465))
+                .andExpect(jsonPath("$.listingQuarantines[0].sourceRowSha256")
+                        .value("c".repeat(64)))
+                .andExpect(jsonPath("$.listingQuarantines[0].errorCode").value("INVALID_DATA"))
+                .andExpect(jsonPath("$.listingQuarantines[0].rootCategoryId").value(7))
+                .andExpect(jsonPath("$.listingQuarantines[0].childCategoryId").value(47))
+                .andExpect(jsonPath("$.listingQuarantines[0].pageNumber").value(1))
+                .andExpect(jsonPath("$.listingQuarantines[0].occurredAt")
+                        .value("2026-08-24T08:03:00Z"))
+                .andExpect(jsonPath("$.detailQuarantines[0].auctionId").value(180467))
+                .andExpect(jsonPath("$.detailQuarantines[0].listingFingerprint")
+                        .value("b".repeat(64)))
+                .andExpect(jsonPath("$.detailQuarantines[0].errorCode").value("INVALID_DATA"))
+                .andExpect(jsonPath("$.detailQuarantines[0].occurredAt")
+                        .value("2026-08-24T08:03:30Z"))
                 .andExpect(jsonPath("$.errors[0].ordinal").value(1))
                 .andExpect(jsonPath("$.errors[0].stage").value("DETAILS"))
                 .andExpect(jsonPath("$.errors[0].rootCategoryId").value(7))
@@ -292,12 +336,15 @@ class SyncControllerTest {
                 .andExpect(jsonPath("$.errors[0].errorCode").value("RATE_LIMITED"))
                 .andExpect(jsonPath("$.errors[0].retryable").value(true))
                 .andExpect(jsonPath("$.errors[0].attemptNumber").value(3))
+                .andExpect(jsonPath("$.errors[0].resolved").value(false))
                 .andExpect(jsonPath("$.errors[0].safeMessage").doesNotExist())
                 .andExpect(jsonPath("$.errors[0].errorClass").doesNotExist())
                 .andExpect(jsonPath("$.errors[0].sourcePayload").doesNotExist());
 
         verify(syncService).rootResults(RUN_ID);
         verify(syncService).childResults(RUN_ID);
+        verify(syncService).listingQuarantines(RUN_ID);
+        verify(syncService).detailQuarantines(RUN_ID);
         verify(syncService).errors(RUN_ID);
     }
 
@@ -314,7 +361,28 @@ class SyncControllerTest {
 
         verify(syncService, never()).rootResults(RUN_ID);
         verify(syncService, never()).childResults(RUN_ID);
+        verify(syncService, never()).listingQuarantines(RUN_ID);
+        verify(syncService, never()).detailQuarantines(RUN_ID);
         verify(syncService, never()).errors(RUN_ID);
+    }
+
+    @Test
+    void disabledProfileStatusUsesTheUnavailableContractRatherThanNotFound() throws Exception {
+        when(syncService.isEnabled()).thenReturn(false);
+
+        mvc.perform(get(statusUrl(RUN_ID)))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(503))
+                .andExpect(jsonPath("$.code").value("SYNC_UNAVAILABLE"));
+
+        verify(syncService, never()).findRun(any());
+        verify(syncService, never()).rootResults(any());
+        verify(syncService, never()).childResults(any());
+        verify(syncService, never()).listingQuarantines(any());
+        verify(syncService, never()).detailQuarantines(any());
+        verify(syncService, never()).errors(any());
     }
 
     @Test
@@ -331,6 +399,7 @@ class SyncControllerTest {
         verify(syncService, never()).findRun(any());
         verify(syncService, never()).rootResults(any());
         verify(syncService, never()).childResults(any());
+        verify(syncService, never()).listingQuarantines(any());
         verify(syncService, never()).errors(any());
     }
 
@@ -453,6 +522,8 @@ class SyncControllerTest {
         when(syncService.findRun(RUN_ID)).thenReturn(Optional.of(runningView(RUN_ID)));
         when(syncService.rootResults(RUN_ID)).thenReturn(List.of());
         when(syncService.childResults(RUN_ID)).thenReturn(List.of());
+        when(syncService.listingQuarantines(RUN_ID)).thenReturn(List.of());
+        when(syncService.detailQuarantines(RUN_ID)).thenReturn(List.of());
         when(syncService.errors(RUN_ID)).thenThrow(new IllegalStateException(sentinel));
         ch.qos.logback.classic.Logger logger =
                 (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(SyncController.class);

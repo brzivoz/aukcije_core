@@ -27,6 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
 import rs.sud.eaukcija.service.SyncService;
 import rs.sud.eaukcija.service.SyncSubmissionException;
 import rs.sud.eaukcija.service.SyncUnavailableException;
+import rs.sud.eaukcija.sync.persistence.PersistedAuctionDetailQuarantine;
+import rs.sud.eaukcija.sync.persistence.PersistedAuctionListingQuarantine;
 import rs.sud.eaukcija.sync.persistence.SyncAlreadyRunningException;
 import rs.sud.eaukcija.sync.persistence.PersistedSyncRunError;
 import rs.sud.eaukcija.sync.persistence.SyncRunChildResult;
@@ -125,6 +127,10 @@ public class SyncController {
             return problem(HttpStatus.BAD_REQUEST, "INVALID_SYNC_RUN_ID",
                     "The synchronization run ID must be a UUID.");
         }
+        if (!syncService.isEnabled()) {
+            return problem(HttpStatus.SERVICE_UNAVAILABLE, "SYNC_UNAVAILABLE",
+                    "Durable synchronization is unavailable for the active profile.");
+        }
         try {
             Optional<SyncRunView> retained = syncService.findRun(parsed);
             if (retained.isEmpty()) {
@@ -137,6 +143,8 @@ public class SyncController {
                             retained.orElseThrow(),
                             syncService.rootResults(parsed),
                             syncService.childResults(parsed),
+                            syncService.listingQuarantines(parsed),
+                            syncService.detailQuarantines(parsed),
                             syncService.errors(parsed)));
         } catch (RuntimeException ledgerFailure) {
             log.error("eAukcija sync status failed runId={} code=SYNC_LEDGER_UNAVAILABLE", parsed);
@@ -233,24 +241,30 @@ public class SyncController {
             int pagesExpected,
             int pagesCompleted,
             long listingRowsObserved,
+            long listingRowsQuarantined,
             long uniqueAuctionCount,
             long duplicateAuctionCount,
             long unknownPropertyKindCount,
             long detailsRequired,
             long detailsAttempted,
             long detailsSucceeded,
+            long detailsQuarantined,
             long detailsFailed,
             long retryCount,
             long errorCount,
             long unresolvedErrorCount,
             List<SyncRunRootResult> rootResults,
             List<SyncRunChildResult> childResults,
+            List<PersistedAuctionListingQuarantine> listingQuarantines,
+            List<PersistedAuctionDetailQuarantine> detailQuarantines,
             List<PersistedSyncRunError> errors) {
 
         static SyncRunStatusResponse from(
                 SyncRunView view,
                 List<SyncRunRootResult> rootResults,
                 List<SyncRunChildResult> childResults,
+                List<PersistedAuctionListingQuarantine> listingQuarantines,
+                List<PersistedAuctionDetailQuarantine> detailQuarantines,
                 List<PersistedSyncRunError> errors) {
             return new SyncRunStatusResponse(
                     view.runId(),
@@ -267,18 +281,22 @@ public class SyncController {
                     view.pagesExpected(),
                     view.pagesCompleted(),
                     view.listingRowsObserved(),
+                    view.listingRowsQuarantined(),
                     view.uniqueAuctionCount(),
                     view.duplicateAuctionCount(),
                     view.unknownPropertyKindCount(),
                     view.detailsRequired(),
                     view.detailsAttempted(),
                     view.detailsSucceeded(),
+                    view.detailsQuarantined(),
                     view.detailsFailed(),
                     view.retryCount(),
                     view.errorCount(),
                     view.unresolvedErrorCount(),
                     List.copyOf(rootResults),
                     List.copyOf(childResults),
+                    List.copyOf(listingQuarantines),
+                    List.copyOf(detailQuarantines),
                     List.copyOf(errors));
         }
     }

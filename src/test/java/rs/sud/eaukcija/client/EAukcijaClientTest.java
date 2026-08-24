@@ -22,6 +22,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import okhttp3.Interceptor;
 import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
@@ -72,6 +74,7 @@ class EAukcijaClientTest {
         assertThat(result.retries()).isZero();
         assertThat(result.data().totalCount()).isEqualTo(3);
         assertThat(result.data().auctions()).hasSize(3);
+        assertThat(result.data().rejectedAuctions()).isEmpty();
         AuctionSummary first = result.data().auctions().get(0);
         assertThat(first.id()).isEqualTo(180466L);
         assertThat(first.auctionNumber()).isEqualTo("Н180466");
@@ -233,7 +236,7 @@ class EAukcijaClientTest {
     }
 
     @Test
-    void refusesAnExcessiveRetryAfterInsteadOfCappingAndHammeringTheSource() {
+    void excessiveRetryAfterFailsLaterCallsBeforeSleepingOrSending() {
         server.enqueue(new MockResponse()
                 .setResponseCode(429)
                 .setHeader("Retry-After", "121"));
@@ -247,10 +250,53 @@ class EAukcijaClientTest {
                 });
         assertThat(server.getRequestCount()).isEqualTo(1);
 
+        assertThatThrownBy(() -> sharedClient.getAuctionsByCategory(7, 3_000, 1))
+                .isInstanceOfSatisfying(EAukcijaClientException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(EAukcijaErrorCode.RATE_LIMITED);
+                    assertThat(failure.endpoint()).isEqualTo("auctions-by-category");
+                    assertThat(failure.httpStatus()).isNull();
+                    assertThat(failure.attempts()).isEqualTo(1);
+                });
+
+        assertThat(server.getRequestCount()).isEqualTo(1);
+        assertThat(timing.sleeps()).isEmpty();
+
+        timing.advance(Duration.ofSeconds(2));
         sharedClient.getAuctionsByCategory(7, 3_000, 1);
 
         assertThat(server.getRequestCount()).isEqualTo(2);
-        assertThat(timing.sleeps()).containsExactly(Duration.ofSeconds(121));
+        assertThat(timing.sleeps()).containsExactly(Duration.ofSeconds(119));
+    }
+
+    @Test
+    void enormousRetryAfterIsSaturatedAndNeverOverflowsOrSleeps() {
+        server.enqueue(new MockResponse()
+                .setResponseCode(503)
+                .setHeader("Retry-After", "999999999999999999999999999999999999999999"));
+        EAukcijaClient sharedClient = client();
+
+        assertThatThrownBy(sharedClient::getCategories)
+                .isInstanceOfSatisfying(EAukcijaClientException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(EAukcijaErrorCode.RATE_LIMITED);
+                    assertThat(failure.httpStatus()).isEqualTo(503);
+                    assertThat(failure.attempts()).isOne();
+                });
+        assertThatThrownBy(sharedClient::getCategories)
+                .isInstanceOfSatisfying(EAukcijaClientException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(EAukcijaErrorCode.RATE_LIMITED);
+                    assertThat(failure.httpStatus()).isNull();
+                    assertThat(failure.attempts()).isOne();
+                });
+        // OkHttp's defensive replacement is about 68 years. Advancing beyond
+        // that proves the source's much larger original value remained in the
+        // shared gate instead of being shortened to the transport workaround.
+        timing.advance(Duration.ofDays(36_500));
+        assertThatThrownBy(sharedClient::getCategories)
+                .isInstanceOfSatisfying(EAukcijaClientException.class, failure ->
+                        assertThat(failure.code()).isEqualTo(EAukcijaErrorCode.RATE_LIMITED));
+
+        assertThat(server.getRequestCount()).isOne();
+        assertThat(timing.sleeps()).isEmpty();
     }
 
     @Test
@@ -379,6 +425,117 @@ class EAukcijaClientTest {
                 .replaceFirst("\"Id\": 47", "\"Id\": 0")));
         assertFailureCode(
                 () -> client().getImmovablePropertyDetails(180466L),
+                EAukcijaErrorCode.INVALID_DATA);
+    }
+
+    @Test
+    void rejectsDetailValuesThatCannotBeStoredExactlyBeforePromotion() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode valid = (ObjectNode) mapper.readTree(
+                Fixtures.read("eaukcija/immovable-property-detail.json"));
+
+        ObjectNode overlong = valid.deepCopy();
+        ((ObjectNode) overlong.get("Data")).put("Description", "x".repeat(4_001));
+        server.enqueue(json(mapper.writeValueAsString(overlong)));
+        assertFailureCode(
+                () -> client().getImmovablePropertyDetails(180466L),
+                EAukcijaErrorCode.INVALID_DATA);
+
+        ObjectNode nul = valid.deepCopy();
+        ((ObjectNode) nul.get("Data")).put("ExecutorName", "safe-prefix\0secret-suffix");
+        server.enqueue(json(mapper.writeValueAsString(nul)));
+        assertThatThrownBy(() -> client().getImmovablePropertyDetails(180466L))
+                .isInstanceOfSatisfying(EAukcijaClientException.class, failure -> {
+                    assertThat(failure.code()).isEqualTo(EAukcijaErrorCode.INVALID_DATA);
+                    assertThat(failure.getMessage()).doesNotContain("secret-suffix");
+                });
+
+        ObjectNode excessiveIntegerDigits = valid.deepCopy();
+        ((ObjectNode) excessiveIntegerDigits.get("Data"))
+                .put("EstimatedPrice", new BigDecimal("9".repeat(37)));
+        server.enqueue(json(mapper.writeValueAsString(excessiveIntegerDigits)));
+        assertFailureCode(
+                () -> client().getImmovablePropertyDetails(180466L),
+                EAukcijaErrorCode.INVALID_DATA);
+
+        ObjectNode lossyScale = valid.deepCopy();
+        ((ObjectNode) lossyScale.get("Data"))
+                .put("BidStep", new BigDecimal("0.001"));
+        server.enqueue(json(mapper.writeValueAsString(lossyScale)));
+        assertFailureCode(
+                () -> client().getImmovablePropertyDetails(180466L),
+                EAukcijaErrorCode.INVALID_DATA);
+    }
+
+    @Test
+    void returnsRedactedRejectionsForInvalidPositiveIdListingRowsAndKeepsValidRows()
+            throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode listing = (ObjectNode) mapper.readTree(
+                Fixtures.read("eaukcija/auctions-by-category-page1.json"));
+        ObjectNode data = (ObjectNode) listing.get("Data");
+        ArrayNode auctions = (ArrayNode) data.get("Auctions");
+        ObjectNode valid = auctions.get(0).deepCopy();
+        ObjectNode lossyMoney = auctions.get(0).deepCopy();
+        lossyMoney.put("Id", 180467L);
+        lossyMoney.put("StartingPrice", new BigDecimal("159600.001"));
+        ObjectNode overlong = auctions.get(1).deepCopy();
+        overlong.put("Id", 179416L);
+        overlong.put("AuctionNumber", "redaction-sentinel-" + "x".repeat(256));
+        ObjectNode invalidTimestamp = auctions.get(2).deepCopy();
+        invalidTimestamp.put("Id", 181467L);
+        invalidTimestamp.put("StartDate", "invalid-timestamp-redaction-sentinel");
+        auctions.removeAll();
+        auctions.add(valid);
+        auctions.add(lossyMoney);
+        auctions.add(overlong);
+        auctions.add(invalidTimestamp);
+        data.put("TotalCount", 4);
+
+        String body = mapper.writeValueAsString(listing);
+        server.enqueue(json(body));
+        server.enqueue(json(body));
+
+        AuctionListData first = client().getAuctionsByCategory(7, 3_000, 1).data();
+        AuctionListData repeated = client().getAuctionsByCategory(7, 3_000, 1).data();
+
+        assertThat(first.totalCount()).isEqualTo(4);
+        assertThat(first.auctions()).extracting(AuctionSummary::id)
+                .containsExactly(180466L);
+        assertThat(first.rejectedAuctions())
+                .extracting(rejected -> rejected.auctionId())
+                .containsExactly(180467L, 179416L, 181467L);
+        assertThat(first.rejectedAuctions().get(0).sourceRowSha256())
+                .isEqualTo(AuctionSummaryFingerprint.sha256(
+                        mapper.treeToValue(lossyMoney, AuctionSummary.class)));
+        assertThat(first.rejectedAuctions())
+                .allSatisfy(rejected -> {
+                    assertThat(rejected.errorCode()).isEqualTo(EAukcijaErrorCode.INVALID_DATA);
+                    assertThat(rejected.sourceRowSha256()).matches("[0-9a-f]{64}");
+                });
+        assertThat(first.rejectedAuctions()).isEqualTo(repeated.rejectedAuctions());
+        assertThat(first.rejectedAuctions().toString())
+                .doesNotContain("redaction-sentinel", "159600.001", "invalid-timestamp");
+    }
+
+    @Test
+    void keepsNullAndNonpositiveIdListingRowsFatal() throws Exception {
+        server.enqueue(json("""
+                {"ResultCode":"0","ResultMessage":"OK","Data":{"TotalCount":1,"Auctions":[null]}}
+                """));
+        assertFailureCode(
+                () -> client().getAuctionsByCategory(7, 3_000, 1),
+                EAukcijaErrorCode.INVALID_DATA);
+
+        server.enqueue(json("""
+                {"ResultCode":"0","ResultMessage":"OK","Data":{"TotalCount":1,"Auctions":[
+                  {"Id":0,"AuctionNumber":"N0",
+                   "StartDate":"2026-03-10T07:00:00Z","EndDate":"2026-03-10T11:00:00Z"}
+                ]}}
+                """));
+
+        assertFailureCode(
+                () -> client().getAuctionsByCategory(7, 3_000, 1),
                 EAukcijaErrorCode.INVALID_DATA);
     }
 
@@ -592,6 +749,10 @@ class EAukcijaClientTest {
 
         private synchronized List<Duration> sleeps() {
             return List.copyOf(sleeps);
+        }
+
+        private synchronized void advance(Duration duration) {
+            nanoTime += duration.toNanos();
         }
     }
 }

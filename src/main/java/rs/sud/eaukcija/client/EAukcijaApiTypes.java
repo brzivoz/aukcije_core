@@ -1,10 +1,15 @@
 package rs.sud.eaukcija.client;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 public class EAukcijaApiTypes {
 
@@ -47,8 +52,46 @@ public class EAukcijaApiTypes {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record AuctionListData(
             @JsonProperty("Auctions") List<AuctionSummary> auctions,
-            @JsonProperty("TotalCount") Integer totalCount
-    ) {}
+            @JsonProperty("TotalCount") Integer totalCount,
+            @JsonIgnore List<RejectedAuctionSummary> rejectedAuctions
+    ) {
+        @JsonCreator
+        public AuctionListData(
+                @JsonProperty("Auctions") List<AuctionSummary> auctions,
+                @JsonProperty("TotalCount") Integer totalCount) {
+            this(auctions, totalCount, List.of());
+        }
+
+        public AuctionListData {
+            auctions = auctions == null
+                    ? null
+                    : Collections.unmodifiableList(new ArrayList<>(auctions));
+            rejectedAuctions = rejectedAuctions == null
+                    ? List.of()
+                    : List.copyOf(rejectedAuctions);
+        }
+    }
+
+    /** Redacted evidence for a positive-ID listing row that failed validation. */
+    public record RejectedAuctionSummary(
+            long auctionId,
+            String sourceRowSha256,
+            EAukcijaErrorCode errorCode
+    ) {
+        public RejectedAuctionSummary {
+            if (auctionId < 1) {
+                throw new IllegalArgumentException("auctionId must be positive");
+            }
+            Objects.requireNonNull(sourceRowSha256, "sourceRowSha256");
+            if (sourceRowSha256.length() != 64
+                    || !sourceRowSha256.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("sourceRowSha256 must be lowercase SHA-256");
+            }
+            if (errorCode != EAukcijaErrorCode.INVALID_DATA) {
+                throw new IllegalArgumentException("listing rejection code must be INVALID_DATA");
+            }
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record AuctionSummary(

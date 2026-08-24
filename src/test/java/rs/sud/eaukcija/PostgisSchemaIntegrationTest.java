@@ -85,7 +85,9 @@ class PostgisSchemaIntegrationTest {
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
                         "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql",
                         "V9__coarse_location_upstream_provenance.sql",
-                        "V10__eaukcija_sync_runs.sql")
+                        "V10__eaukcija_sync_runs.sql",
+                        "V11__eaukcija_detail_quarantine.sql",
+                        "V12__eaukcija_listing_quarantine.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -104,7 +106,9 @@ class PostgisSchemaIntegrationTest {
                    AND table_name IN (
                        'eaukcija_taxonomies', 'sync_runs', 'sync_run_root_results',
                        'sync_run_child_results',
-                       'sync_run_errors', 'auction_source_category_memberships',
+                       'sync_run_detail_quarantines',
+                       'sync_run_listing_quarantines', 'sync_run_errors',
+                       'auction_source_category_memberships',
                        'sync_run_auction_observations', 'sync_enrichment_queue'
                    )
                  ORDER BY table_name
@@ -114,7 +118,9 @@ class PostgisSchemaIntegrationTest {
                         "sync_enrichment_queue",
                         "sync_run_auction_observations",
                         "sync_run_child_results",
+                        "sync_run_detail_quarantines",
                         "sync_run_errors",
+                        "sync_run_listing_quarantines",
                         "sync_run_root_results",
                         "sync_runs");
         assertThat(jdbc.queryForList("""
@@ -125,7 +131,30 @@ class PostgisSchemaIntegrationTest {
                 """, String.class)).containsExactly(
                 "run_id", "ordinal", "occurred_at", "stage",
                         "root_category_id", "child_category_id", "page_number", "auction_id", "http_status",
-                        "error_code", "retryable", "attempt_number");
+                        "error_code", "retryable", "attempt_number", "resolved");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'sync_run_detail_quarantines'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                        "run_id", "auction_id", "listing_fingerprint",
+                        "error_code", "occurred_at");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'sync_run_listing_quarantines'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                        "run_id", "auction_id", "source_row_sha256", "error_code",
+                        "root_category_id", "child_category_id", "page_number", "occurred_at");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'sync_runs'
+                """, String.class)).contains("details_quarantined", "listing_rows_quarantined");
         assertThat(jdbc.queryForList("""
                 SELECT column_name
                   FROM information_schema.columns
@@ -148,10 +177,22 @@ class PostgisSchemaIntegrationTest {
                 SELECT indexname
                   FROM pg_indexes
                  WHERE schemaname = 'public'
-                   AND tablename IN ('sync_runs', 'sync_enrichment_queue')
+                   AND tablename IN (
+                       'sync_runs', 'sync_enrichment_queue',
+                       'sync_run_detail_quarantines',
+                       'sync_run_listing_quarantines'
+                   )
                 """, String.class)).contains(
                         "uq_sync_runs_single_running",
-                        "idx_sync_enrichment_queue_pending");
+                        "idx_sync_enrichment_queue_pending",
+                        "idx_sync_detail_quarantines_auction",
+                        "idx_sync_listing_quarantines_auction",
+                        "idx_sync_listing_quarantines_source_location");
+        assertThat(jdbc.queryForObject("""
+                SELECT delete_rule = 'NO ACTION'
+                  FROM information_schema.referential_constraints
+                 WHERE constraint_name = 'sync_run_auction_observations_auction_id_fkey'
+                """, Boolean.class)).isTrue();
     }
 
     @Test

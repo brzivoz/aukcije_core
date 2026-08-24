@@ -434,6 +434,10 @@
             });
             const run = await response.json().catch(() => null);
             if (!response.ok) {
+                if (response.status === 503 && run?.code === 'SYNC_UNAVAILABLE') {
+                    resetSyncUi('Синхронизација није доступна у овом профилу.', true);
+                    return;
+                }
                 if (response.status >= 400 && response.status < 500) {
                     resetSyncUi(
                         response.status === 404
@@ -449,9 +453,22 @@
                     || !syncStages.has(run.stage)) {
                 throw new Error('invalid-status-contract');
             }
-            document.getElementById('syncStatus').textContent = run.status + ' — ' + run.stage;
+            const listingQuarantines = Number.isSafeInteger(run.listingRowsQuarantined)
+                ? run.listingRowsQuarantined
+                : 0;
+            const detailQuarantines = Number.isSafeInteger(run.detailsQuarantined)
+                ? run.detailsQuarantined
+                : 0;
+            const quarantineStatus = listingQuarantines > 0 || detailQuarantines > 0
+                ? ' — издвојено: огласи ' + listingQuarantines
+                    + ', детаљи ' + detailQuarantines
+                : '';
+            document.getElementById('syncStatus').textContent =
+                run.status + ' — ' + run.stage + quarantineStatus;
             const total = run.pagesExpected + run.detailsRequired;
-            const completed = run.pagesCompleted + run.detailsSucceeded;
+            const completed = run.pagesCompleted
+                + run.detailsSucceeded
+                + detailQuarantines;
             const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
             document.getElementById('progressFill').style.width = pct + '%';
             if (run.status === 'RUNNING') {
@@ -477,10 +494,12 @@
     }
 
     const activeRunId = syncPanel.dataset.activeRunId || sessionStorage.getItem(syncRunStorageKey);
-    if (activeRunId) {
+    if (activeRunId && syncPanel.dataset.syncEnabled === 'true') {
         syncButton.disabled = true;
         document.getElementById('progressBar').style.display = 'inline-block';
         pollStatus(activeRunId);
+    } else if (activeRunId) {
+        resetSyncUi('Синхронизација није доступна у овом профилу.', true);
     }
 </script>
 <script src="/vendor/pmtiles/4.4.0/pmtiles.js"></script>

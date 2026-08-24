@@ -16,6 +16,8 @@ public class SyncProperties {
     private Duration runningStaleAfter = Duration.ofMinutes(15);
     private int maxPagesPerRoot = 10_000;
     private int maxErrors = 100;
+    private int maxQuarantinedListings = 10;
+    private int maxQuarantinedDetails = 10;
     private String scheduleCron = "-";
     private String scheduleZone = "UTC";
 
@@ -28,6 +30,14 @@ public class SyncProperties {
         }
         if (maxErrors < 1 || maxErrors > 1_000) {
             throw new IllegalStateException("eaukcija.sync.max-errors must be between 1 and 1000");
+        }
+        if (maxQuarantinedListings < 0 || maxQuarantinedListings > 100) {
+            throw new IllegalStateException(
+                    "eaukcija.sync.max-quarantined-listings must be between 0 and 100");
+        }
+        if (maxQuarantinedDetails < 0 || maxQuarantinedDetails > 100) {
+            throw new IllegalStateException(
+                    "eaukcija.sync.max-quarantined-details must be between 0 and 100");
         }
         if (scheduleCron == null || scheduleCron.isBlank()) {
             throw new IllegalStateException("eaukcija.sync.schedule-cron must be '-' or a Spring cron expression");
@@ -93,6 +103,22 @@ public class SyncProperties {
 
     public void setMaxErrors(int maxErrors) {
         this.maxErrors = maxErrors;
+    }
+
+    public int getMaxQuarantinedListings() {
+        return maxQuarantinedListings;
+    }
+
+    public void setMaxQuarantinedListings(int maxQuarantinedListings) {
+        this.maxQuarantinedListings = maxQuarantinedListings;
+    }
+
+    public int getMaxQuarantinedDetails() {
+        return maxQuarantinedDetails;
+    }
+
+    public void setMaxQuarantinedDetails(int maxQuarantinedDetails) {
+        this.maxQuarantinedDetails = maxQuarantinedDetails;
     }
 
     public String getScheduleCron() {

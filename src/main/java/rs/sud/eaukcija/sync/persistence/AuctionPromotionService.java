@@ -11,17 +11,14 @@ import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.sud.eaukcija.model.Auction;
-import rs.sud.eaukcija.repository.AuctionRepository;
 
 /** Publishes one complete source snapshot as a single PostgreSQL transaction. */
 @Service
 public class AuctionPromotionService {
 
-    private final AuctionRepository auctions;
     private final SyncRunRepository runs;
 
-    public AuctionPromotionService(AuctionRepository auctions, SyncRunRepository runs) {
-        this.auctions = auctions;
+    public AuctionPromotionService(SyncRunRepository runs) {
         this.runs = runs;
     }
 
@@ -36,12 +33,37 @@ public class AuctionPromotionService {
             String taxonomySha256,
             Instant observedAt,
             List<AuctionPromotionCandidate> candidates) {
+        promote(runId, taxonomySha256, observedAt, candidates, List.of(), List.of());
+    }
+
+    @Transactional
+    public void promote(
+            UUID runId,
+            String taxonomySha256,
+            Instant observedAt,
+            List<AuctionPromotionCandidate> candidates,
+            List<AuctionDetailQuarantine> quarantines) {
+        promote(runId, taxonomySha256, observedAt, candidates, quarantines, List.of());
+    }
+
+    @Transactional
+    public void promote(
+            UUID runId,
+            String taxonomySha256,
+            Instant observedAt,
+            List<AuctionPromotionCandidate> candidates,
+            List<AuctionDetailQuarantine> detailQuarantines,
+            List<AuctionListingQuarantine> listingQuarantines) {
         SyncPersistenceValidation.required(runId, "runId");
         SyncPersistenceValidation.sha256(taxonomySha256, "taxonomySha256");
         SyncPersistenceValidation.required(observedAt, "observedAt");
         SyncPersistenceValidation.required(candidates, "candidates");
+        SyncPersistenceValidation.required(detailQuarantines, "detailQuarantines");
+        SyncPersistenceValidation.required(listingQuarantines, "listingQuarantines");
         candidates = List.copyOf(candidates);
-        validateUniqueCandidates(candidates);
+        detailQuarantines = List.copyOf(detailQuarantines);
+        listingQuarantines = List.copyOf(listingQuarantines);
+        validateUniqueEvidence(candidates, detailQuarantines, listingQuarantines);
 
         SyncRunView run = runs.lockRunningForPromotion(runId);
         if (!taxonomySha256.equals(run.categoryTreeSha256())) {
@@ -51,9 +73,18 @@ public class AuctionPromotionService {
                 || !observedAt.equals(run.categoryTreeObservedAt())) {
             throw new SyncRunStateException("promotion taxonomy observation time does not match the run");
         }
-        if (run.uniqueAuctionCount() != candidates.size()) {
+        if (run.uniqueAuctionCount()
+                != candidates.size() + detailQuarantines.size() + listingQuarantines.size()) {
             throw new SyncRunStateException(
-                    "promotion candidate count does not match the complete root union");
+                    "promotion candidates and quarantines do not match the complete root union");
+        }
+        if (run.detailsQuarantined() != detailQuarantines.size()) {
+            throw new SyncRunStateException(
+                    "promotion detail quarantine count does not match the durable run progress");
+        }
+        if (run.listingRowsQuarantined() != listingQuarantines.size()) {
+            throw new SyncRunStateException(
+                    "promotion listing quarantine count does not match the durable run progress");
         }
         runs.assertCompleteRoots(runId, run.configuredRoots().size());
         runs.assertCompleteChildren(runId);
@@ -62,21 +93,19 @@ public class AuctionPromotionService {
         for (AuctionPromotionCandidate candidate : candidates) {
             prepareAuction(runId, taxonomySha256, observedAt, candidate);
         }
-        auctions.saveAllAndFlush(candidates.stream().map(AuctionPromotionCandidate::auction).toList());
+        runs.upsertAuctions(candidates);
 
-        for (AuctionPromotionCandidate candidate : candidates) {
-            runs.replaceMemberships(runId, taxonomySha256, candidate);
-            runs.insertSuccessObservation(runId, candidate);
-        }
+        runs.replaceMemberships(runId, taxonomySha256, candidates);
+        runs.insertSuccessObservations(runId, candidates);
+        runs.insertDetailQuarantines(runId, detailQuarantines);
+        runs.insertListingQuarantines(runId, listingQuarantines);
         runs.incrementAbsencesForUnobservedInScope(runId);
 
         // Mark success before queue insertion so the database trigger can prove
         // the success-only gate. Both statements are in this transaction, so a
         // queue failure rolls the status and every auction mutation back.
         runs.markSucceeded(runId);
-        for (AuctionPromotionCandidate candidate : candidates) {
-            runs.insertEnrichmentWork(runId, candidate);
-        }
+        runs.insertEnrichmentWork(runId, candidates);
     }
 
     private static void prepareAuction(
@@ -97,7 +126,10 @@ public class AuctionPromotionService {
         auction.setLastSeenAt(observedAt);
     }
 
-    private static void validateUniqueCandidates(List<AuctionPromotionCandidate> candidates) {
+    private static void validateUniqueEvidence(
+            List<AuctionPromotionCandidate> candidates,
+            List<AuctionDetailQuarantine> detailQuarantines,
+            List<AuctionListingQuarantine> listingQuarantines) {
         Set<Long> auctionIds = new HashSet<>();
         for (AuctionPromotionCandidate candidate : candidates) {
             if (!auctionIds.add(candidate.auction().getId())) {
@@ -112,6 +144,18 @@ public class AuctionPromotionService {
                             "promotion contains duplicate category membership for auction "
                                     + candidate.auction().getId());
                 }
+            }
+        }
+        for (AuctionDetailQuarantine quarantine : detailQuarantines) {
+            if (!auctionIds.add(quarantine.auctionId())) {
+                throw new IllegalArgumentException(
+                        "promotion contains duplicate auction id " + quarantine.auctionId());
+            }
+        }
+        for (AuctionListingQuarantine quarantine : listingQuarantines) {
+            if (!auctionIds.add(quarantine.auctionId())) {
+                throw new IllegalArgumentException(
+                        "promotion contains duplicate auction id " + quarantine.auctionId());
             }
         }
     }

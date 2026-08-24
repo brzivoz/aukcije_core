@@ -158,15 +158,19 @@ curl --fail-with-body \
 HTTP `202 Accepted` only confirms that the durable run was claimed. Poll the
 returned URL until it is terminal, and do not delete the H2 archive unless the
 status is `SUCCEEDED`. A `PARTIAL` or `FAILED` run deliberately leaves the prior
-auction state untouched. Compare the PostgreSQL row count, distinct source IDs,
+auction state untouched. A `SUCCEEDED` run can report bounded, resolved listing
+and detail quarantines; inspect each held-back ID and confirm
+`unresolvedErrorCount` is zero before acceptance. Repeated stable IDs or rising
+quarantine counts across runs require investigation; do not silently raise the
+configured thresholds. Compare the PostgreSQL row count, distinct source IDs,
 representative Serbian text, prices, timestamps, municipality/category facets,
 and valid detail timestamps. The automated repository fixture test establishes
 the current baseline of 86 source rows collapsing to 83 stable auction IDs.
 
 See [eAukcija synchronization operations](EAUKCIJA_SYNC_OPERATIONS.md) for
-idempotent retry, status fields, safe configuration bounds, and stale-run
-recovery. Do not update or delete retained terminal run evidence with manual
-SQL.
+idempotent retry, status fields, quarantine semantics, safe configuration
+bounds, and stale-run recovery. Do not update or delete retained terminal run
+evidence with manual SQL.
 
 ## Shutdown and removal
 

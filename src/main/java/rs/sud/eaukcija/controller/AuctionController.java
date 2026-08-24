@@ -1,5 +1,7 @@
 package rs.sud.eaukcija.controller;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -15,12 +17,16 @@ import rs.sud.eaukcija.repository.AuctionSpecifications;
 import rs.sud.eaukcija.service.SyncService;
 import rs.sud.eaukcija.spatial.AuctionLocationRepository;
 import rs.sud.eaukcija.sync.persistence.SyncRunStatus;
+import rs.sud.eaukcija.sync.persistence.SyncRunView;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.Optional;
 
 @Controller
 public class AuctionController {
+
+    private static final Logger log = LoggerFactory.getLogger(AuctionController.class);
 
     private final AuctionRepository repo;
     private final SyncService syncService;
@@ -92,17 +98,41 @@ public class AuctionController {
         model.addAttribute("sortDir", sortDir);
         model.addAttribute("currentPage", page);
 
-        // Durable sync status; local-h2 deliberately exposes no run ledger.
-        var latestRun = syncService.findLatestRun();
+        // Durable sync status is auxiliary page chrome. A ledger outage must
+        // not hide the already-persisted auction catalogue from operators.
+        boolean syncEnabled = syncService.isEnabled();
+        Optional<SyncRunView> latestRun = Optional.empty();
+        boolean syncStatusUnavailable = false;
+        if (syncEnabled) {
+            try {
+                latestRun = syncService.findLatestRun();
+            } catch (RuntimeException ledgerFailure) {
+                syncStatusUnavailable = true;
+                log.error("eAukcija page sync status unavailable code=SYNC_LEDGER_UNAVAILABLE");
+            }
+        }
         var activeRun = latestRun.filter(run -> run.status() == SyncRunStatus.RUNNING);
-        model.addAttribute("syncEnabled", syncService.isEnabled());
+        model.addAttribute("syncEnabled", syncEnabled);
         model.addAttribute("activeSyncRunId", activeRun.map(run -> run.runId().toString()).orElse(""));
         model.addAttribute("syncing", activeRun.isPresent());
         model.addAttribute("syncStatus", latestRun
-                .map(run -> run.status() + " — " + run.stage())
-                .orElse(syncService.isEnabled() ? "Није покренуто" : "Недоступно у local-h2 профилу"));
+                .map(run -> {
+                    String statusText = run.status() + " — " + run.stage();
+                    long listingQuarantines = run.listingRowsQuarantined();
+                    long detailQuarantines = run.detailsQuarantined();
+                    if (listingQuarantines == 0 && detailQuarantines == 0) {
+                        return statusText;
+                    }
+                    return statusText + " — издвојено: огласи " + listingQuarantines
+                            + ", детаљи " + detailQuarantines;
+                })
+                .orElse(syncStatusUnavailable
+                        ? "Статус синхронизације тренутно није доступан"
+                        : syncEnabled ? "Није покренуто" : "Недоступно у local-h2 профилу"));
         model.addAttribute("syncProgress", latestRun
-                .map(run -> run.pagesCompleted() + run.detailsSucceeded())
+                .map(run -> run.pagesCompleted()
+                        + run.detailsSucceeded()
+                        + run.detailsQuarantined())
                 .orElse(0L));
         model.addAttribute("syncTotal", latestRun
                 .map(run -> run.pagesExpected() + run.detailsRequired())

@@ -69,7 +69,157 @@ class DatabaseLifecycleIntegrationTest {
                         "V5__structured_ko_matches.sql", "V6__municipality_alias_match_evidence.sql",
                         "V7__spatial_resolution_model.sql", "V8__coarse_location_resolution_runs.sql",
                         "V9__coarse_location_upstream_provenance.sql",
-                        "V10__eaukcija_sync_runs.sql");
+                        "V10__eaukcija_sync_runs.sql",
+                        "V11__eaukcija_detail_quarantine.sql",
+                        "V12__eaukcija_listing_quarantine.sql");
+    }
+
+    @Test
+    void detailQuarantineMigrationUpgradesLegacyTerminalStagesAndCascadeSafely() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("10"))
+                .load()
+                .migrate();
+
+        execute(jdbcUrl, container, """
+                INSERT INTO sync_runs (
+                    id, idempotency_key_sha256, trigger_kind, status, stage,
+                    started_at, heartbeat_at, configured_roots, page_size,
+                    details_required, details_attempted, details_failed,
+                    error_count, unresolved_error_count
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000011',
+                    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                    'MANUAL', 'RUNNING', 'DETAILS',
+                    CURRENT_TIMESTAMP - INTERVAL '2 minutes', CURRENT_TIMESTAMP,
+                    '[7]'::jsonb, 3000, 1, 1, 1, 1, 1
+                );
+
+                INSERT INTO sync_run_errors (
+                    run_id, ordinal, occurred_at, stage, auction_id,
+                    error_code, retryable, attempt_number
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000011', 1,
+                    CURRENT_TIMESTAMP, 'DETAILS', 17,
+                    'INVALID_DATA', FALSE, 1
+                );
+
+                UPDATE sync_runs
+                   SET status = 'PARTIAL', stage = 'COMPLETED',
+                       finished_at = CURRENT_TIMESTAMP
+                 WHERE id = '00000000-0000-0000-0000-000000000011';
+
+                INSERT INTO sync_runs (
+                    id, idempotency_key_sha256, trigger_kind, status, stage,
+                    started_at, heartbeat_at, configured_roots, page_size
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000012',
+                    'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                    'MANUAL', 'RUNNING', 'CLAIMED',
+                    CURRENT_TIMESTAMP - INTERVAL '2 minutes', CURRENT_TIMESTAMP,
+                    '[7]'::jsonb, 3000
+                 );
+
+                UPDATE sync_runs
+                   SET status = 'FAILED', stage = 'COMPLETED',
+                       finished_at = CURRENT_TIMESTAMP
+                 WHERE id = '00000000-0000-0000-0000-000000000012';
+                """);
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        assertThat(queryStrings(jdbcUrl, container, """
+                SELECT stage
+                  FROM sync_runs
+                 ORDER BY id
+                """)).containsExactly("DETAILS", "CLAIMED");
+        assertThat(queryBoolean(jdbcUrl, container, """
+                SELECT NOT resolved
+                  FROM sync_run_errors
+                 WHERE run_id = '00000000-0000-0000-0000-000000000011'
+                """)).isTrue();
+        assertThat(queryBoolean(jdbcUrl, container, """
+                SELECT to_regclass('public.sync_run_detail_quarantines') IS NOT NULL
+                """)).isTrue();
+        assertThat(queryStrings(jdbcUrl, container, """
+                SELECT delete_rule
+                  FROM information_schema.referential_constraints
+                 WHERE constraint_name = 'sync_run_auction_observations_auction_id_fkey'
+                """)).containsExactly("NO ACTION");
+        assertThat(queryStrings(jdbcUrl, container, """
+                SELECT script
+                  FROM flyway_schema_history
+                 WHERE version = '11' AND success
+                """)).containsExactly("V11__eaukcija_detail_quarantine.sql");
+    }
+
+    @Test
+    void listingQuarantineMigrationUpgradesTheV11HeadWithoutRewritingPriorEvidence() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion("11"))
+                .load()
+                .migrate();
+
+        execute(jdbcUrl, container, """
+                INSERT INTO sync_runs (
+                    id, idempotency_key_sha256, trigger_kind, status, stage,
+                    started_at, heartbeat_at, configured_roots, page_size
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000013',
+                    'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+                    'MANUAL', 'RUNNING', 'CLAIMED',
+                    CURRENT_TIMESTAMP - INTERVAL '2 minutes', CURRENT_TIMESTAMP,
+                    '[7]'::jsonb, 3000
+                );
+
+                INSERT INTO sync_run_detail_quarantines (
+                    run_id, auction_id, listing_fingerprint, error_code
+                ) VALUES (
+                    '00000000-0000-0000-0000-000000000013', 13,
+                    'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd',
+                    'INVALID_DATA'
+                )
+                """);
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration")
+                .load()
+                .migrate();
+
+        assertThat(queryBoolean(jdbcUrl, container, """
+                SELECT listing_rows_quarantined = 0
+                  FROM sync_runs
+                 WHERE id = '00000000-0000-0000-0000-000000000013'
+                """)).isTrue();
+        assertThat(queryBoolean(jdbcUrl, container, """
+                SELECT to_regclass('public.sync_run_listing_quarantines') IS NOT NULL
+                """)).isTrue();
+        assertThat(queryStrings(jdbcUrl, container, """
+                SELECT auction_id || ':' || listing_fingerprint || ':' || error_code
+                  FROM sync_run_detail_quarantines
+                 WHERE run_id = '00000000-0000-0000-0000-000000000013'
+                """)).containsExactly(
+                        "13:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd:INVALID_DATA");
+        assertThat(queryStrings(jdbcUrl, container, """
+                SELECT script
+                  FROM flyway_schema_history
+                 WHERE version = '12' AND success
+                """)).containsExactly("V12__eaukcija_listing_quarantine.sql");
     }
 
     @Test

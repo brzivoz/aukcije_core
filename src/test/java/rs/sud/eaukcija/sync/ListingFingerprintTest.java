@@ -6,6 +6,7 @@ import java.math.BigDecimal;
 
 import org.junit.jupiter.api.Test;
 
+import rs.sud.eaukcija.client.AuctionSummaryFingerprint;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionSummary;
 
 class ListingFingerprintTest {
@@ -18,6 +19,7 @@ class ListingFingerprintTest {
 
         assertThat(ListingFingerprint.sha256(first))
                 .matches("[0-9a-f]{64}")
+                .isEqualTo(AuctionSummaryFingerprint.sha256(first))
                 .isEqualTo(ListingFingerprint.sha256(equivalent))
                 .isNotEqualTo(ListingFingerprint.sha256(changed));
     }

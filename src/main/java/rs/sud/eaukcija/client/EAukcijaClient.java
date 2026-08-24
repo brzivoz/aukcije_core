@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InterruptedIOException;
 import java.io.StringWriter;
+import java.math.BigDecimal;
 import java.net.SocketTimeoutException;
 import java.net.ProtocolException;
 import java.net.SocketException;
@@ -53,12 +54,19 @@ import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryNode;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryRequest;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryTree;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.DetailRequest;
+import rs.sud.eaukcija.client.EAukcijaApiTypes.RejectedAuctionSummary;
 
 /** Bounded, rate-limited client for the undocumented eAukcija SPA backend. */
 @Component
 public final class EAukcijaClient {
 
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
+    private static final String ORIGINAL_RETRY_AFTER = "X-Aukcije-Original-Retry-After";
+    private static final int DEFAULT_TEXT_COLUMN_LENGTH = 255;
+    private static final int SHORT_DESCRIPTION_COLUMN_LENGTH = 2_000;
+    private static final int DESCRIPTION_COLUMN_LENGTH = 4_000;
+    private static final int MONEY_INTEGER_DIGITS = 36;
+    private static final int MONEY_SCALE = 2;
     private static final Set<Integer> RETRYABLE_HTTP_STATUSES = Set.of(
             408, 429, 500, 502, 503, 504);
 
@@ -113,6 +121,13 @@ public final class EAukcijaClient {
         Objects.requireNonNull(interceptors, "interceptors").forEach(
                 interceptor -> transport.addInterceptor(
                         Objects.requireNonNull(interceptor, "interceptor")));
+        // OkHttp 4.12 parses numeric Retry-After values as an Integer while
+        // deciding whether to follow up 408/503 responses. Preserve oversized
+        // source values under a private response-only header and present a safe,
+        // terminal value to that internal parser. Our policy layer below still
+        // observes and honors the original duration.
+        transport.addNetworkInterceptor(chain -> preserveOversizedRetryAfter(
+                chain.proceed(chain.request())));
         this.httpClient = transport.build();
         this.rateGate = new EAukcijaRateGate(
                 properties.getRequestsPerSecond(), properties.getMaxConcurrency(), timing);
@@ -276,7 +291,9 @@ public final class EAukcijaClient {
 
     private EAukcijaRateGate.Permit acquire(Endpoint endpoint, int attempt) {
         try {
-            return rateGate.acquire();
+            return rateGate.acquire(properties.getMaxRetryAfter());
+        } catch (EAukcijaRateGate.PauseBeyondBudgetException paused) {
+            throw failure(EAukcijaErrorCode.RATE_LIMITED, endpoint, null, attempt);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw failure(EAukcijaErrorCode.INTERRUPTED, endpoint, null, attempt);
@@ -437,17 +454,38 @@ public final class EAukcijaClient {
         if (data.totalCount() == null || data.totalCount() < 0 || data.auctions() == null) {
             throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
         }
+        List<AuctionSummary> validAuctions = new ArrayList<>(data.auctions().size());
+        List<RejectedAuctionSummary> rejectedAuctions = new ArrayList<>();
         for (AuctionSummary auction : data.auctions()) {
-            if (auction == null
-                    || auction.id() < 1
-                    || auction.auctionNumber() == null
-                    || auction.auctionNumber().isBlank()) {
+            if (auction == null || auction.id() < 1) {
                 throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
             }
-            requireInstant(auction.startDate());
-            requireInstant(auction.endDate());
+            try {
+                validateAuctionSummary(auction);
+                validAuctions.add(auction);
+            } catch (ValidationFailure invalidRow) {
+                rejectedAuctions.add(new RejectedAuctionSummary(
+                        auction.id(),
+                        AuctionSummaryFingerprint.sha256(auction),
+                        EAukcijaErrorCode.INVALID_DATA));
+            }
         }
-        return new AuctionListData(List.copyOf(data.auctions()), data.totalCount());
+        return new AuctionListData(List.copyOf(validAuctions), data.totalCount(), rejectedAuctions);
+    }
+
+    private static void validateAuctionSummary(AuctionSummary auction) {
+        if (auction.auctionNumber() == null || auction.auctionNumber().isBlank()) {
+            throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
+        }
+        requirePersistableText(auction.auctionNumber(), DEFAULT_TEXT_COLUMN_LENGTH);
+        requireInstant(auction.startDate());
+        requireInstant(auction.endDate());
+        requirePersistableMoney(auction.startingPrice());
+        requirePersistableMoney(auction.currentPrice());
+        requirePersistableMoney(auction.maxOfferedPrice());
+        requirePersistableText(auction.shortDescription(), SHORT_DESCRIPTION_COLUMN_LENGTH);
+        requirePersistableText(auction.status(), DEFAULT_TEXT_COLUMN_LENGTH);
+        requirePersistableText(auction.propertyType(), DEFAULT_TEXT_COLUMN_LENGTH);
     }
 
     private AuctionDetail validatedDetail(AuctionDetail detail, long requestedId) {
@@ -457,18 +495,71 @@ public final class EAukcijaClient {
                 || detail.auctionNumber().isBlank()) {
             throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
         }
+        requirePersistableText(detail.auctionNumber(), DEFAULT_TEXT_COLUMN_LENGTH);
         requireInstant(detail.startDate());
         requireInstant(detail.endDate());
         if (detail.publicationDate() != null && !detail.publicationDate().isBlank()) {
             requireInstant(detail.publicationDate());
         }
+        requirePersistableMoney(detail.startingPrice());
+        requirePersistableMoney(detail.estimatedPrice());
+        requirePersistableMoney(detail.currentPrice());
+        requirePersistableMoney(detail.maxOfferedPrice());
+        requirePersistableMoney(detail.bidStep());
+        requirePersistableText(detail.shortDescription(), SHORT_DESCRIPTION_COLUMN_LENGTH);
+        requirePersistableText(detail.description(), DESCRIPTION_COLUMN_LENGTH);
+        requirePersistableText(detail.status(), DEFAULT_TEXT_COLUMN_LENGTH);
+        requirePersistableText(detail.propertyType(), DEFAULT_TEXT_COLUMN_LENGTH);
+        requirePersistableText(detail.executorName(), DEFAULT_TEXT_COLUMN_LENGTH);
         if (detail.category() != null
                 && (detail.category().id() < 1
                 || detail.category().name() == null
                 || detail.category().name().isBlank())) {
             throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
         }
+        if (detail.category() != null) {
+            requirePersistableText(detail.category().name(), DEFAULT_TEXT_COLUMN_LENGTH);
+        }
+        if (detail.place() != null) {
+            requirePersistableText(detail.place().name(), DEFAULT_TEXT_COLUMN_LENGTH);
+            requirePersistableText(detail.place().zipCode(), DEFAULT_TEXT_COLUMN_LENGTH);
+            requirePersistableText(detail.place().municipality(), DEFAULT_TEXT_COLUMN_LENGTH);
+            requirePersistableText(detail.place().cadastral(), DEFAULT_TEXT_COLUMN_LENGTH);
+        }
         return detail;
+    }
+
+    /**
+     * Mirrors PostgreSQL/JPA VARCHAR bounds before a source value can enter a
+     * bulk promotion. PostgreSQL text values cannot contain U+0000; rejecting it
+     * here turns a record-specific database failure into redacted INVALID_DATA.
+     */
+    private static void requirePersistableText(String value, int maximumCharacters) {
+        if (value == null) {
+            return;
+        }
+        if (value.indexOf('\0') >= 0
+                || value.codePointCount(0, value.length()) > maximumCharacters) {
+            throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
+        }
+    }
+
+    /**
+     * Requires an exact value in the auctions NUMERIC(38,2) columns. Trailing
+     * zeroes are harmless, but a non-zero third decimal or more than 36 integer
+     * digits would otherwise be rounded or rejected only during promotion.
+     */
+    private static void requirePersistableMoney(BigDecimal value) {
+        if (value == null) {
+            return;
+        }
+        BigDecimal normalized = value.stripTrailingZeros();
+        long integerDigits = Math.max(
+                0L,
+                (long) normalized.precision() - normalized.scale());
+        if (normalized.scale() > MONEY_SCALE || integerDigits > MONEY_INTEGER_DIGITS) {
+            throw new ValidationFailure(EAukcijaErrorCode.INVALID_DATA);
+        }
     }
 
     private static void requireInstant(String value) {
@@ -483,24 +574,72 @@ public final class EAukcijaClient {
     }
 
     private Duration retryAfter(Response response) {
-        String value = response.header("Retry-After");
+        String value = response.header(ORIGINAL_RETRY_AFTER);
+        if (value == null) {
+            value = response.header("Retry-After");
+        }
         if (value == null || value.isBlank()) {
             return null;
         }
         String trimmed = value.trim();
+        Duration deltaSeconds = retryAfterDeltaSeconds(trimmed);
+        if (deltaSeconds != null) {
+            return deltaSeconds;
+        }
         try {
-            long seconds = Long.parseLong(trimmed);
-            return seconds < 0 ? null : Duration.ofSeconds(seconds);
-        } catch (NumberFormatException notDeltaSeconds) {
-            try {
-                Instant retryAt = ZonedDateTime.parse(
-                        trimmed, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
-                Duration delay = Duration.between(timing.now(), retryAt);
-                return delay.isNegative() ? Duration.ZERO : delay;
-            } catch (DateTimeParseException invalidDate) {
+            Instant retryAt = ZonedDateTime.parse(
+                    trimmed, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+            Duration delay = Duration.between(timing.now(), retryAt);
+            return delay.isNegative() ? Duration.ZERO : delay;
+        } catch (DateTimeParseException invalidDate) {
+            return null;
+        }
+    }
+
+    private static Response preserveOversizedRetryAfter(Response response) {
+        String value = response.header("Retry-After");
+        Response.Builder sanitized = response.newBuilder().removeHeader(ORIGINAL_RETRY_AFTER);
+        if (value != null && exceedsIntegerDeltaSeconds(value.trim())) {
+            sanitized.header(ORIGINAL_RETRY_AFTER, value);
+            sanitized.header("Retry-After", Integer.toString(Integer.MAX_VALUE));
+        }
+        return sanitized.build();
+    }
+
+    private static boolean exceedsIntegerDeltaSeconds(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+        int seconds = 0;
+        for (int index = 0; index < value.length(); index++) {
+            int digit = value.charAt(index) - '0';
+            if (digit < 0 || digit > 9) {
+                return false;
+            }
+            if (seconds > (Integer.MAX_VALUE - digit) / 10) {
+                return true;
+            }
+            seconds = seconds * 10 + digit;
+        }
+        return false;
+    }
+
+    private static Duration retryAfterDeltaSeconds(String value) {
+        if (value.isEmpty()) {
+            return null;
+        }
+        long seconds = 0;
+        for (int index = 0; index < value.length(); index++) {
+            int digit = value.charAt(index) - '0';
+            if (digit < 0 || digit > 9) {
                 return null;
             }
+            if (seconds > (Long.MAX_VALUE - digit) / 10) {
+                return Duration.ofSeconds(Long.MAX_VALUE);
+            }
+            seconds = seconds * 10 + digit;
         }
+        return Duration.ofSeconds(seconds);
     }
 
     private Duration backoff(int failedAttempt) {

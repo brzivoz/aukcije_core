@@ -20,6 +20,8 @@ class SyncPropertiesTest {
         assertThat(properties.getRunningStaleAfter()).isEqualTo(Duration.ofMinutes(15));
         assertThat(properties.getMaxPagesPerRoot()).isEqualTo(10_000);
         assertThat(properties.getMaxErrors()).isEqualTo(100);
+        assertThat(properties.getMaxQuarantinedListings()).isEqualTo(10);
+        assertThat(properties.getMaxQuarantinedDetails()).isEqualTo(10);
         assertThat(properties.getScheduleCron()).isEqualTo("-");
         assertThat(properties.getScheduleZone()).isEqualTo("UTC");
     }
@@ -41,6 +43,26 @@ class SyncPropertiesTest {
         properties = new SyncProperties();
         properties.setMaxErrors(0);
         assertThatThrownBy(properties::validate).hasMessageContaining("max-errors");
+
+        properties = new SyncProperties();
+        properties.setMaxErrors(1_001);
+        assertThatThrownBy(properties::validate).hasMessageContaining("max-errors");
+
+        properties = new SyncProperties();
+        properties.setMaxQuarantinedListings(-1);
+        assertThatThrownBy(properties::validate).hasMessageContaining("max-quarantined-listings");
+
+        properties = new SyncProperties();
+        properties.setMaxQuarantinedListings(101);
+        assertThatThrownBy(properties::validate).hasMessageContaining("max-quarantined-listings");
+
+        properties = new SyncProperties();
+        properties.setMaxQuarantinedDetails(-1);
+        assertThatThrownBy(properties::validate).hasMessageContaining("max-quarantined-details");
+
+        properties = new SyncProperties();
+        properties.setMaxQuarantinedDetails(101);
+        assertThatThrownBy(properties::validate).hasMessageContaining("max-quarantined-details");
 
         properties = new SyncProperties();
         properties.setScheduleCron(" ");

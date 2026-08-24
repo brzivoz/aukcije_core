@@ -12,7 +12,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.data.domain.PageImpl;
@@ -82,5 +85,47 @@ class AuctionControllerLocationPresentationTest {
                 .andExpect(content().string(containsString("Центар насеља")))
                 .andExpect(content().string(containsString(
                         "приближна локација области, не адреса, улица или парцела")));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void ledgerFailureDoesNotTakeDownTheAuctionPageOrLeakItsCause() throws Exception {
+        String sentinel = "password=secret bearer-token personal-name thumbnail-base64";
+        given(auctions.findAll(any(Specification.class), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 25), 0));
+        given(auctions.findDistinctMunicipalities()).willReturn(List.of());
+        given(auctions.findDistinctPlaceNames()).willReturn(List.of());
+        given(auctions.findDistinctCategories()).willReturn(List.of());
+        given(auctions.findDistinctStatuses()).willReturn(List.of());
+        given(locations.findBestByAuctionIds(List.<Long>of())).willReturn(Map.of());
+        given(syncService.isEnabled()).willReturn(true);
+        given(syncService.findLatestRun()).willThrow(new IllegalStateException(sentinel));
+
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(AuctionController.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+        try {
+            mvc.perform(get("/"))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString(
+                            "Статус синхронизације тренутно није доступан")))
+                    .andExpect(content().string(org.hamcrest.Matchers.not(
+                            containsString(sentinel))));
+
+            org.assertj.core.api.Assertions.assertThat(events.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .containsExactly(
+                            "eAukcija page sync status unavailable code=SYNC_LEDGER_UNAVAILABLE")
+                    .allSatisfy(message -> org.assertj.core.api.Assertions.assertThat(message)
+                            .doesNotContain(sentinel));
+            org.assertj.core.api.Assertions.assertThat(events.list)
+                    .allSatisfy(event -> org.assertj.core.api.Assertions.assertThat(
+                            event.getThrowableProxy()).isNull());
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
     }
 }

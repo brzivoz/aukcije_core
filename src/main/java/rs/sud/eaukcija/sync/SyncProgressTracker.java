@@ -12,12 +12,14 @@ public final class SyncProgressTracker {
     private int pagesExpected;
     private int pagesCompleted;
     private long listingRowsObserved;
+    private long listingRowsQuarantined;
     private long uniqueAuctions;
     private long duplicateAuctions;
     private long unknownKinds;
     private long detailsRequired;
     private long detailsAttempted;
     private long detailsSucceeded;
+    private long detailsQuarantined;
     private long detailsFailed;
     private long retries;
     private long errors;
@@ -48,6 +50,10 @@ public final class SyncProgressTracker {
         duplicateAuctions = currentDuplicateCount;
     }
 
+    public void listingRowQuarantined() {
+        listingRowsQuarantined++;
+    }
+
     public void detailsRequired(long count) {
         detailsRequired = count;
     }
@@ -58,6 +64,10 @@ public final class SyncProgressTracker {
 
     public void detailSucceeded() {
         detailsSucceeded++;
+    }
+
+    public void detailQuarantined() {
+        detailsQuarantined++;
     }
 
     public void detailFailed() {
@@ -77,6 +87,10 @@ public final class SyncProgressTracker {
         unresolvedErrors++;
     }
 
+    public void resolvedError() {
+        errors++;
+    }
+
     public boolean hasSourceProgress() {
         return sourceProgress;
     }
@@ -93,12 +107,14 @@ public final class SyncProgressTracker {
                 pagesExpected,
                 pagesCompleted,
                 listingRowsObserved,
+                listingRowsQuarantined,
                 uniqueAuctions,
                 duplicateAuctions,
                 unknownKinds,
                 detailsRequired,
                 detailsAttempted,
                 detailsSucceeded,
+                detailsQuarantined,
                 detailsFailed,
                 retries,
                 errors,

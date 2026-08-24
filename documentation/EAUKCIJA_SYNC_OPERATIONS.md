@@ -3,7 +3,9 @@
 The synchronization endpoint starts one durable ingestion run that discovers
 configured root categories, validates every required page, deduplicates stable
 auction IDs, verifies each direct-child membership endpoint, refreshes required
-details, and promotes the complete result in one database transaction. The old
+details, quarantines bounded numbers of positive-ID invalid listing rows and
+auction-specific invalid detail responses, and promotes the valid result in one
+database transaction. The old
 split listing/detail workflow is not part of this contract.
 
 This workflow requires PostgreSQL. The transitional `local-h2` profile has no
@@ -65,12 +67,17 @@ Status responses are `no-store` and expose retained evidence rather than
 process-local progress. The response includes timestamps, configured roots,
 page size, taxonomy observation and hash, expected/completed pages, listing and
 unique/duplicate/unknown counts, required/attempted/succeeded/failed detail
-counts, retry counts, bounded errors, and per-root results.
+counts, `listingRowsQuarantined`, `detailsQuarantined`, both held-back quarantine
+arrays, retry counts, bounded errors, and per-root results. `errorCount` is the
+aggregate number observed; the `errors` array is
+bounded retained evidence, and `unresolvedErrorCount` distinguishes a terminal
+failure from an explicitly held-back record.
 The `childResults` array separately reports every captured direct child with its
 parent root, totals, pagination, duplicates, subset proof, and completion state.
 
 Status errors use the same no-store problem format: `400 INVALID_SYNC_RUN_ID`,
-`404 SYNC_RUN_NOT_FOUND`, or `503 SYNC_LEDGER_UNAVAILABLE`. A `404` is terminal
+`404 SYNC_RUN_NOT_FOUND`, `503 SYNC_UNAVAILABLE`, or
+`503 SYNC_LEDGER_UNAVAILABLE`. A `404` is terminal
 for that stored ID (for example after an intentional database rebuild); clear
 the local ID rather than polling forever. Retry a transient `503` with bounded
 backoff.
@@ -80,14 +87,14 @@ The terminal states are:
 | Status | Meaning | Auction state |
 |---|---|---|
 | `RUNNING` | The durable claim is awaiting or executing on the single worker; while executing it owns the session advisory lock. | The previously successful auction state remains visible. |
-| `SUCCEEDED` | Taxonomy, every required root and direct-child page, required details, and the final promotion all completed consistently. | The complete candidate set was promoted atomically. |
-| `PARTIAL` | Some source work completed, but a required later step failed or restart recovery found recorded progress. | The candidate set was not promoted; prior state remains unchanged. |
+| `SUCCEEDED` | Taxonomy and every required root/direct-child page completed; every positive-ID invalid listing row and every required invalid detail stayed within its bounded quarantine ledger; no unresolved error remained. | Valid candidates were promoted atomically. Quarantined IDs were held back without changing or marking their auction rows absent. |
+| `PARTIAL` | Some source work completed, but a required later step failed, the quarantine safety threshold was exceeded, or restart recovery found recorded progress. | The candidate set was not promoted; prior state remains unchanged. |
 | `FAILED` | The run failed before usable source progress, or failed in a way that could not yield a complete candidate. | Prior state remains unchanged. |
 
 Progress moves through `CLAIMED`, `CATEGORIES`, `LISTINGS`, `DETAILS`,
-`PROMOTING`, and `COMPLETED`. A `COMPLETED` stage does not weaken the terminal
-status: only `SUCCEEDED` is eligible to advance source-delta, absence, or
-downstream-enrichment state.
+`PROMOTING`, and `COMPLETED`. Only `SUCCEEDED` reaches `COMPLETED`; `PARTIAL`
+and `FAILED` retain the stage at which they stopped. Only `SUCCEEDED` is
+eligible to advance source-delta, absence, or downstream-enrichment state.
 
 ## Completeness and atomic promotion
 
@@ -116,6 +123,17 @@ type is retained, fetched, reported, and classified conservatively as
 Promotion independently requires one complete subset result for the exact set
 of direct children in the captured taxonomy.
 
+A listing row with a positive stable auction ID that fails the bounded text,
+timestamp, or exact-money persistence contract is counted in the page's raw and
+unique totals, retained by source-row SHA-256 plus root/child/page coordinates,
+and globally held back from the union. If the same rejected ID appears in more
+than one root or child, it contributes to each endpoint's completeness evidence
+but creates only one resolved error/quarantine and never receives a detail
+request. A listing row without a positive stable ID remains an unresolved page
+failure because it cannot be safely correlated. The next distinct listing
+rejection beyond `max-quarantined-listings` also remains unresolved and prevents
+promotion, guarding against a source-wide contract change.
+
 With the 2026-08-21 measured shape and the default page size, a no-retry run
 uses one taxonomy request, two root-page requests, six direct-child page
 requests, and one detail request for each auction that is new, changed, or
@@ -133,13 +151,33 @@ configured staleness interval. The validated taxonomy routes root `7`
 `GetCommonPropertyDetails`; an incompatible mixed scope fails closed before a
 detail request. A null response,
 invalid envelope or JSON, mismatched auction ID, timeout after the retry budget,
-missing page, or inconsistent total prevents success. `detailsFetched` and its
-timestamp advance only with validated detail data in a successful promotion.
+missing page, or inconsistent total remains a failure. Text containing `U+0000`,
+text beyond the persisted column bound, and money that cannot be represented
+exactly as `NUMERIC(38,2)` fail as `INVALID_DATA` before promotion. A
+deterministic, non-retryable failure scoped to one detail ID is retained as
+resolved quarantine evidence and that ID is excluded from promotion. Authentication failures,
+timeouts, exhausted transient retries, rate-limit waits beyond budget, and any
+quarantine beyond `max-quarantined-details` remain unresolved and make the run
+`PARTIAL`. This threshold prevents a source-wide contract change from being
+misreported as a successful set of individual exceptions. `detailsFetched` and
+its timestamp advance only with validated detail data in a successful
+promotion.
 
 Listing and detail candidates are not applied page by page. Promotion is one
-transaction after all completeness checks pass. `PARTIAL` and `FAILED` runs
-therefore preserve the complete previous auction state and cannot enqueue
+transaction after all completeness checks pass. Existing quarantined rows are
+left unchanged, new quarantined IDs are not inserted, quarantined IDs do not
+accrue absence, and neither kind enters enrichment. The other valid candidates
+publish normally. Listing pages are still rechecked each run, while detail reuse
+means a later run retries held-back IDs without re-fetching every successfully
+promoted detail. `PARTIAL` and `FAILED` runs
+still preserve the complete previous auction state and cannot enqueue any
 enrichment.
+
+Promotion uses bounded multi-row PostgreSQL upserts/inserts (at most 1,000 rows
+and 60,000 bind values per statement) plus one array-scoped membership delete;
+the taxonomy JSON is not re-expanded once per auction. During source work, the
+run heartbeat is checkpointed after 25 detail outcomes or 30 seconds rather
+than issuing two auto-commit progress writes per detail.
 
 ## Restart and stale-run recovery
 
@@ -154,8 +192,10 @@ a five-second managed-lifecycle phase followed, if necessary, by a bounded
 window lets it retain a terminal failure and release the session lock. A hard
 crash still relies on stale-run recovery below.
 
-During startup and before a replacement claim, recovery attempts to acquire the
-same lock. It terminalizes an orphan only when the global advisory lock is free
+During startup and before a genuinely stale replacement claim, recovery
+attempts to acquire the same lock. A young active claim is rejected as overlap
+without competing with its worker during the claim-to-worker handoff. Recovery
+terminalizes an orphan only when the global advisory lock is free
 **and** the run's heartbeat is at or before the stale cutoff (at least
 `eaukcija.sync.running-stale-after` old). Requiring both conditions prevents
 recovery from stealing the short claim-to-worker handoff. A crash can therefore
@@ -178,14 +218,27 @@ Stored and returned errors use bounded stage codes and safe coordinates such as
 root ID, direct-child ID, page number, auction ID, attempt, and retryability.
 They never contain source response bodies, request or response headers,
 credentials, complete URLs, personal data, exception dumps, or base64
-thumbnails. Logs follow the same rule. Consult counters and fixed error codes
-first; reproduce only against the committed synthetic/recorded test fixtures.
+thumbnails. Logs follow the same rule. Multiple listing/detail quarantines make
+the retention bound meaningful: every failure advances aggregate counters, while at
+most `max-errors` rows are retained in `errors`. Successful held-back records
+also remain actionable in the separately bounded `listingQuarantines` and
+`detailQuarantines` arrays even when their duplicate error row is over that cap.
+Consult counters and fixed error codes first; reproduce only against the
+committed synthetic/recorded test fixtures.
+
+A rising listing or detail quarantine count, or the same stable auction IDs
+appearing in quarantine across runs, requires investigation of those source
+records and the local validation contract. Alert on that trend; do not silently
+raise either quarantine threshold to make the run appear healthy.
 
 The client never retries malformed JSON, invalid application envelopes, null or
 invalid detail data, or ordinary non-retryable `4xx` responses. It retries only
 bounded timeout/I/O failures and HTTP `408`, `429`, `500`, `502`, `503`, and
 `504`. A usable `Retry-After` is a minimum delay. If it is longer than the
-configured maximum, the request fails visibly instead of retrying early.
+configured maximum, the request fails visibly instead of retrying early. The
+shared gate retains the source-requested pause, but a later run whose wait would
+exceed its configured budget fails immediately with `RATE_LIMITED`; it does not
+sleep while holding the worker advisory lock.
 
 ## Optional scheduling
 
@@ -226,7 +279,9 @@ application startup before any source request is made.
 | `eaukcija.sync.detail-stale-after` | `P1D` | `PT1H`–`P30D`. |
 | `eaukcija.sync.running-stale-after` | `PT15M` | `PT5M`–`PT12H`; recovery also requires the advisory lock to be free. |
 | `eaukcija.sync.max-pages-per-root` | `10000` | `1`–`100000`; protects against corrupt or runaway source totals. |
-| `eaukcija.sync.max-errors` | `100` | `1`–`1000`; additional failures remain counted but are not retained verbatim. |
+| `eaukcija.sync.max-quarantined-listings` | `10` | `0`–`100`; the next distinct positive-ID invalid listing row is unresolved and prevents promotion. |
+| `eaukcija.sync.max-quarantined-details` | `10` | `0`–`100`; the next auction-specific detail failure is unresolved and prevents promotion. |
+| `eaukcija.sync.max-errors` | `100` | `1`–`1000`; additional failures remain in aggregate counters but do not add `sync_run_errors` rows; successful holdbacks remain in the quarantine ledgers. The possible observed failure count is bounded by both quarantine thresholds plus at most one terminal failure. |
 | `eaukcija.sync.schedule-cron` | `-` | `-` disables scheduling; otherwise a valid Spring cron expression. |
 | `eaukcija.sync.schedule-zone` | `UTC` | Valid Java `ZoneId`; applied only when a schedule is enabled. |
 
@@ -240,7 +295,10 @@ observed capacity.
 
 Do not treat HTTP `202` or a nonzero row count as success. Confirm the run itself
 is terminal `SUCCEEDED`, has no unresolved errors, completed every expected
-root/child page and required detail, and reports the expected configured roots,
-direct children, subset proofs, and taxonomy hash. Then compare representative
-Serbian text, prices, timestamps, municipality/category facets, and detail
-timestamps. The retained run ID is the operator evidence for that promotion.
+root/child page, accounts for each required detail as succeeded or quarantined,
+accounts for every positive-ID invalid listing row as quarantined, and reports
+the expected configured roots, direct children, subset proofs, and taxonomy
+hash. Inspect every quarantine coordinate before accepting the held-back
+coverage. Then compare representative Serbian text, prices, timestamps,
+municipality/category facets, and detail timestamps. The retained run ID is the
+operator evidence for that promotion.

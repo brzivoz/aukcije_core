@@ -205,12 +205,12 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 
 | Suite | Covers |
 |---|---|
-| `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, bounded streaming/content types, invalid/null data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
-| `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, duplicate/conflict/short-page/changed-total refusal, client-failure coordinates/retries, new/changed/stale refresh policy, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on partial work |
-| `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
-| `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child evidence, exact captured-taxonomy completeness/subset gates, scoped absences, atomic promotion/rollback, and success-only observations/enrichment |
+| `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, bounded streaming/content types, invalid/null and persistence-incompatible text/money data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, immediate over-budget shared-pause refusal, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
+| `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, bounded listing/detail record quarantine with continued promotion, aggregate/capped error evidence, duplicate/conflict/short-page/changed-total refusal, client-failure coordinates/retries, new/changed/stale refresh policy, checkpointed heartbeats, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on unresolved partial work |
+| `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error/listing/detail-quarantine evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
+| `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child/quarantine evidence, exact captured-taxonomy completeness/subset gates, scoped absences and held-back IDs, set-based membership/observation publication, atomic promotion/rollback, and success-only observations/enrichment |
 | `SyncPropertiesTest` / `SyncExecutionConfigurationTest` | orchestration defaults/bounds, single named queue-free worker, immediate interruption, and bounded Spring context shutdown |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V10, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync evidence/success gates, and the canonical-derivation trigger |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V12, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync evidence/success gates, and the canonical-derivation trigger |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
@@ -282,16 +282,17 @@ fixture and asset-upgrade contract.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V10 it
+`src/main/resources/db/migration/` is the only schema authority. Through V12 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias
 provenance, structured-KO and coarse-location population-run reports, canonical property/parcel identities,
 source plus WGS84 resolution geometry, append-only attempt evidence, separate
 cache records, mutable selected-resolution pointers, the viewport GiST plus
-reverse-FK indexes, and durable eAukcija sync runs, bounded error/root evidence,
-category membership, success-only observations/enrichment work, freshness, and
-absence counters. Canonical WGS84 is derived by a normal-write trigger so
+reverse-FK indexes, and durable eAukcija sync runs, bounded
+error/root/child/quarantine evidence, category membership, success-only
+observations/enrichment work, freshness, and absence counters. Canonical WGS84
+is derived by a normal-write trigger so
 backup restore does not re-run PROJ-dependent transforms. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.
 Migration validation, Hibernate validation, and an explicit PostGIS startup

@@ -445,6 +445,45 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
     }
 
     @Test
+    void manyViewportResultsScrollWithoutChangingDesktopMapHeight() {
+        Page page = browser.page();
+        page.setViewportSize(1280, 900);
+        page.addInitScript(manyViewportResultsFetchScript());
+        page.navigate(applicationUri().toString(),
+                new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        page.waitForFunction("""
+                window.__auctionMap?.ready === true
+                  && window.__auctionMap.getDiagnostics().lastState === 'ready'
+                  && window.__auctionMap.getDiagnostics().lastFeatureCount === 160
+                """);
+
+        assertThat(page.locator("#map-result-list > li").count()).isEqualTo(160);
+        @SuppressWarnings("unchecked")
+        Map<String, Number> dimensions = (Map<String, Number>) page.evaluate("""
+                () => {
+                  const layout = document.querySelector('.auction-map-layout');
+                  const results = document.querySelector('.map-results');
+                  const canvas = document.querySelector('.map-canvas-frame');
+                  return {
+                    layoutHeight: layout.getBoundingClientRect().height,
+                    canvasHeight: canvas.getBoundingClientRect().height,
+                    resultsHeight: results.clientHeight,
+                    resultsScrollHeight: results.scrollHeight
+                  };
+                }
+                """);
+        assertThat(dimensions.get("layoutHeight").doubleValue()).isBetween(579.0, 581.0);
+        assertThat(dimensions.get("canvasHeight").doubleValue()).isBetween(579.0, 581.0);
+        assertThat(dimensions.get("resultsScrollHeight").doubleValue())
+                .isGreaterThan(dimensions.get("resultsHeight").doubleValue());
+        assertThat(dimensions.get("resultsHeight").doubleValue())
+                .isLessThan(dimensions.get("canvasHeight").doubleValue());
+
+        browser.network().assertOnlyLocalhostRequests();
+        assertThat(browser.network().contactedHosts()).containsExactly("localhost");
+    }
+
+    @Test
     void zoomingToResponsiveMinimumStaysWithinTheApiAreaContract() {
         Page page = browser.page();
         page.setViewportSize(1600, 900);
@@ -666,6 +705,54 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                       if (init.signal?.aborted) abort();
                       else init.signal?.addEventListener('abort', abort, {once: true});
                     });
+                  };
+                })();
+                """;
+    }
+
+    private static String manyViewportResultsFetchScript() {
+        return """
+                (() => {
+                  const originalFetch = window.fetch.bind(window);
+                  const precisions = [
+                    'PARCEL', 'ADDRESS', 'STREET', 'CADASTRAL_MUNICIPALITY',
+                    'SETTLEMENT', 'MUNICIPALITY'
+                  ];
+                  const features = Array.from({length: 160}, (_, index) => {
+                    const auctionId = 99000 + index;
+                    return {
+                      type: 'Feature',
+                      id: `${auctionId}:feature`,
+                      geometry: {
+                        type: 'Point',
+                        coordinates: [20.455 + (index % 10) * .001, 44.785 + (index % 8) * .001]
+                      },
+                      properties: {
+                        auctionId,
+                        title: `Контролисани резултат ${index + 1}`,
+                        amount: 100000 + index,
+                        currency: 'RSD',
+                        endTime: '2030-08-24T10:00:00Z',
+                        sourceStatus: 'Verified',
+                        propertyKind: 'Кућа',
+                        precision: precisions[index % precisions.length],
+                        detailUrl: `https://eaukcija.sud.rs/#/aukcije/${auctionId}`
+                      }
+                    };
+                  });
+                  window.fetch = (input, init = {}) => {
+                    const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+                    if (url.pathname !== '/api/map/auctions') return originalFetch(input, init);
+                    return Promise.resolve(new Response(JSON.stringify({
+                      type: 'FeatureCollection',
+                      features,
+                      numberReturned: features.length,
+                      limit: 1000,
+                      truncated: false
+                    }), {
+                      status: 200,
+                      headers: {'Content-Type': 'application/geo+json'}
+                    }));
                   };
                 })();
                 """;

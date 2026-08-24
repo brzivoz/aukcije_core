@@ -177,6 +177,7 @@
 .auction-map-layout {
     display: grid;
     grid-template-columns: minmax(245px, 310px) minmax(0, 1fr);
+    height: 580px;
     min-height: 580px;
     overflow: hidden;
     border: 1px solid #aab5c0;
@@ -188,6 +189,7 @@
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
     min-height: 0;
+    overflow: hidden;
     border-right: 1px solid #aab5c0;
     background: #fff;
 }
@@ -409,12 +411,14 @@
     }
 
     .auction-map-layout {
+        height: auto;
         min-height: 0;
         overflow: visible;
     }
 
     .map-sidebar {
         grid-template-rows: auto auto;
+        overflow: visible;
         border-right: 0;
         border-bottom: 1px solid #aab5c0;
     }

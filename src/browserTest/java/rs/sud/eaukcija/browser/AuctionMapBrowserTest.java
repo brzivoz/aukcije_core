@@ -458,6 +458,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 """);
 
         assertThat(page.locator("#map-result-list > li").count()).isEqualTo(160);
+        assertThat(((Number) page.evaluate("window.__rsdNumberFormatConstructions")).intValue())
+                .isEqualTo(1);
         @SuppressWarnings("unchecked")
         Map<String, Number> dimensions = (Map<String, Number>) page.evaluate("""
                 () => {
@@ -491,6 +493,19 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         waitForReadyMap(page);
 
+        assertThat((Boolean) page.evaluate("""
+                () => {
+                  const map = window.__auctionMap.map;
+                  return map.getPitch() === 0
+                    && map.getBearing() === 0
+                    && map.dragRotate.isEnabled() === false
+                    && map.touchPitch.isEnabled() === false
+                    && map.touchZoomRotate.isEnabled() === true
+                    && map.touchZoomRotate._rotationDisabled === true
+                    && map.keyboard._rotationDisabled === true;
+                }
+                """)).isTrue();
+
         int requestsBefore = ((Number) page.evaluate(
                 "window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
         double minimum = ((Number) page.evaluate("window.__auctionMap.map.getMinZoom()"))
@@ -513,6 +528,222 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 .isLessThanOrEqualTo(1_000_000);
         assertThat(page.locator("#map-state").textContent())
                 .doesNotContain("Није могуће", "Покушајте поново");
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
+    void precisionContractFailureNamesTheApplicationContractNotTheBasemap() {
+        Page page = browser.page();
+        page.addInitScript("""
+                (() => {
+                  const observer = new MutationObserver(() => {
+                    const option = document.querySelector(
+                      '#map-precision-filter option[value="MUNICIPALITY"]');
+                    if (option) {
+                      option.remove();
+                      observer.disconnect();
+                    }
+                  });
+                  observer.observe(document, {childList: true, subtree: true});
+                })();
+                """);
+        page.navigate(applicationUri().toString(),
+                new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        page.waitForFunction("window.__auctionMap?.ready === true");
+
+        assertThat(page.locator("#map-state").getAttribute("data-state")).isEqualTo("error");
+        assertThat(page.locator("#map-state").textContent())
+                .contains("Дефиниције прецизности карте нису усклађене", "грешка верзије апликације")
+                .doesNotContain("основне карте", "PMTiles");
+        assertThat(page.evaluate("window.__auctionMap.map")).isNull();
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().lastError"))
+                .isEqualTo("MAP_PRECISION_CONTRACT_MISMATCH");
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
+    void mapResourceErrorsAreClassifiedAndClearWhenTheirSourceRecovers() {
+        Page page = browser.page();
+        page.navigate(applicationUri().toString(),
+                new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        waitForReadyMap(page);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> auctionWarning = (Map<String, Object>) page.evaluate("""
+                () => {
+                  window.__auctionMap.map.fire({
+                    type: 'error', sourceId: 'auction-points',
+                    error: new Error('controlled GeoJSON source failure')
+                  });
+                  return {
+                    text: document.querySelector('#map-freshness-warning').textContent,
+                    errors: window.__auctionMap.getDiagnostics().auctionSourceErrors
+                  };
+                }
+                """);
+        assertThat(auctionWarning.get("text").toString())
+                .contains("Слој аукција је пријавио привремени проблем")
+                .doesNotContain("Основна карта је пријавила");
+        assertThat(((Number) auctionWarning.get("errors")).intValue()).isEqualTo(1);
+
+        page.evaluate("""
+                () => {
+                  window.__auctionMap.map.fire({
+                    type: 'sourcedata', sourceId: 'auction-points',
+                    sourceDataType: 'idle', isSourceLoaded: true
+                  });
+                }
+                """);
+        assertThat(page.locator("#map-freshness-warning").isHidden()).isTrue();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> basemapWarning = (Map<String, Object>) page.evaluate("""
+                () => {
+                  window.__auctionMap.map.fire({
+                    type: 'error', sourceId: 'serbia', tile: {id: 'controlled'},
+                    error: new Error('controlled basemap tile failure')
+                  });
+                  return {
+                    text: document.querySelector('#map-freshness-warning').textContent,
+                    errors: window.__auctionMap.getDiagnostics().basemapErrors
+                  };
+                }
+                """);
+        assertThat(basemapWarning.get("text").toString())
+                .contains("Основна карта је пријавила привремени проблем")
+                .doesNotContain("Слој аукција је пријавио");
+        assertThat(((Number) basemapWarning.get("errors")).intValue()).isEqualTo(1);
+
+        page.evaluate("""
+                () => {
+                  window.__auctionMap.map.fire({
+                    type: 'sourcedata', sourceId: 'serbia',
+                    sourceDataType: 'idle', isSourceLoaded: true
+                  });
+                }
+                """);
+        assertThat(page.locator("#map-freshness-warning").isHidden()).isTrue();
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().activeResourceWarnings"))
+                .isEqualTo(0);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> genericWarning = (Map<String, Object>) page.evaluate("""
+                () => {
+                  window.__auctionMap.map.fire({
+                    type: 'error', error: new Error('controlled generic resource failure')
+                  });
+                  return {
+                    text: document.querySelector('#map-freshness-warning').textContent,
+                    active: window.__auctionMap.getDiagnostics().activeResourceWarnings
+                  };
+                }
+                """);
+        assertThat(genericWarning.get("text").toString())
+                .contains("Карта је пријавила привремени проблем са ресурсом")
+                .doesNotContain("Основна карта", "Слој аукција");
+        assertThat(((Number) genericWarning.get("active")).intValue()).isEqualTo(1);
+        page.evaluate("""
+                () => {
+                  window.__auctionMap.map.fire({type: 'styledata'});
+                }
+                """);
+        assertThat(page.locator("#map-freshness-warning").isVisible()).isTrue();
+        assertThat(page.locator("#map-freshness-warning").textContent())
+                .contains("Карта је пријавила привремени проблем са ресурсом");
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().activeResourceWarnings"))
+                .isEqualTo(1);
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
+    void initialStyleFailureRejectsImmediatelyButTileFailureRemainsRecoverable() {
+        Page page = browser.page();
+        page.navigate(applicationUri().toString(),
+                new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        waitForReadyMap(page);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> result = (Map<String, Object>) page.evaluate("""
+                async () => {
+                  class ControlledMap {
+                    constructor() {
+                      this.listeners = new Map();
+                    }
+                    loaded() { return false; }
+                    isStyleLoaded() { return false; }
+                    on(type, listener) {
+                      const listeners = this.listeners.get(type) || [];
+                      listeners.push(listener);
+                      this.listeners.set(type, listeners);
+                    }
+                    off(type, listener) {
+                      this.listeners.set(type,
+                        (this.listeners.get(type) || []).filter(value => value !== listener));
+                    }
+                    fire(event) {
+                      for (const listener of [...(this.listeners.get(event.type) || [])]) {
+                        listener(event);
+                      }
+                    }
+                  }
+
+                  const fatalMap = new ControlledMap();
+                  const started = performance.now();
+                  const fatalPromise = window.__auctionMap.waitForMapLoad(fatalMap, 250);
+                  fatalMap.fire({
+                    type: 'error', sourceId: 'serbia',
+                    error: new Error('controlled style source failure')
+                  });
+                  let fatalError = null;
+                  try {
+                    await fatalPromise;
+                  } catch (error) {
+                    fatalError = error.message;
+                  }
+
+                  const basemapErrorsBefore =
+                    window.__auctionMap.getDiagnostics().basemapErrors;
+                  const recoverableMap = new ControlledMap();
+                  const recoverablePromise = window.__auctionMap.waitForMapLoad(
+                    recoverableMap, 250);
+                  recoverableMap.fire({
+                    type: 'error', sourceId: 'serbia', tile: {id: 'controlled'},
+                    error: new Error('controlled tile failure')
+                  });
+                  recoverableMap.fire({type: 'load'});
+                  await recoverablePromise;
+                  const diagnosticsAfterLoad = window.__auctionMap.getDiagnostics();
+                  const warningAfterLoad =
+                    document.querySelector('#map-freshness-warning').textContent;
+
+                  // Clear the controlled warning through the only valid recovery
+                  // signal: the same concrete source reports that it loaded.
+                  window.__auctionMap.map.fire({
+                    type: 'sourcedata', sourceId: 'serbia',
+                    sourceDataType: 'idle', isSourceLoaded: true
+                  });
+
+                  return {
+                    fatalError,
+                    elapsedMs: performance.now() - started,
+                    recoverableResolved: true,
+                    basemapErrorsBefore,
+                    basemapErrorsAfter: diagnosticsAfterLoad.basemapErrors,
+                    warningAfterLoad,
+                    warningsAfterRecovery:
+                      window.__auctionMap.getDiagnostics().activeResourceWarnings
+                  };
+                }
+                """);
+
+        assertThat(result.get("fatalError")).isEqualTo("BASEMAP_STYLE_LOAD_FAILED");
+        assertThat(((Number) result.get("elapsedMs")).doubleValue()).isLessThan(200.0);
+        assertThat(result.get("recoverableResolved")).isEqualTo(true);
+        assertThat(((Number) result.get("basemapErrorsAfter")).intValue())
+                .isEqualTo(((Number) result.get("basemapErrorsBefore")).intValue() + 1);
+        assertThat(result.get("warningAfterLoad").toString())
+                .contains("Основна карта је пријавила привремени проблем");
+        assertThat(result.get("warningsAfterRecovery")).isEqualTo(0);
         browser.network().assertOnlyLocalhostRequests();
     }
 
@@ -713,6 +944,23 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
     private static String manyViewportResultsFetchScript() {
         return """
                 (() => {
+                  window.__rsdNumberFormatConstructions = 0;
+                  Intl.NumberFormat = new Proxy(Intl.NumberFormat, {
+                    construct(target, args) {
+                      const options = args[1];
+                      if (options?.style === 'currency' && options?.currency === 'RSD') {
+                        window.__rsdNumberFormatConstructions++;
+                      }
+                      return Reflect.construct(target, args);
+                    },
+                    apply(target, thisArg, args) {
+                      const options = args[1];
+                      if (options?.style === 'currency' && options?.currency === 'RSD') {
+                        window.__rsdNumberFormatConstructions++;
+                      }
+                      return Reflect.apply(target, thisArg, args);
+                    }
+                  });
                   const originalFetch = window.fetch.bind(window);
                   const precisions = [
                     'PARCEL', 'ADDRESS', 'STREET', 'CADASTRAL_MUNICIPALITY',

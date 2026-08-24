@@ -133,16 +133,33 @@ layout with no document-level horizontal overflow. A controlled browser-fetch
 boundary delays one viewport response, pans and zooms, observes `AbortSignal`
 cancellation, forces a filter submit while the style is unavailable, and then
 exercises field-aware `400`, retryable `503`, partial-limit, retained-data
-error, and empty states. A third test uses a 1600 px viewport, zooms to the
-calculated responsive minimum, and proves the real API request remains below
-its area ceiling. All three finish with the shared localhost-only assertion.
+error, and empty states. Viewport refreshes are coalesced with a 250 ms
+fallback, but a settled MapLibre `idle` event may replay the pending refresh
+earlier; the observable contract is therefore at most 250 ms rather than a
+fixed 250 ms delay. A wide-viewport test zooms to the calculated responsive
+minimum and proves the real API request remains below its area ceiling. All map
+tests finish with the shared localhost-only assertion.
 
-Cluster-leaf failures are visible and assertive rather than unhandled. Basemap
-resource errors are recorded as warnings but do not reject the initial map-load
-promise; only failure to reach `load` before the timeout tears initialization
-down. Submitting filters during startup/style work records a pending refresh
-which `styledata`/`idle` replays. A failed initialization can likewise be
-retried by applying the filters.
+The auction-map consumer disables pitch and rotation for mouse, touch, and
+keyboard while leaving pinch zoom enabled; the shared local-basemap factory
+remains neutral. This keeps this map's camera two-dimensional and makes the
+responsive minimum-zoom area estimate exact. Cluster-leaf failures are visible
+and assertive rather than unhandled. Runtime MapLibre errors are classified by
+source: auction GeoJSON failures never blame the basemap, and transient
+source-attributed warnings are removed only after that same source reports a
+recovered loaded state. A keyless resource warning stays visible until reload,
+because an unrelated `styledata` event is not evidence that it recovered.
+Recoverable tile/resource errors do not reject initial loading, while a style
+or basemap-source definition failure rejects immediately instead of waiting for
+the 30-second safety timeout. Nonfatal resource errors emitted before `load`
+are forwarded to the same classifier, so the warning has no startup blind spot.
+Submitting filters during startup/style work records a pending refresh which
+`styledata`/`idle` replays. A failed
+initialization can likewise be retried by applying the filters.
+
+The precision catalog assertion has an application-contract error message; it
+never directs an operator to repair PMTiles. The RSD `Intl.NumberFormat` is
+constructed once per module load rather than once per rendered auction.
 
 Every green run retains desktop and narrow screenshots plus a JSON evidence
 manifest under `build/browser-test-results/evidence/issue-27-*`; CI publishes

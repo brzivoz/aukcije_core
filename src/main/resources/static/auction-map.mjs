@@ -7,12 +7,14 @@ const CLUSTER_LAYER = 'auction-clusters';
 const CLUSTER_COUNT_LAYER = 'auction-cluster-count';
 const SELECTED_POINT_LAYER = 'auction-selected-point';
 const SELECTED_AREA_LAYER = 'auction-selected-area';
+const BASEMAP_SOURCE = 'serbia';
 const LOAD_DEBOUNCE_MS = 250;
 const RESULT_LIMIT = 1000;
 const MAX_BBOX_AREA_SQUARE_KM = 1_000_000;
 const REQUEST_AREA_SAFETY_FACTOR = .98;
 const EARTH_RADIUS_KM = 6_371.0088;
 const EMPTY_COLLECTION = Object.freeze({type: 'FeatureCollection', features: []});
+const RSD_AMOUNT_FORMATTER = createRsdAmountFormatter();
 
 const PRECISIONS = Object.freeze({
     PARCEL: {
@@ -94,7 +96,10 @@ const diagnostics = {
     pendingRefresh: false,
     requestableMinZoom: null,
     lastRequestAreaSquareKm: null,
+    mapErrors: 0,
     basemapErrors: 0,
+    auctionSourceErrors: 0,
+    activeResourceWarnings: 0,
     lastClusterError: null
 };
 
@@ -107,6 +112,7 @@ const state = {
     activeRequest: null,
     requestSequence: 0,
     metadataWarnings: new Set(),
+    resourceWarnings: new Map(),
     pendingRefresh: false,
     sourcesReady: false,
     initializationPromise: null
@@ -118,7 +124,11 @@ const publicApi = {
     refreshNow: () => refreshNow(),
     getDiagnostics: () => ({...diagnostics}),
     renderedClusterCount: () => renderedClusterCount(),
-    showCluster: cluster => showCluster(cluster)
+    showCluster: cluster => showCluster(cluster),
+    waitForMapLoad: (map, timeoutMs) => mapLoaded(map, {
+        timeoutMs,
+        onRecoverableError: handleMapError
+    })
 };
 if (document.querySelector('.auction-map-panel')?.dataset.mapTestHooks === 'true') {
     window.__auctionMap = publicApi;
@@ -149,21 +159,37 @@ async function initialize() {
 
 async function initializeMap() {
     try {
+        assertPrecisionContract();
+    } catch (error) {
+        failMapInitialization(
+                error,
+                'Дефиниције прецизности карте нису усклађене. Ово је грешка верзије апликације; обратите се одржаваоцу.');
+        return;
+    }
+
+    try {
         const map = await createLocalBasemap({
             container: 'auction-map',
             center: [20.46, 44.79],
             zoom: 14,
             minZoom: 0,
             maxZoom: 20,
+            bearing: 0,
+            pitch: 0,
+            maxPitch: 0,
+            dragRotate: false,
+            pitchWithRotate: false,
+            touchPitch: false,
             fadeDuration: reducedMotion() ? 0 : 150
         });
+        configureTwoDimensionalCamera(map);
         state.map = map;
         publicApi.map = map;
         map.addControl(new NavigationControl({showCompass: false}), 'top-right');
-        map.on('error', handleBasemapError);
-        await mapLoaded(map);
+        map.on('sourcedata', handleSourceRecovery);
+        await mapLoaded(map, {onRecoverableError: handleMapError});
+        map.on('error', handleMapError);
         configureAccessibleMap(map);
-        assertPrecisionContract();
         map.on('styledata', replayPendingRefresh);
         map.on('idle', replayPendingRefresh);
         addAuctionSourcesAndLayers(map);
@@ -175,15 +201,26 @@ async function initializeMap() {
         requestRefresh();
         await replayPendingRefresh();
     } catch (error) {
-        diagnostics.lastError = errorName(error);
-        state.sourcesReady = false;
-        state.map?.remove();
-        state.map = null;
-        publicApi.map = null;
-        setMapState(
-                'error',
+        failMapInitialization(
+                error,
                 'Карта тренутно није доступна. Проверите локални пакет основне карте и покушајте поново.');
     }
+}
+
+function failMapInitialization(error, message) {
+    diagnostics.lastError = errorName(error);
+    state.sourcesReady = false;
+    state.map?.remove();
+    state.map = null;
+    publicApi.map = null;
+    setMapState('error', message);
+}
+
+function configureTwoDimensionalCamera(map) {
+    // Keep pinch zoom and keyboard pan/zoom, but remove every user rotation or
+    // pitch path from this 2D auction-map consumer.
+    map.touchZoomRotate.disableRotation();
+    map.keyboard.disableRotation();
 }
 
 function bindFilterControls() {
@@ -1103,14 +1140,25 @@ function formatAmount(properties) {
     if (properties.amount === null || properties.amount === undefined) {
         return 'Цена није наведена';
     }
+    if (!RSD_AMOUNT_FORMATTER) {
+        return `${properties.amount} RSD`;
+    }
+    try {
+        return RSD_AMOUNT_FORMATTER.format(properties.amount);
+    } catch (_error) {
+        return `${properties.amount} RSD`;
+    }
+}
+
+function createRsdAmountFormatter() {
     try {
         return new Intl.NumberFormat('sr-RS', {
             style: 'currency',
             currency: 'RSD',
             maximumFractionDigits: 2
-        }).format(properties.amount);
+        });
     } catch (_error) {
-        return `${properties.amount} RSD`;
+        return null;
     }
 }
 
@@ -1168,12 +1216,17 @@ async function fetchJson(url) {
 }
 
 function renderMetadataWarnings() {
-    if (!state.metadataWarnings.size) {
+    const warnings = new Set([
+        ...state.metadataWarnings,
+        ...state.resourceWarnings.values()
+    ]);
+    diagnostics.activeResourceWarnings = state.resourceWarnings.size;
+    if (!warnings.size) {
         elements.freshnessWarning.hidden = true;
         elements.freshnessWarning.textContent = '';
         return;
     }
-    elements.freshnessWarning.textContent = [...state.metadataWarnings].join(' ');
+    elements.freshnessWarning.textContent = [...warnings].join(' ');
     elements.freshnessWarning.hidden = false;
 }
 
@@ -1185,11 +1238,58 @@ function setMapState(name, message) {
     elements.state.textContent = message;
 }
 
-function handleBasemapError() {
-    diagnostics.basemapErrors++;
-    state.metadataWarnings.add(
-            'Основна карта је пријавила проблем са једним ресурсом; доступни слојеви и подаци остају приказани.');
+function handleMapError(event) {
+    diagnostics.mapErrors++;
+    const sourceId = event?.sourceId;
+    if (sourceId === BASEMAP_SOURCE || isBasemapResourceUrl(mapErrorUrl(event))) {
+        diagnostics.basemapErrors++;
+        state.resourceWarnings.set(
+                `source:${BASEMAP_SOURCE}`,
+                'Основна карта је пријавила привремени проблем са ресурсом; доступни слојеви и подаци остају приказани.');
+    } else if (sourceId === POINT_SOURCE || sourceId === AREA_SOURCE) {
+        diagnostics.auctionSourceErrors++;
+        state.resourceWarnings.set(
+                `source:${sourceId}`,
+                'Слој аукција је пријавио привремени проблем; претходно учитани резултати остају приказани.');
+    } else {
+        state.resourceWarnings.set(
+                sourceId ? `source:${sourceId}` : 'resource:map',
+                'Карта је пријавила привремени проблем са ресурсом; доступни садржај остаје приказан.');
+    }
     renderMetadataWarnings();
+}
+
+function handleSourceRecovery(event) {
+    if (event?.isSourceLoaded !== true || typeof event.sourceId !== 'string') {
+        return;
+    }
+    if (state.resourceWarnings.delete(`source:${event.sourceId}`)) {
+        renderMetadataWarnings();
+    }
+}
+
+function mapErrorUrl(event) {
+    for (const candidate of [event?.error?.url, event?.url]) {
+        if (typeof candidate === 'string' && candidate) {
+            return candidate;
+        }
+    }
+    return null;
+}
+
+function isBasemapResourceUrl(value) {
+    if (!value) {
+        return false;
+    }
+    if (value.startsWith('pmtiles:')) {
+        return value.includes('/basemap/');
+    }
+    try {
+        const url = new URL(value, document.baseURI);
+        return url.origin === window.location.origin && url.pathname.startsWith('/basemap/');
+    } catch (_error) {
+        return false;
+    }
 }
 
 function configureAccessibleMap(map) {
@@ -1203,19 +1303,59 @@ function configureAccessibleMap(map) {
     zoomOut?.setAttribute('aria-label', 'Умањи карту');
 }
 
-function mapLoaded(map) {
+function mapLoaded(map, {
+    timeoutMs = 30_000,
+    onRecoverableError = () => {}
+} = {}) {
     if (map.loaded()) {
         return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
-        const timeout = window.setTimeout(
-                () => reject(new Error('BASEMAP_LOAD_TIMEOUT')),
-                30_000);
-        map.once('load', () => {
+        let timeout;
+        const cleanup = () => {
             window.clearTimeout(timeout);
+            map.off('load', handleLoad);
+            map.off('error', handleInitialError);
+        };
+        const handleLoad = () => {
+            cleanup();
             resolve();
-        });
+        };
+        const handleInitialError = event => {
+            if (!fatalInitialStyleError(map, event)) {
+                onRecoverableError(event);
+                return;
+            }
+            cleanup();
+            reject(new Error('BASEMAP_STYLE_LOAD_FAILED', {cause: event?.error}));
+        };
+        timeout = window.setTimeout(() => {
+            cleanup();
+            reject(new Error('BASEMAP_LOAD_TIMEOUT'));
+        }, timeoutMs);
+        map.on('load', handleLoad);
+        map.on('error', handleInitialError);
     });
+}
+
+function fatalInitialStyleError(map, event) {
+    if (map.isStyleLoaded?.() === true || event?.tile) {
+        return false;
+    }
+    if (typeof event?.sourceId === 'string') {
+        return event.sourceId === BASEMAP_SOURCE;
+    }
+    const resourceUrl = mapErrorUrl(event);
+    if (!resourceUrl) {
+        return true;
+    }
+    try {
+        const pathname = new URL(resourceUrl, document.baseURI).pathname;
+        return !pathname.startsWith('/basemap/sprites/')
+                && !pathname.startsWith('/basemap/glyphs/');
+    } catch (_error) {
+        return true;
+    }
 }
 
 function renderedClusterCount() {

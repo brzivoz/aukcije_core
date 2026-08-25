@@ -65,8 +65,10 @@ with the same snapshot id and did not duplicate rows.
 This disposable database began with no retained snapshots, so its 3 ms
 retention phase performed pointer locking/accounting but no 2.49-million-row
 cascade delete. It is not presented as a steady-state deletion benchmark.
-Production runs retain that separate cost in `retention_millis`, outside the
-already committed promotion transaction.
+Production runs retain that separate cost in the append-only
+`address_registry_retention_jobs.duration_millis`, outside the already
+committed promotion transaction. The legacy import-row `retention_millis`
+column remains null because the import row is terminal before retention starts.
 
 ## Centroid and ambiguity report
 

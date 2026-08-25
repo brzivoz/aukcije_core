@@ -128,9 +128,14 @@ ORDER BY imported_at DESC;
 
 SELECT action, outcome, started_at, finished_at, snapshot_id,
        download_millis, validation_millis, load_millis,
-       centroid_millis, retention_millis, total_millis, error_code
+       centroid_millis, total_millis AS import_millis, error_code
 FROM address_registry_import_runs
 ORDER BY started_at DESC;
+
+SELECT import_run_id, outcome, started_at, finished_at,
+       duration_millis AS retention_millis, retained_snapshot_count, error_code
+FROM address_registry_retention_jobs
+ORDER BY finished_at DESC;
 ```
 
 Re-importing the same validated GPKG while it is active returns `UNCHANGED` and
@@ -139,12 +144,20 @@ use explicit rollback rather than disguising a downgrade as a refresh.
 
 ## Atomic failure and rollback
 
-The point load, active-fraction gate, centroid build, validation, and pointer
-change are one PostgreSQL transaction guarded by an advisory lock. Checksum,
+The importer first acquires a PostgreSQL session advisory lock on a dedicated
+connection, before creating its `RUNNING` row. It holds that lease throughout
+download, staging, GeoPackage validation, point loading, and the terminal run
+update. The point load, active-fraction gate, centroid build, validation, and
+pointer change remain one PostgreSQL transaction inside that lease. Checksum,
 schema, CRS, source/active-row-count, malformed/null geometry, required-value,
 duplicate source-key, conflicting official names, or Serbia-bounds failures
 abort the transaction. The previous active pointer and all of its rows remain
-intact.
+intact. A concurrent CLI action fails early as `IMPORT_ALREADY_RUNNING` and is
+retained as a terminal attempt without duplicating the download.
+If lease release reports a failure after the terminal update, the importer
+logs only `IMPORT_LOCK_RELEASE_FAILED`; it does not replace the persisted
+outcome or turn a committed success into a failing CLI exit. Successful imports
+still proceed to the separately recorded retention phase.
 
 Rollback atomically swaps current and previous:
 
@@ -156,7 +169,8 @@ export ADDRESS_REGISTRY_IMPORT_ACTION=ROLLBACK
 Rollback refuses to run when no previous good snapshot exists. It does not
 delete either side. A later import may rotate them again.
 
-Retention runs in a separate transaction only after promotion commits, so a
+Retention runs in a separate transaction only after promotion commits and the
+session lease is released, so a
 large cascading delete cannot extend or roll back the promotion transaction.
 It reacquires the advisory lock and re-reads the pointer `FOR UPDATE` before
 choosing deletions. A cleanup failure is logged, leaves the successful snapshot
@@ -165,7 +179,18 @@ operator. The default keeps three complete snapshots.
 `ADDRESS_REGISTRY_IMPORT_RETAINED_SNAPSHOTS` is configurable but cannot be
 lower than two, and cleanup always explicitly keeps the current active and
 previous ids before deleting anything else. `retention_millis` makes the
-steady-state deletion cost visible separately from the promotion phases.
+steady-state deletion cost visible separately from the promotion phases in
+`address_registry_retention_jobs`. The legacy nullable
+`address_registry_import_runs.retention_millis` column is no longer written:
+promotion evidence becomes terminal before post-commit retention starts. The
+operator status API joins a successful retention duration to the import-phase
+duration so its reported total matches the importer's returned total.
+
+On application startup, recovery first tries the same advisory-lock key. Any
+live importer holds its session lease from before `RUNNING` through terminal
+update, so recovery cannot touch it during download or validation. Only when
+the key is free can an abandoned `RUNNING` row be finalized as `FAILED` with
+`IMPORT_PROCESS_RESTARTED`. The active snapshot pointer is not changed.
 
 ## Source-row treatment
 

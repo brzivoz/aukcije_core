@@ -2,25 +2,39 @@ package rs.sud.eaukcija.addressregistry;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import java.nio.file.Files;
 
 import javax.sql.DataSource;
 
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import rs.sud.eaukcija.testsupport.PostgisTestContainer;
@@ -39,7 +53,16 @@ class AddressRegistryImporterIntegrationTest {
     private AddressRegistryImporter importer;
 
     @Autowired
+    private AddressRegistryImportRecovery recovery;
+
+    @Autowired
+    private AddressRegistryImportLock importLock;
+
+    @Autowired
     private DataSource dataSource;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private JdbcTemplate jdbc;
 
@@ -47,7 +70,8 @@ class AddressRegistryImporterIntegrationTest {
     void clearSnapshots() {
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("""
-                TRUNCATE address_registry_import_runs,
+                TRUNCATE address_registry_retention_jobs,
+                         address_registry_import_runs,
                          address_registry_active_snapshot,
                          address_registry_centroids,
                          address_registry_points,
@@ -291,8 +315,20 @@ class AddressRegistryImporterIntegrationTest {
         assertThat(thirdResult.previousSnapshotId()).isEqualTo(second);
         assertThat(thirdResult.retainedSnapshots()).isEqualTo(2);
         assertThat(jdbc.queryForObject("""
-                SELECT retention_millis FROM address_registry_import_runs WHERE id = ?
+                SELECT duration_millis FROM address_registry_retention_jobs WHERE import_run_id = ?
                 """, Long.class, thirdResult.runId())).isEqualTo(thirdResult.retentionMillis());
+        Map<String, Object> durationEvidence = jdbc.queryForMap("""
+                SELECT run.retention_millis, run.total_millis AS import_millis,
+                       retention.duration_millis AS retention_millis_separate
+                  FROM address_registry_import_runs run
+                  JOIN address_registry_retention_jobs retention
+                    ON retention.import_run_id = run.id
+                 WHERE run.id = ?
+                """, thirdResult.runId());
+        assertThat(durationEvidence.get("retention_millis")).isNull();
+        assertThat(((Number) durationEvidence.get("import_millis")).longValue()
+                + ((Number) durationEvidence.get("retention_millis_separate")).longValue())
+                .isEqualTo(thirdResult.totalMillis());
         assertThat(jdbc.queryForObject(
                 "SELECT EXISTS (SELECT 1 FROM address_registry_snapshots WHERE id = ?)", Boolean.class, first)).isFalse();
 
@@ -304,6 +340,143 @@ class AddressRegistryImporterIntegrationTest {
         assertThat(importer.status().activeSnapshotId()).isEqualTo(second);
         assertThat(importer.status().previousSnapshotId()).isEqualTo(third);
         assertThat(importer.status().retainedSnapshots()).isEqualTo(2);
+    }
+
+    @Test
+    void startupRecoveryFinalizesAnImportAbandonedByItsOwningProcess() {
+        UUID runId = UUID.fromString("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        jdbc.update("""
+                INSERT INTO address_registry_import_runs (
+                    id, action, outcome, started_at, source_date, canonical_url
+                ) VALUES (?, 'IMPORT', 'RUNNING', CURRENT_TIMESTAMP - INTERVAL '1 minute',
+                          '2026-08-25', 'https://example.invalid/address.gpkg')
+                """, runId);
+
+        assertThat(recovery.reconcileAbandonedRuns()).isEqualTo(1);
+        assertThat(jdbc.queryForMap("""
+                SELECT outcome, error_code, error_message, finished_at IS NOT NULL AS finished
+                  FROM address_registry_import_runs WHERE id = ?
+                """, runId))
+                .containsEntry("outcome", "FAILED")
+                .containsEntry("error_code", "IMPORT_PROCESS_RESTARTED")
+                .containsEntry("finished", true)
+                .containsEntry("error_message", null);
+    }
+
+    @Test
+    void liveStagingLeaseBlocksRecoveryAndRejectsASecondJvmStyleInvocation() throws Exception {
+        Path gpkg = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("concurrent-staging"), 0,
+                AddressRegistryGpkgFixture.Fault.NONE);
+        AddressRegistryImportProperties properties = properties(gpkg, 2);
+        AddressRegistryArtifactStager blockingStager = mock(AddressRegistryArtifactStager.class);
+        GeoPackageInspector unusedInspector = mock(GeoPackageInspector.class);
+        CountDownLatch stagingStarted = new CountDownLatch(1);
+        CountDownLatch releaseStaging = new CountDownLatch(1);
+        when(blockingStager.stage(any())).thenAnswer(invocation -> {
+            stagingStarted.countDown();
+            try {
+                if (!releaseStaging.await(10, TimeUnit.SECONDS)) {
+                    throw new AddressRegistryImportException(
+                            "TEST_TIMEOUT", "test staging release timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new AddressRegistryImportException(
+                        "TEST_INTERRUPTED", "test staging wait was interrupted", interrupted);
+            }
+            throw new AddressRegistryImportException(
+                    "STAGING_ABORTED", "synthetic stop after concurrency assertions");
+        });
+        AddressRegistryImporter concurrentImporter = new AddressRegistryImporter(
+                dataSource, transactionManager, blockingStager, unusedInspector, importLock);
+
+        CompletableFuture<String> first = CompletableFuture.supplyAsync(() -> {
+            try {
+                concurrentImporter.importSnapshot(properties);
+                return "UNEXPECTED_SUCCESS";
+            } catch (AddressRegistryImportException failure) {
+                return failure.code();
+            }
+        });
+        try {
+            assertThat(stagingStarted.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM address_registry_import_runs WHERE outcome = 'RUNNING'
+                    """, Long.class)).isEqualTo(1);
+
+            assertThat(recovery.reconcileAbandonedRuns()).isZero();
+            assertThatThrownBy(() -> concurrentImporter.importSnapshot(properties))
+                    .isInstanceOfSatisfying(AddressRegistryImportException.class,
+                            failure -> assertThat(failure.code()).isEqualTo("IMPORT_ALREADY_RUNNING"));
+
+            assertThat(jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM address_registry_import_runs WHERE outcome = 'RUNNING'
+                    """, Long.class)).isEqualTo(1);
+            assertThat(jdbc.queryForList("""
+                    SELECT error_code FROM address_registry_import_runs
+                     WHERE outcome = 'FAILED' ORDER BY started_at
+                    """, String.class)).containsExactly("IMPORT_ALREADY_RUNNING");
+            verify(unusedInspector, never()).inspect(any(), any());
+        } finally {
+            releaseStaging.countDown();
+        }
+
+        assertThat(first.get(10, TimeUnit.SECONDS)).isEqualTo("STAGING_ABORTED");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM address_registry_import_runs WHERE outcome = 'RUNNING'
+                """, Long.class)).isZero();
+    }
+
+    @Test
+    void committedImportRemainsSuccessfulWhenSessionLeaseReleaseFails() throws Exception {
+        String sensitiveFailure = "password=hunter2 raw SQLException detail";
+        AddressRegistryImportLock failingReleaseLock = mock(AddressRegistryImportLock.class);
+        AddressRegistryImportLock.Lease failingLease = mock(AddressRegistryImportLock.Lease.class);
+        when(failingReleaseLock.tryAcquire()).thenReturn(Optional.of(failingLease));
+        doThrow(new IllegalStateException(sensitiveFailure)).when(failingLease).close();
+        AddressRegistryImporter importerWithFailingRelease = new AddressRegistryImporter(
+                dataSource,
+                transactionManager,
+                new AddressRegistryArtifactStager(),
+                new GeoPackageInspector(),
+                failingReleaseLock);
+        Path gpkg = AddressRegistryGpkgFixture.create(
+                tempDirectory.resolve("release-failure"), 0,
+                AddressRegistryGpkgFixture.Fault.NONE);
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(AddressRegistryImporter.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+
+        try {
+            AddressRegistryImporter.ImportResult imported =
+                    importerWithFailingRelease.importSnapshot(properties(gpkg, 2));
+
+            assertThat(imported.outcome()).isEqualTo("SUCCEEDED");
+            assertThat(jdbc.queryForObject("""
+                    SELECT outcome FROM address_registry_import_runs WHERE id = ?
+                    """, String.class, imported.runId())).isEqualTo("SUCCEEDED");
+            assertThat(jdbc.queryForObject("""
+                    SELECT outcome FROM address_registry_retention_jobs WHERE import_run_id = ?
+                    """, String.class, imported.runId())).isEqualTo("SUCCEEDED");
+            assertThat(events.list)
+                    .filteredOn(event -> event.getFormattedMessage()
+                            .contains("IMPORT_LOCK_RELEASE_FAILED"))
+                    .singleElement()
+                    .satisfies(event -> {
+                        assertThat(event.getFormattedMessage()).doesNotContain(sensitiveFailure);
+                        assertThat(event.getThrowableProxy()).isNull();
+                    });
+            assertThat(events.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains(
+                            "outcome=SUCCEEDED"));
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
     }
 
     @Test
@@ -341,6 +514,9 @@ class AddressRegistryImporterIntegrationTest {
             assertThat(jdbc.queryForObject("""
                     SELECT outcome FROM address_registry_import_runs WHERE id = ?
                     """, String.class, third.runId())).isEqualTo("SUCCEEDED");
+            assertThat(jdbc.queryForObject("""
+                    SELECT error_code FROM address_registry_retention_jobs WHERE import_run_id = ?
+                    """, String.class, third.runId())).isEqualTo("RETENTION_FAILED");
         } finally {
             jdbc.execute("DROP TRIGGER fail_address_registry_retention ON address_registry_snapshots");
             jdbc.execute("DROP FUNCTION fail_address_registry_retention()");

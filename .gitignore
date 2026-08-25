@@ -26,6 +26,7 @@ Thumbs.db
 *.dump
 *.sql.gz
 data/
+/tmp/
 
 # Scraper output — large, regenerate with tools/eaukcija-scraper.js
 tools/aukcije.json

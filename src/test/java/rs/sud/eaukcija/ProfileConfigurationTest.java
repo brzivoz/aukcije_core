@@ -22,6 +22,9 @@ class ProfileConfigurationTest {
         assertThat(common.getProperty("spring.flyway.enabled")).isEqualTo("true");
         assertThat(common.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(common.getProperty("spring.h2.console.enabled")).isEqualTo("false");
+        assertThat(common.getProperty("management.server.address")).isEqualTo("127.0.0.1");
+        assertThat(common.getProperty("management.server.port"))
+                .isEqualTo("${MANAGEMENT_SERVER_PORT:8082}");
         assertThat(test.getProperty("spring.flyway.enabled")).isEqualTo("true");
         assertThat(test.getProperty("spring.jpa.hibernate.ddl-auto")).isEqualTo("validate");
         assertThat(test.getProperty("spring.h2.console.enabled")).isEqualTo("false");

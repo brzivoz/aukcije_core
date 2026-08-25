@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Aukcije pipeline status</title>
+    <style>
+        :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+        body { margin: 0; background: #10151c; color: #eef3f8; }
+        main { max-width: 1100px; margin: auto; padding: 2rem 1rem 4rem; }
+        h1 { margin-bottom: .25rem; }
+        #summary { padding: 1rem; border-radius: .6rem; background: #293545; }
+        #summary.good { background: #164c35; }
+        #summary.warn { background: #674b0d; }
+        #summary.bad { background: #6a2424; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1rem; }
+        section, details { background: #1a222d; border: 1px solid #344151; border-radius: .6rem; padding: 1rem; }
+        dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: .5rem; }
+        dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+        ul { padding-left: 1.25rem; }
+        pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+        button { margin-top: 1rem; padding: .55rem .9rem; cursor: pointer; }
+        .muted { color: #aebdca; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Pipeline status</h1>
+    <p class="muted">Loopback-only operational evidence. Refreshes every 30 seconds.</p>
+    <div id="summary" role="status">Loading retained evidence…</div>
+    <div class="grid">
+        <section><h2>Synchronization</h2><dl id="sync"></dl></section>
+        <section><h2>Enrichment</h2><dl id="enrichment"></dl></section>
+        <section><h2>Artifacts</h2><dl id="artifacts"></dl></section>
+        <section><h2>Import</h2><dl id="imports"></dl></section>
+    </div>
+    <section><h2>Failures, warnings, and notices</h2><ul id="signals"></ul></section>
+    <details><summary>Complete retained status response</summary><pre id="evidence"></pre></details>
+    <button id="refresh" type="button">Refresh now</button>
+</main>
+<script>
+(() => {
+    'use strict';
+    const byId = id => document.getElementById(id);
+    const text = value => value === null || value === undefined ? '—' : String(value);
+    const time = value => value ? new Date(value).toLocaleString() : '—';
+    const dl = (id, rows) => {
+        const target = byId(id);
+        target.replaceChildren();
+        for (const [label, value] of rows) {
+            const dt = document.createElement('dt'); dt.textContent = label;
+            const dd = document.createElement('dd'); dd.textContent = text(value);
+            target.append(dt, dd);
+        }
+    };
+    async function refresh() {
+        const response = await fetch('/api/operator/status', {cache: 'no-store'});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.code || 'STATUS_UNAVAILABLE');
+        const summary = byId('summary');
+        summary.className = data.state === 'FRESH_AND_HEALTHY' ? 'good' : data.ready ? 'warn' : 'bad';
+        summary.textContent = `${data.state} · readiness ${data.ready ? 'UP' : 'DOWN'} · ${time(data.generatedAt)}`;
+        const sync = data.sync || {};
+        const attempt = sync.lastAttempt || {};
+        dl('sync', [
+            ['Last attempt', attempt.status], ['Attempted at', time(attempt.startedAt)],
+            ['Last success', time(sync.lastSuccessful && sync.lastSuccessful.finishedAt)],
+            ['Age (seconds)', sync.lastSuccessfulAgeSeconds], ['Source rows', attempt.sourceCount],
+            ['Source delta', attempt.sourceDelta], ['External source', sync.externalSourceState]
+        ]);
+        const enrichment = data.enrichment || {};
+        dl('enrichment', [
+            ['Last attempt', enrichment.lastAttempt && enrichment.lastAttempt.status],
+            ['Parser quality version', enrichment.qualityParserVersion],
+            ['Backlog depth', enrichment.backlogDepth],
+            ['Oldest backlog', time(enrichment.oldestBacklogAt)],
+            ['Threshold exceeded', enrichment.backlogThresholdExceeded]
+        ]);
+        const artifacts = data.artifacts || {};
+        dl('artifacts', [
+            ['Basemap', artifacts.basemap && artifacts.basemap.state],
+            ['Basemap version', artifacts.basemap && artifacts.basemap.activeVersion],
+            ['Address snapshot', artifacts.addressRegistry && artifacts.addressRegistry.snapshotId],
+            ['Resolver version', artifacts.resolver && artifacts.resolver.resolverVersion]
+        ]);
+        const imports = data.imports || {};
+        dl('imports', [
+            ['Active job', imports.active && imports.active.runId],
+            ['Last attempt', imports.lastAttempt && imports.lastAttempt.outcome],
+            ['Last error', imports.lastAttempt && imports.lastAttempt.errorCode],
+            ['Last success', time(imports.lastSuccessful && imports.lastSuccessful.finishedAt)],
+            ['Retention job', imports.lastRetention && imports.lastRetention.outcome]
+        ]);
+        const signals = byId('signals'); signals.replaceChildren();
+        for (const signal of [...data.readinessFailures, ...data.warnings, ...data.notices]) {
+            const item = document.createElement('li'); item.textContent = signal; signals.append(item);
+        }
+        if (!signals.childElementCount) {
+            const item = document.createElement('li'); item.textContent = 'No active signals'; signals.append(item);
+        }
+        byId('evidence').textContent = JSON.stringify(data, null, 2);
+    }
+    function guardedRefresh() {
+        refresh().catch(error => {
+            const summary = byId('summary'); summary.className = 'bad';
+            summary.textContent = `STATUS_UNAVAILABLE · ${error.message}`;
+        });
+    }
+    byId('refresh').addEventListener('click', guardedRefresh);
+    guardedRefresh();
+    window.setInterval(guardedRefresh, 30000);
+})();
+</script>
+</body>
+</html>

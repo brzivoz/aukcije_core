@@ -32,7 +32,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class AddressRegistryImporter {
 
     private static final Logger log = LoggerFactory.getLogger(AddressRegistryImporter.class);
-    private static final long IMPORT_ADVISORY_LOCK = 220_258_344L;
 
     private static final String POINT_INSERT = """
             INSERT INTO address_registry_points (
@@ -77,69 +76,88 @@ public class AddressRegistryImporter {
     private final TransactionTemplate transactions;
     private final AddressRegistryArtifactStager stager;
     private final GeoPackageInspector inspector;
+    private final AddressRegistryImportLock importLock;
 
     public AddressRegistryImporter(
             DataSource dataSource,
             PlatformTransactionManager transactionManager,
             AddressRegistryArtifactStager stager,
-            GeoPackageInspector inspector) {
+            GeoPackageInspector inspector,
+            AddressRegistryImportLock importLock) {
         this.dataSource = dataSource;
         this.jdbc = new JdbcTemplate(dataSource);
         this.transactions = new TransactionTemplate(transactionManager);
         this.stager = stager;
         this.inspector = inspector;
+        this.importLock = importLock;
     }
 
     public ImportResult importSnapshot(AddressRegistryImportProperties properties) {
         properties.validateForImport();
         UUID runId = UUID.randomUUID();
         Instant started = Instant.now();
-        startRun(runId, "IMPORT", properties);
+        AddressRegistryImportLock.Lease lease = acquireImportLease(
+                runId, "IMPORT", properties, started);
         AddressRegistryArtifactStager.Artifact artifact = null;
         long validationMillis = 0;
+        ImportResult result;
         try {
-            artifact = stager.stage(properties);
-            Instant validationStarted = Instant.now();
-            GeoPackageInspector.Schema schema = inspector.inspect(artifact.gpkg(), properties);
-            validationMillis = Duration.between(validationStarted, Instant.now()).toMillis();
-            AddressRegistryArtifactStager.Artifact validatedArtifact = artifact;
-            long completedValidationMillis = validationMillis;
+            try {
+                startRun(runId, "IMPORT", properties);
+                log.info("Address Registry import started jobId={} action=IMPORT", runId);
+                artifact = stager.stage(properties);
+                Instant validationStarted = Instant.now();
+                GeoPackageInspector.Schema schema = inspector.inspect(artifact.gpkg(), properties);
+                validationMillis = Duration.between(validationStarted, Instant.now()).toMillis();
+                AddressRegistryArtifactStager.Artifact validatedArtifact = artifact;
+                long completedValidationMillis = validationMillis;
 
-            ImportResult result = transactions.execute(status -> {
-                ImportResult imported = importValidated(
-                        runId, properties, validatedArtifact, schema, started, completedValidationMillis);
-                finishSuccessfulRun(imported);
-                return imported;
-            });
-            if (result == null) {
-                throw new AddressRegistryImportException("IMPORT_FAILED", "transaction returned no import result");
+                result = transactions.execute(status -> {
+                    ImportResult imported = importValidated(
+                            runId, properties, validatedArtifact, schema, started, completedValidationMillis);
+                    finishSuccessfulRun(imported);
+                    return imported;
+                });
+                if (result == null) {
+                    throw new AddressRegistryImportException(
+                            "IMPORT_FAILED", "transaction returned no import result");
+                }
+            } catch (RuntimeException e) {
+                AddressRegistryImportException failure = classify(e);
+                finishFailedRun(runId, started, artifact, validationMillis, failure);
+                log.warn("Address Registry import failed jobId={} code={}", runId, failure.code());
+                throw failure;
+            } finally {
+                if (artifact != null) {
+                    artifact.close();
+                }
             }
-            if ("SUCCEEDED".equals(result.outcome())) {
-                result = cleanupAfterPromotion(result, properties.getRetainedSnapshots());
-            }
-            return result;
-        } catch (RuntimeException e) {
-            AddressRegistryImportException failure = classify(e);
-            finishFailedRun(runId, started, artifact, validationMillis, failure);
-            throw failure;
         } finally {
-            if (artifact != null) {
-                artifact.close();
-            }
+            releaseImportLease(lease, runId);
         }
+        if ("SUCCEEDED".equals(result.outcome())) {
+            result = cleanupAfterPromotion(result, properties.getRetainedSnapshots());
+        }
+        log.info(
+                "Address Registry import finished jobId={} outcome={} durationMillis={}",
+                runId, result.outcome(), result.totalMillis());
+        return result;
     }
 
     public ImportResult rollback() {
         UUID runId = UUID.randomUUID();
         Instant started = Instant.now();
-        startRun(runId, "ROLLBACK", null);
+        AddressRegistryImportLock.Lease lease = acquireImportLease(
+                runId, "ROLLBACK", null, started);
         try {
+            startRun(runId, "ROLLBACK", null);
+            log.info("Address Registry import started jobId={} action=ROLLBACK", runId);
             ImportResult result = transactions.execute(status -> {
-                acquireImportLock();
                 ActivePointer pointer = activePointer(true);
                 if (pointer == null || pointer.previousSnapshotId() == null) {
                     throw new AddressRegistryImportException(
-                            "NO_ROLLBACK_SNAPSHOT", "no previous good Address Registry snapshot is retained");
+                            "NO_ROLLBACK_SNAPSHOT",
+                            "no previous good Address Registry snapshot is retained");
                 }
                 jdbc.update("""
                         UPDATE address_registry_active_snapshot
@@ -155,11 +173,17 @@ public class AddressRegistryImporter {
                 finishSuccessfulRun(rolledBack);
                 return rolledBack;
             });
+            log.info(
+                    "Address Registry import finished jobId={} outcome=ROLLED_BACK durationMillis={}",
+                    runId, result == null ? 0 : result.totalMillis());
             return result;
         } catch (RuntimeException e) {
             AddressRegistryImportException failure = classify(e);
             finishFailedRun(runId, started, null, 0, failure);
+            log.warn("Address Registry import failed jobId={} code={}", runId, failure.code());
             throw failure;
+        } finally {
+            releaseImportLease(lease, runId);
         }
     }
 
@@ -187,8 +211,6 @@ public class AddressRegistryImporter {
             GeoPackageInspector.Schema schema,
             Instant started,
             long validationMillis) {
-        acquireImportLock();
-
         UUID existingId = jdbc.query(
                 "SELECT id FROM address_registry_snapshots WHERE gpkg_sha256 = ?",
                 result -> result.next() ? result.getObject(1, UUID.class) : null,
@@ -211,7 +233,8 @@ public class AddressRegistryImporter {
         insertPlaceholderSnapshot(snapshotId, properties, artifact, schema);
 
         Instant loadStarted = Instant.now();
-        SourceCounts counts = streamPoints(artifact.gpkg(), snapshotId, schema.rowCount(), properties.getBatchSize());
+        SourceCounts counts = streamPoints(
+                artifact.gpkg(), snapshotId, runId, schema.rowCount(), properties.getBatchSize());
         long loadMillis = Duration.between(loadStarted, Instant.now()).toMillis();
         validateLoadedSnapshot(snapshotId, schema.rowCount(), counts, properties.getMinimumActiveFraction());
         long duplicateIdentities = duplicateParcelIdentityCount(snapshotId);
@@ -258,7 +281,8 @@ public class AddressRegistryImporter {
                 retainedSnapshotCount());
     }
 
-    private SourceCounts streamPoints(Path gpkg, UUID snapshotId, long expectedRows, int batchSize) {
+    private SourceCounts streamPoints(
+            Path gpkg, UUID snapshotId, UUID runId, long expectedRows, int batchSize) {
         long seen = 0;
         long active = 0;
         long retired = 0;
@@ -290,7 +314,9 @@ public class AddressRegistryImporter {
                         pending = 0;
                     }
                     if (seen % 100_000 == 0) {
-                        log.info("Address Registry import progress: {}/{} source rows, {} active rows", seen, expectedRows, active);
+                        log.info(
+                                "Address Registry import progress jobId={} sourceRows={} expectedRows={} activeRows={}",
+                                runId, seen, expectedRows, active);
                     }
                 }
                 if (pending > 0) {
@@ -536,27 +562,45 @@ public class AddressRegistryImporter {
         Instant started = Instant.now();
         try {
             RetentionResult cleanup = transactions.execute(status -> {
-                acquireImportLock();
+                acquireRetentionLock();
                 cleanupRetainedSnapshots(retainedSnapshots);
-                long retentionMillis = Duration.between(started, Instant.now()).toMillis();
-                long totalMillis = imported.totalMillis() + retentionMillis;
+                Instant finished = Instant.now();
+                long retentionMillis = Duration.between(started, finished).toMillis();
                 jdbc.update("""
-                        UPDATE address_registry_import_runs
-                        SET retention_millis = ?, total_millis = ?
-                        WHERE id = ?
-                        """, retentionMillis, totalMillis, imported.runId());
+                        INSERT INTO address_registry_retention_jobs (
+                            import_run_id, started_at, finished_at, outcome,
+                            retained_snapshot_count, duration_millis
+                        ) VALUES (?, ?, ?, 'SUCCEEDED', ?, ?)
+                        """, imported.runId(), Timestamp.from(started), Timestamp.from(finished),
+                        retainedSnapshotCount(), retentionMillis);
                 return new RetentionResult(retainedSnapshotCount(), retentionMillis);
             });
             if (cleanup == null) {
-                log.warn("Address Registry snapshot {} was promoted, but retention returned no result", imported.snapshotId());
+                log.warn(
+                        "Address Registry retention incomplete jobId={} snapshotId={} code=RETENTION_NO_RESULT",
+                        imported.runId(), imported.snapshotId());
                 return imported;
             }
             return withRetention(imported, cleanup.retainedSnapshots(), cleanup.retentionMillis());
         } catch (RuntimeException cleanupFailure) {
+            try {
+                Instant failedAt = Instant.now();
+                jdbc.update("""
+                        INSERT INTO address_registry_retention_jobs (
+                            import_run_id, started_at, finished_at, outcome,
+                            duration_millis, error_code
+                        ) VALUES (?, ?, ?, 'FAILED', ?, 'RETENTION_FAILED')
+                        ON CONFLICT (import_run_id) DO NOTHING
+                        """, imported.runId(), Timestamp.from(started), Timestamp.from(failedAt),
+                        Duration.between(started, failedAt).toMillis());
+            } catch (RuntimeException evidenceFailure) {
+                // The import is already committed. A fixed log code remains the
+                // only safe fallback when even the local evidence store failed.
+            }
             log.warn(
-                    "Address Registry snapshot {} was promoted, but post-commit retention failed; "
-                            + "a later import or operator cleanup can retry it",
-                    imported.snapshotId(), cleanupFailure);
+                    "Address Registry retention failed jobId={} snapshotId={} code=RETENTION_FAILED failureClass={} sqlState={}",
+                    imported.runId(), imported.snapshotId(),
+                    cleanupFailure.getClass().getSimpleName(), sqlState(cleanupFailure));
             return imported;
         }
     }
@@ -592,10 +636,11 @@ public class AddressRegistryImporter {
                 : null);
     }
 
-    private void acquireImportLock() {
+    private void acquireRetentionLock() {
         // pg_advisory_xact_lock returns PostgreSQL void, so execute it as a
-        // statement rather than asking Spring to coerce the empty value.
-        jdbc.execute("SELECT pg_advisory_xact_lock(" + IMPORT_ADVISORY_LOCK + ")");
+        // statement rather than asking Spring to coerce the empty value. The
+        // main import lease is already terminal/released before retention.
+        jdbc.execute("SELECT pg_advisory_xact_lock(" + AddressRegistryImportLock.LOCK_ID + ")");
     }
 
     private SnapshotSummary snapshot(UUID id) {
@@ -671,6 +716,50 @@ public class AddressRegistryImporter {
                 result.centroidMillis(), retentionMillis, result.totalMillis() + retentionMillis);
     }
 
+    private AddressRegistryImportLock.Lease acquireImportLease(
+            UUID runId,
+            String action,
+            AddressRegistryImportProperties properties,
+            Instant started) {
+        return importLock.tryAcquire().orElseThrow(() -> {
+            AddressRegistryImportException failure = new AddressRegistryImportException(
+                    "IMPORT_ALREADY_RUNNING", "another Address Registry import action is active");
+            try {
+                jdbc.update("""
+                        INSERT INTO address_registry_import_runs (
+                          id, action, outcome, started_at, finished_at,
+                          source_date, canonical_url, total_millis, error_code
+                        ) VALUES (?, ?, 'FAILED', ?, CURRENT_TIMESTAMP, ?, ?, ?, ?)
+                        """,
+                        runId,
+                        action,
+                        java.sql.Timestamp.from(started),
+                        properties == null ? null : properties.getSourceDate(),
+                        properties == null ? null : properties.getCanonicalUrl(),
+                        Duration.between(started, Instant.now()).toMillis(),
+                        failure.code());
+            } catch (DataAccessException evidenceFailure) {
+                failure.addSuppressed(evidenceFailure);
+            }
+            log.warn("Address Registry import rejected jobId={} code={}", runId, failure.code());
+            return failure;
+        });
+    }
+
+    private void releaseImportLease(AddressRegistryImportLock.Lease lease, UUID runId) {
+        try {
+            lease.close();
+        } catch (RuntimeException releaseFailure) {
+            // The lease aborts/closes its dedicated physical session on an
+            // uncertain unlock. Terminal import evidence remains authoritative;
+            // never turn a committed success into a failing CLI exit or skip
+            // its post-commit retention phase.
+            log.warn(
+                    "Address Registry import lock release incomplete jobId={} code=IMPORT_LOCK_RELEASE_FAILED",
+                    runId);
+        }
+    }
+
     private void startRun(UUID runId, String action, AddressRegistryImportProperties properties) {
         jdbc.update("""
                 INSERT INTO address_registry_import_runs (
@@ -694,7 +783,7 @@ public class AddressRegistryImporter {
                     duplicate_parcel_identities = ?, unnormalized_parcel_rows = ?,
                     ambiguous_parent_identities = ?,
                     download_millis = ?, validation_millis = ?, load_millis = ?,
-                    centroid_millis = ?, retention_millis = ?, total_millis = ?
+                    centroid_millis = ?, total_millis = ?
                 WHERE id = ?
                 """,
                 "UNCHANGED".equals(result.outcome()) ? "UNCHANGED" : "SUCCEEDED",
@@ -716,7 +805,6 @@ public class AddressRegistryImporter {
                 result.validationMillis(),
                 result.loadMillis(),
                 result.centroidMillis(),
-                result.retentionMillis(),
                 result.totalMillis(),
                 result.runId());
     }
@@ -767,6 +855,17 @@ public class AddressRegistryImporter {
             return value;
         }
         return value.substring(0, limit);
+    }
+
+    private static String sqlState(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof SQLException sqlFailure) {
+                return sqlFailure.getSQLState() == null ? "NONE" : sqlFailure.getSQLState();
+            }
+            current = current.getCause();
+        }
+        return "NONE";
     }
 
     private static String text(ResultSet row, String column) throws SQLException {

@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -84,6 +85,28 @@ class SyncExecutionConfigurationTest {
 
         assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(closingMillis).isLessThan(3_000L);
+    }
+
+    @Test
+    void propagatesBoundedCorrelationContextIntoTheManagedWorker() throws Exception {
+        ThreadPoolTaskExecutor executor = new SyncExecutionConfiguration().syncRunExecutor();
+        executor.initialize();
+        try {
+            CountDownLatch completed = new CountDownLatch(1);
+            AtomicReference<String> observed = new AtomicReference<>();
+            MDC.put("correlationId", "sync-request-30");
+            executor.execute(() -> {
+                observed.set(MDC.get("correlationId"));
+                completed.countDown();
+            });
+            MDC.remove("correlationId");
+
+            assertThat(completed.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(observed.get()).isEqualTo("sync-request-30");
+        } finally {
+            MDC.remove("correlationId");
+            executor.shutdown();
+        }
     }
 
     @Configuration(proxyBeanMethods = false)

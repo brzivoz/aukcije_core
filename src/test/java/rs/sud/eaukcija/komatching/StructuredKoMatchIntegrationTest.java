@@ -43,9 +43,13 @@ class StructuredKoMatchIntegrationTest {
     @Autowired
     private JdbcTemplate jdbc;
 
+    private int initialRunCount;
+
     @BeforeEach
     void resetPopulation() {
         clearPopulation();
+        initialRunCount = jdbc.queryForObject(
+                "SELECT count(*) FROM structured_ko_match_runs", Integer.class);
         insertAuction(37001, "  чајетина!!!", "Насеље А", "Општина А");
         insertAuction(37002, "ГРАД", "Насеље А", null);
         insertAuction(37003, "Caribrod", "Димитровград", "Димитровград");
@@ -56,8 +60,7 @@ class StructuredKoMatchIntegrationTest {
 
     @AfterEach
     void clearPopulation() {
-        jdbc.update("DELETE FROM structured_ko_match_runs");
-        jdbc.update("DELETE FROM auctions");
+        jdbc.update("DELETE FROM auctions WHERE id BETWEEN 37001 AND 37006");
     }
 
     @Test
@@ -125,7 +128,9 @@ class StructuredKoMatchIntegrationTest {
         assertThat(jdbc.queryForObject("""
                 SELECT resolved_at FROM auction_structured_ko_matches WHERE auction_id = 37001
                 """, OffsetDateTime.class).toInstant()).isEqualTo(originalResolvedAt);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM structured_ko_match_runs", Integer.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject(
+                "SELECT count(*) FROM structured_ko_match_runs", Integer.class))
+                .isEqualTo(initialRunCount + 2);
 
         jdbc.update("UPDATE auctions SET place_name = ? WHERE id = ?", "Changed place", 37001L);
         StructuredKoMatchService.RunResult changed = service.run();

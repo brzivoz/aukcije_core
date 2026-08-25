@@ -41,7 +41,8 @@ class AddressRegistryFullImportIntegrationTest {
     @BeforeEach
     void clearSnapshots() {
         new JdbcTemplate(dataSource).execute("""
-                TRUNCATE address_registry_import_runs,
+                TRUNCATE address_registry_retention_jobs,
+                         address_registry_import_runs,
                          address_registry_active_snapshot,
                          address_registry_centroids,
                          address_registry_points,

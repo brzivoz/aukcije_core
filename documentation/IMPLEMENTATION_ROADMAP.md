@@ -100,6 +100,21 @@ waves below.
 
 22. **Coarse placement makes marker stacking the dominant case, not an edge case.** In the committed 83-auction fixture, **66 auctions (80%) share a cadastral municipality with at least one other**, and the largest single KO holds **19**. At a KO centroid those render as 19 markers on one identical coordinate. Multi-auction point handling — cluster, or a "N auctions here" list — is therefore a first-pass **#27** requirement rather than #28 polish. This is the one place the reorder makes an issue larger, and it should be weighed before committing to the order.
 
+## Fourth-audit corrections (2026-08-25)
+
+Corrections 1-22 are retained as dated record. Corrections 23-26 change the
+product target itself, not only the ordering.
+
+23. **The 16.3% ceiling was a property of the chosen resolver, not of the data.** Correction 19 deferred the parser chain because it "buys the remaining 16.3% address tier; it does not buy the map." That figure is #32's measurement of the *Address Registry house-number* path: 95 of 440 parcel-bearing auctions (21.6%) have a house number, because bare land generally does not. It was never a measurement of how many auctions can be located. A KO + parcel identity resolves to a cadastral **polygon** without any house number, and #13 returned exact polygons for all three sampled identities including a `MultiPolygon`. The number that actually bounds precise placement is therefore parcel-reference extractability: **440/589 auctions (74.7%)**. Centroid fallback is bounded by the auctions carrying neither parcel nor street reference: **149/589 (25.3%)**.
+
+24. **#21 moves from optional precision to the primary tier.** The execution graph draws #21 as a dashed optional edge — "absent a manually imported private WFS artifact, #23 still proceeds through the address fallback." Under correction 23 that inverts: automatic parcel geometry is the expected outcome for three of every four auctions, and the address fallback is the exception. #21 is rescoped from a manual one-shot import to in-application resolution with a durable cache, and raised to **P0**. #33 is raised to **P0** for the same reason, since it gates both #21 and #23.
+
+25. **#13's decision no longer matches the product requirement.** #13 selected option B — manual, one parcel per invocation — on the owner's declared scope of *occasional private non-commercial lookup*, and stated that a scope change requires a new review. The owner now requires parcel shapes to be applied automatically by the application. New **#41** re-takes that decision under the automated scope and fixes the access contract: rate, concurrency, backoff, per-run ceiling, cache-first at-most-once fetch, `User-Agent`, and an operator kill switch. #41 is a hard gate on #21. `2026-08-21-decision-13-rgz-parcel-access.md` is marked superseded and retained as the dated record of what was decided then.
+
+26. **Object-type auctions need a different geometry than land.** For `Кућа`, `Објекат`, `Стан`, and `Стамбени објекат` — 65 auctions in #32's corpus, of which 55 carry parcel text — the auctioned thing is the structure, and the parcel polygon is a correct but coarse container. New **#42** resolves building/object footprints, gated on #41 establishing that a lawful footprint feature type exists. If it does not, #42 closes as not-feasible and those auctions keep #21's parcel polygon.
+
+27. **Correction 19's deferral is withdrawn.** `#10 → #18 → #19 → #33 → #23` returns to the critical path, because it is the only source of parcel numbers: #32 confirmed `Place.ParcelNumber` is null throughout, so the identities #21 looks up exist only in description text. The coarse-map-first ordering was still correct as executed — a working map shipped in ~49 focused days instead of ~103, and #40 made it operable in one click. What changes is what comes after it: the extraction chain is now the product, not a refinement of it.
+
 ## Honest total
 
 Summing the size labels at 1.5 / 5 / 12 focused days gives roughly **165 focused days** to complete all three milestones as written. For one developer working evenings and weekends that is a **6–12 month** programme.
@@ -113,13 +128,13 @@ The reorder does not change that total — it changes when the product becomes u
 
 The originally-wired row uses the pre-split #22/#33/#23; the coarse row uses #36/#37/#38.
 
-Deferred rather than cut: #12, #17, #10, #18, #19, #22, #33, #23 — about 64 focused days that still have to happen for the 16.3% address tier, now behind a shipped map instead of in front of it.
+Deferred rather than cut: #12, #17, #10, #18, #19, #22, #33, #23 — about 64 focused days, sequenced behind a shipped map instead of in front of it. Correction 23 revises what those days buy: not a 16.3% address tier, but precise placement for the 74.7% of auctions carrying an extractable parcel reference, once #21 and #41 land alongside them.
 
-The P2/M2 work remains the designated cut line. #28 and, if #13 goes badly, #21 are the items to drop first if the schedule needs to give.
+The P2/M2 work remains the designated cut line, and #28 is the item to drop first if the schedule needs to give. #21 is no longer a candidate for cutting — correction 24 makes it the primary precision tier. If #41 declines automated access, the fallback is #23's address and centroid tiers, not a smaller #21.
 
 ## Implementation order
 
-Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. #39 records the reviewed municipality-identity prerequisite discovered in #37's retained population before #38 consumes those matches. The dashed #21 edge is optional precision: absent a manually imported private WFS artifact, #23 still proceeds through the address fallback.
+Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. #39 records the reviewed municipality-identity prerequisite discovered in #37's retained population before #38 consumes those matches. Correction 24 makes #21 a hard tier-1 edge into #23 rather than the optional dashed edge it was: automatic parcel geometry is the expected outcome for 74.7% of auctions. #41 gates #21 and #42; if #41 declines automated access, #23 still proceeds through the address and centroid fallbacks.
 
 ```mermaid
 flowchart TB
@@ -188,19 +203,26 @@ flowchart TB
     subgraph M1B["M1b — Address & Parcel Precision"]
         I22["#22 Full Address Registry import"]
         I33["#33 Extracted KO matching"]
-        I21["#21 Private parcel import"]
+        I41["#41 RGZ automated-access decision"]
+        I21["#21 Automatic parcel geometry"]
+        I42["#42 Building/object footprints"]
         I23["#23 Address/parcel resolver"]
 
         I36 --> I22
         I14 --> I33
         I19 --> I33
-        I13 --> I21
+        I13 --> I41
+        I41 --> I21
+        I41 --> I42
+        I21 --> I42
+        I19 --> I42
         I33 --> I21
         I20 --> I21
         I38 --> I23
         I22 --> I23
         I33 --> I23
-        I21 -. "optional parcel precision" .-> I23
+        I21 --> I23
+        I42 -. "tier 2 when lawful" .-> I23
     end
 
     subgraph M2["M2 — Operational Daily Use"]

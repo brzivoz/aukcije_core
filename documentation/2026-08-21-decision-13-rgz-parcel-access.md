@@ -6,7 +6,17 @@
 
 **Reopened scope:** occasional private, non-commercial use
 
-**Status:** **option B verified; live issue left open for owner review**
+**Status:** **SUPERSEDED (2026-08-25) by #41 — retained as the dated record of
+what was decided on 2026-08-21**
+
+> **Superseded.** This decision was scoped by the owner's declaration of
+> *occasional private non-commercial* use, and states below that "a scope change
+> requires a new #13 review." That change has occurred: parcel geometry must now
+> be resolved automatically by the application and rendered on the map. #41
+> re-takes the decision under the automated scope and additionally enumerates
+> whether a lawful building/object footprint feature type exists (#42). #21 is
+> rescoped to automatic resolution and gated on #41. Nothing below is amended;
+> it records what was decided on 2026-08-21 and why.
 
 ## Decision
 

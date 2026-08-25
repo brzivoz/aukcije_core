@@ -3,6 +3,7 @@ package rs.sud.eaukcija.controller;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -42,12 +43,14 @@ import rs.sud.eaukcija.enrichment.EnrichmentStageName;
 import rs.sud.eaukcija.enrichment.EnrichmentStateStatus;
 import rs.sud.eaukcija.enrichment.EnrichmentTriggerKind;
 import rs.sud.eaukcija.enrichment.EnrichmentVersions;
+import rs.sud.eaukcija.enrichment.EnrichmentWorkerBusyException;
 
 @WebMvcTest(EnrichmentController.class)
 @ActiveProfiles("test")
 class EnrichmentControllerTest {
 
     private static final UUID KEY = UUID.fromString("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    private static final UUID OTHER_KEY = UUID.fromString("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
     private static final UUID RUN_ID = UUID.fromString("11111111-1111-4111-8111-111111111111");
     private static final UUID ACTIVE_RUN_ID = UUID.fromString("22222222-2222-4222-8222-222222222222");
     private static final UUID SOURCE_RUN_ID = UUID.fromString("33333333-3333-4333-8333-333333333333");
@@ -68,7 +71,7 @@ class EnrichmentControllerTest {
     }
 
     @Test
-    void loopbackTriggerIsIdempotentNoStoreAndRejectsOverlap() throws Exception {
+    void loopbackTriggerReturnsItsOwnReplayAndRejectsADifferentOverlap() throws Exception {
         when(service.startManual(KEY)).thenReturn(new EnrichmentRunClaim(RUN_ID, false));
         when(service.findRun(RUN_ID)).thenReturn(Optional.of(runningView()));
 
@@ -83,17 +86,38 @@ class EnrichmentControllerTest {
                 .andExpect(jsonPath("$.statusUrl").value(runUrl(RUN_ID)))
                 .andExpect(jsonPath("$.replayed").value(false));
 
-        when(service.startManual(KEY))
+        when(service.startManual(KEY)).thenReturn(new EnrichmentRunClaim(RUN_ID, true));
+        mvc.perform(post("/api/enrichment/runs")
+                        .with(remoteAddress("127.0.0.1"))
+                        .header("Idempotency-Key", KEY))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.runId").value(RUN_ID.toString()))
+                .andExpect(jsonPath("$.replayed").value(true));
+
+        when(service.startManual(OTHER_KEY))
                 .thenThrow(new EnrichmentAlreadyRunningException(ACTIVE_RUN_ID));
         mvc.perform(post("/api/enrichment/runs")
                         .with(remoteAddress("::1"))
-                        .header("Idempotency-Key", KEY))
+                        .header("Idempotency-Key", OTHER_KEY))
                 .andExpect(status().isConflict())
                 .andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("ENRICHMENT_ALREADY_RUNNING"))
                 .andExpect(jsonPath("$.activeRunId").value(ACTIVE_RUN_ID.toString()))
                 .andExpect(jsonPath("$.statusUrl").value(runUrl(ACTIVE_RUN_ID)));
+
+        reset(service);
+        when(service.isEnabled()).thenReturn(true);
+        when(service.startManual(KEY))
+                .thenThrow(new EnrichmentWorkerBusyException(RUN_ID, SOURCE_RUN_ID));
+        mvc.perform(post("/api/enrichment/runs")
+                        .with(remoteAddress("127.0.0.1"))
+                        .header("Idempotency-Key", KEY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ENRICHMENT_WORKER_BUSY"))
+                .andExpect(jsonPath("$.runId").value(RUN_ID.toString()))
+                .andExpect(jsonPath("$.activeSyncRunId").value(SOURCE_RUN_ID.toString()))
+                .andExpect(jsonPath("$.statusUrl").value(runUrl(RUN_ID)));
     }
 
     @Test
@@ -172,6 +196,7 @@ class EnrichmentControllerTest {
                 VERSIONS,
                 12,
                 Instant.parse("2026-08-24T11:00:00Z"),
+                3,
                 Map.of(
                         EnrichmentStateStatus.PENDING, 7L,
                         EnrichmentStateStatus.SUCCEEDED, 600L,
@@ -192,6 +217,7 @@ class EnrichmentControllerTest {
                 .andExpect(jsonPath("$.paused").value(false))
                 .andExpect(jsonPath("$.backlogSize").value(12))
                 .andExpect(jsonPath("$.oldestPendingSince").value("2026-08-24T11:00:00Z"))
+                .andExpect(jsonPath("$.populationGapCount").value(3))
                 .andExpect(jsonPath("$.statusDistribution.PENDING").value(7))
                 .andExpect(jsonPath("$.statusDistribution.SUCCEEDED").value(600))
                 .andExpect(jsonPath("$.activeVersions.parserVersion").value("parser-v1"))

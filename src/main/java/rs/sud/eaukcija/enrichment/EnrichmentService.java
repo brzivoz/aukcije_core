@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.RejectedExecutionException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,7 +98,6 @@ public class EnrichmentService {
 
     public EnrichmentBacklogStatus status() {
         requireEnabled();
-        repository.bootstrapMissingInputSnapshots();
         EnrichmentVersions versions = pipeline.activeVersions();
         EnrichmentBacklogMeasure backlog = repository.measureBacklog(
                 versions, properties.getMaxAttempts());
@@ -110,6 +108,7 @@ public class EnrichmentService {
                 versions,
                 backlog.count(),
                 backlog.oldestPendingSince(),
+                repository.countPopulationGaps(),
                 distribution,
                 repository.activeRunId().orElse(null));
     }
@@ -124,13 +123,14 @@ public class EnrichmentService {
         try {
             acquired = syncRuns.tryAcquireWorkerLock();
             if (acquired.isEmpty()) {
+                log.info("Enrichment startup recovery deferred code=ENRICHMENT_WORKER_BUSY");
                 return;
             }
             try (WorkerLockLease lease = acquired.orElseThrow()) {
-                recovered = repository.recoverInterruptedRuns();
+                recovered = repository.recoverInterruptedRuns(properties.getMaxInterruptions());
             }
         } catch (RuntimeException recoveryFailure) {
-            log.error("Could not recover enrichment runs code=ENRICHMENT_RECOVERY_FAILED");
+            log.warn("Enrichment startup recovery deferred code=ENRICHMENT_RECOVERY_FAILED");
             return;
         }
         if (repository.isPaused()) {
@@ -143,6 +143,9 @@ public class EnrichmentService {
                         EnrichmentTriggerKind.RECOVERY,
                         EnrichmentSelector.none(),
                         properties.getMaxItemsPerRun());
+            } catch (EnrichmentAlreadyRunningException | EnrichmentWorkerBusyException busy) {
+                log.info("Recovered enrichment work deferred runId={} code=ENRICHMENT_WORKER_BUSY",
+                        runId);
             } catch (RuntimeException restartFailure) {
                 log.error("Could not restart recovered enrichment run runId={} code=ENRICHMENT_RECOVERY_SUBMIT_FAILED",
                         runId);
@@ -156,6 +159,11 @@ public class EnrichmentService {
             EnrichmentSelector selector,
             int maxItems) {
         requireEnabled();
+        Optional<EnrichmentRunClaim> replay = repository.findByIdempotencyKey(idempotencyKey);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
+        }
+        recoverStaleRunIfNeeded();
         repository.bootstrapMissingInputSnapshots();
         EnrichmentVersions versions;
         try {
@@ -170,10 +178,13 @@ public class EnrichmentService {
         }
         try {
             executor.execute(() -> execute(claim.runId()));
-        } catch (RejectedExecutionException rejected) {
-            terminalizeSubmissionFailure(claim.runId());
-            throw new EnrichmentSubmissionException(claim.runId());
         } catch (RuntimeException rejected) {
+            Optional<UUID> activeSyncRunId = safeActiveSyncRunId();
+            if (activeSyncRunId.isPresent()) {
+                terminalizeSkipped(claim.runId());
+                throw new EnrichmentWorkerBusyException(
+                        claim.runId(), activeSyncRunId.orElseThrow());
+            }
             terminalizeSubmissionFailure(claim.runId());
             throw new EnrichmentSubmissionException(claim.runId());
         }
@@ -183,13 +194,14 @@ public class EnrichmentService {
     private void execute(UUID runId) {
         Optional<WorkerLockLease> acquired;
         try {
-            acquired = acquireSharedWorkerLock();
+            acquired = syncRuns.tryAcquireWorkerLock();
         } catch (RuntimeException lockFailure) {
             terminalizeFailure(runId);
             return;
         }
         if (acquired.isEmpty()) {
-            terminalizeFailure(runId);
+            terminalizeSkipped(runId);
+            log.info("Enrichment run skipped runId={} code=ENRICHMENT_WORKER_BUSY", runId);
             return;
         }
         try (WorkerLockLease lease = acquired.orElseThrow()) {
@@ -197,17 +209,28 @@ public class EnrichmentService {
                 return;
             }
             executeLocked(runId);
-        } catch (RuntimeException unexpected) {
+        } catch (Throwable unexpected) {
             terminalizeFailure(runId);
+            if (unexpected instanceof Error error) {
+                throw error;
+            }
         }
     }
 
     private void executeLocked(UUID runId) {
         EnrichmentRunView run = repository.find(runId)
                 .orElseThrow(() -> new IllegalStateException("claimed enrichment run is missing"));
-        if (!activeVersionsMatch(runId, run.versions())) {
-            return;
+        try (EnrichmentPipeline.PinnedRun pinned = pipeline.pinActiveVersions()) {
+            if (!run.versions().equals(pinned.versions())) {
+                log.info("Enrichment run stopped runId={} code=ENRICHMENT_ACTIVE_VERSION_CHANGED", runId);
+                terminalizeFailure(runId);
+                return;
+            }
+            executePinned(runId, run);
         }
+    }
+
+    private void executePinned(UUID runId, EnrichmentRunView run) {
         List<EnrichmentCandidate> candidates = repository.discoverCandidates(
                 run.versions(),
                 run.selector(),
@@ -225,9 +248,6 @@ public class EnrichmentService {
                     runId, ordinal, candidate, run.versions());
             try {
                 EnrichmentItemResult result = processor.process(candidate.item());
-                if (!activeVersionsMatch(runId, run.versions())) {
-                    return;
-                }
                 repository.completeItem(
                         runId,
                         candidate.item().auctionId(),
@@ -237,11 +257,8 @@ public class EnrichmentService {
                         null,
                         null);
             } catch (EnrichmentStageException failure) {
-                if (!activeVersionsMatch(runId, run.versions())) {
-                    return;
-                }
                 boolean capped = failure.retryable()
-                        && attempt.attemptNumber() >= properties.getMaxAttempts();
+                        && attempt.retryableFailureNumber() >= properties.getMaxAttempts();
                 EnrichmentStateStatus status = capped
                         ? EnrichmentStateStatus.ATTEMPT_LIMIT_REACHED
                         : failure.retryable()
@@ -257,10 +274,7 @@ public class EnrichmentService {
                                 : failure.retryable() ? "RETRYABLE_STAGE_FAILURE" : "PERMANENT_STAGE_FAILURE",
                         failure.safeCode());
             } catch (RuntimeException transactionFailure) {
-                if (!activeVersionsMatch(runId, run.versions())) {
-                    return;
-                }
-                boolean capped = attempt.attemptNumber() >= properties.getMaxAttempts();
+                boolean capped = attempt.retryableFailureNumber() >= properties.getMaxAttempts();
                 repository.completeItem(
                         runId,
                         candidate.item().auctionId(),
@@ -271,9 +285,6 @@ public class EnrichmentService {
                         capped ? "ATTEMPT_LIMIT_REACHED" : "RETRYABLE_STAGE_FAILURE",
                         "ITEM_TRANSACTION_FAILED");
             }
-        }
-        if (!activeVersionsMatch(runId, run.versions())) {
-            return;
         }
         EnrichmentRunView completed = repository.find(runId)
                 .orElseThrow(() -> new IllegalStateException("enrichment run disappeared"));
@@ -288,40 +299,57 @@ public class EnrichmentService {
                 partial ? EnrichmentRunStatus.PARTIAL : EnrichmentRunStatus.SUCCEEDED);
     }
 
-    private boolean activeVersionsMatch(UUID runId, EnrichmentVersions expected) {
-        try {
-            if (expected.equals(pipeline.activeVersions())) {
-                return true;
-            }
-            log.info("Enrichment run stopped runId={} code=ENRICHMENT_ACTIVE_VERSION_CHANGED", runId);
-        } catch (RuntimeException unavailable) {
-            log.info("Enrichment run stopped runId={} code=ENRICHMENT_ACTIVE_VERSION_UNAVAILABLE", runId);
+    private void recoverStaleRunIfNeeded() {
+        Optional<UUID> active = repository.activeRunId();
+        if (active.isEmpty()) {
+            return;
         }
-        terminalizeFailure(runId);
-        return false;
+        UUID activeRunId = active.orElseThrow();
+        if (!repository.isStale(activeRunId, properties.getRunningStaleAfter())) {
+            throw new EnrichmentAlreadyRunningException(activeRunId);
+        }
+        try {
+            Optional<WorkerLockLease> acquired = syncRuns.tryAcquireWorkerLock();
+            if (acquired.isEmpty()) {
+                throw new EnrichmentAlreadyRunningException(activeRunId);
+            }
+            try (WorkerLockLease lease = acquired.orElseThrow()) {
+                repository.recoverStaleRuns(
+                        properties.getRunningStaleAfter(), properties.getMaxInterruptions());
+            }
+        } catch (EnrichmentAlreadyRunningException overlap) {
+            throw overlap;
+        } catch (RuntimeException unavailable) {
+            log.warn("Stale enrichment recovery deferred runId={} code=ENRICHMENT_RECOVERY_FAILED",
+                    activeRunId);
+            throw new EnrichmentAlreadyRunningException(activeRunId);
+        }
     }
 
-    private Optional<WorkerLockLease> acquireSharedWorkerLock() {
-        for (int attempt = 1; attempt <= 5; attempt++) {
-            Optional<WorkerLockLease> acquired = syncRuns.tryAcquireWorkerLock();
-            if (acquired.isPresent() || attempt == 5) {
-                return acquired;
-            }
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException interrupted) {
-                Thread.currentThread().interrupt();
-                return Optional.empty();
-            }
+    private Optional<UUID> safeActiveSyncRunId() {
+        try {
+            return syncRuns.activeRunId();
+        } catch (RuntimeException unavailable) {
+            return Optional.empty();
         }
-        return Optional.empty();
     }
 
     private void terminalizeSubmissionFailure(UUID runId) {
         try {
-            repository.fail(runId);
+            repository.fail(runId, properties.getMaxInterruptions());
         } catch (RuntimeException ledgerFailure) {
             log.error("Could not terminalize rejected enrichment run runId={} code=ENRICHMENT_LEDGER_FAILURE",
+                    runId);
+        }
+    }
+
+    private void terminalizeSkipped(UUID runId) {
+        try {
+            if (repository.isRunning(runId)) {
+                repository.skip(runId);
+            }
+        } catch (RuntimeException ledgerFailure) {
+            log.error("Could not terminalize skipped enrichment run runId={} code=ENRICHMENT_LEDGER_FAILURE",
                     runId);
         }
     }
@@ -329,7 +357,7 @@ public class EnrichmentService {
     private void terminalizeFailure(UUID runId) {
         try {
             if (repository.isRunning(runId)) {
-                repository.fail(runId);
+                repository.fail(runId, properties.getMaxInterruptions());
             }
         } catch (RuntimeException ledgerFailure) {
             log.error("Could not terminalize enrichment run runId={} code=ENRICHMENT_LEDGER_FAILURE", runId);

@@ -18,6 +18,7 @@ import rs.sud.eaukcija.enrichment.EnrichmentStage;
 import rs.sud.eaukcija.enrichment.EnrichmentStageException;
 import rs.sud.eaukcija.enrichment.EnrichmentStageName;
 import rs.sud.eaukcija.enrichment.EnrichmentStageResult;
+import rs.sud.eaukcija.enrichment.EnrichmentVersionPin;
 import rs.sud.eaukcija.enrichment.EnrichmentWorkItem;
 
 /** Per-auction adapter for the deterministic #37 matcher. */
@@ -31,6 +32,7 @@ public class StructuredKoEnrichmentStage implements EnrichmentStage {
     private final KoDictionarySnapshotLoader dictionaryLoader;
     private final StructuredKoMatchProperties properties;
     private volatile CachedDictionary cached;
+    private final ThreadLocal<KoDictionarySnapshot> pinnedDictionary = new ThreadLocal<>();
 
     StructuredKoEnrichmentStage(
             JdbcTemplate jdbc,
@@ -63,6 +65,16 @@ public class StructuredKoEnrichmentStage implements EnrichmentStage {
                 dictionary.aliasDatasetVersion(),
                 dictionary.aliasSha256(),
                 dictionary.municipalityAliasSha256());
+    }
+
+    @Override
+    public EnrichmentVersionPin pinActiveVersion() {
+        if (pinnedDictionary.get() != null) {
+            throw new IllegalStateException("KO dictionary is already pinned on this thread");
+        }
+        KoDictionarySnapshot snapshot = dictionary();
+        pinnedDictionary.set(snapshot);
+        return pinnedDictionary::remove;
     }
 
     @Override
@@ -163,6 +175,10 @@ public class StructuredKoEnrichmentStage implements EnrichmentStage {
     }
 
     private KoDictionarySnapshot dictionary() {
+        KoDictionarySnapshot pinned = pinnedDictionary.get();
+        if (pinned != null) {
+            return pinned;
+        }
         properties.validate();
         String pointer = activePointer(properties.getDictionaryDirectory());
         CachedDictionary existing = cached;

@@ -15,9 +15,10 @@ Only the atomic promotion transaction of a `SUCCEEDED` synchronization run may
 publish an enrichment input. It writes:
 
 - an immutable minimized JSON snapshot in
-  `auction_enrichment_input_snapshots`, keyed by auction ID and SHA-256; source
-  values are canonicalized while sync-only clocks such as `detailsFetchedAt`
-  are excluded so a no-change refresh does not invent work;
+  `auction_enrichment_input_snapshots`, keyed by auction ID and SHA-256; input
+  contains only auction identity plus `cadastral`, `placeName`, and
+  `municipality`, the three fields consumed by the shipped stages. Price,
+  status, description, and sync-bookkeeping changes do not invent work;
 - an immutable success-gated observation linking that snapshot to its source
   sync run; and
 - `auctions.current_enrichment_snapshot_sha256`, which is protected by a
@@ -41,8 +42,9 @@ current persisted parcel-evidence dependency SHA-256
 ```
 
 `enrichment_state` keeps one current row per auction: that exact identity,
-status, pending/last-attempt/completion times, attempt count, last stage,
-deterministic output hash, and bounded redacted error codes. A normal run
+status, pending/last-attempt/completion times, total start count, independent
+retryable-failure and interruption counts, last stage, deterministic output
+hash, and bounded redacted error codes. A normal run
 selects only a missing or changed work key, `PENDING` interrupted work, or a
 `RETRYABLE_FAILURE` below its attempt cap. An unchanged terminal row is not
 selected.
@@ -74,15 +76,19 @@ client in this path.
 
 ## Enable and schedule
 
-The subsystem is enabled for PostgreSQL profiles, but its schedule is disabled
-by default. Enable a cadence only after the sync cadence and local artifact
-publication workflow are understood:
+The subsystem is enabled for PostgreSQL profiles and ships with one hourly
+cadence at minute 15 in `Europe/Belgrade`. This is deliberate for every
+environment inheriting `application.properties`; set the cron to `-` to opt an
+environment out or override it when coordinating a different sync/artifact
+publication cadence:
 
 ```text
 EAUKCIJA_ENRICHMENT_ENABLED=true
 EAUKCIJA_ENRICHMENT_SCHEDULE_CRON=0 15 * * * *
 EAUKCIJA_ENRICHMENT_SCHEDULE_ZONE=Europe/Belgrade
 EAUKCIJA_ENRICHMENT_MAX_ATTEMPTS=3
+EAUKCIJA_ENRICHMENT_MAX_INTERRUPTIONS=3
+EAUKCIJA_ENRICHMENT_RUNNING_STALE_AFTER=PT15M
 EAUKCIJA_ENRICHMENT_MAX_ITEMS_PER_RUN=1000
 EAUKCIJA_ENRICHMENT_MAX_REPLAY_ITEMS=1000
 ```
@@ -92,21 +98,25 @@ Bounds are fail-fast:
 | Setting | Allowed | Default |
 |---|---:|---:|
 | `max-attempts` | 1–20 | 3 |
+| `max-interruptions` | 1–20 | 3 |
+| `running-stale-after` | 5 minutes–12 hours | 15 minutes |
 | `max-items-per-run` | 1–1,000 | 1,000 |
 | `max-replay-items` | 1–1,000 | 1,000 |
-| schedule | `-` or valid Spring cron | `-` |
-| zone | valid IANA zone | `UTC` |
+| schedule | `-` or valid Spring cron | `0 15 * * * *` |
+| zone | valid IANA zone | `Europe/Belgrade` |
 
 There is one Spring enrichment schedule and no lease, owner, expiry, per-item
 timer, jitter, or backoff queue. It submits to the same capacity-zero,
 single-threaded `syncRunExecutor` used by #17 and acquires the same PostgreSQL
 session advisory worker lock. A unique partial index also prevents two retained
-`RUNNING` enrichment claims. A concurrent sync or enrichment attempt therefore
-serializes or fails safely instead of creating a second concurrency model.
-The coordinator rechecks the active version set after every item transaction.
-If an artifact pointer changes during a run, that run fails safely, the
-in-flight state returns to `PENDING`, and the next bounded run uses the new work
-key; results can never be acknowledged under a stale version set.
+`RUNNING` enrichment claims. A tick that loses contention to sync is retained
+as `SKIPPED` and logged at `INFO`; it is not an operational failure.
+The coordinator pins the immutable KO dictionary and centroid snapshot once on
+the worker thread, verifies that pinned set against the claimed work version,
+and holds it for the whole run. It therefore avoids per-item ACTIVE-file reads
+and cannot mix old and new artifacts. If a pointer is published mid-run, the
+current run finishes consistently on its pinned work key and the next bounded
+run sees the new active version and selects the affected auctions.
 
 ## Start and inspect a run
 
@@ -123,7 +133,9 @@ curl --fail-with-body --include \
 
 A new claim returns `202 Accepted`, `Cache-Control: no-store`, and a `Location`
 header. Retrying the same UUID returns the same run; a terminal replay returns
-`200 OK`. Only the idempotency-key SHA-256 is stored.
+`200 OK`. A retry while that same run is still healthy returns its own retained
+run with `replayed=true` before overlap/staleness checks; only a different key
+receives the overlap `409`. Only the idempotency-key SHA-256 is stored.
 
 ```bash
 export ENRICHMENT_RUN_ID="replace-with-returned-run-id"
@@ -143,6 +155,7 @@ Run states are:
 | `SUCCEEDED` | Every selected attempt ended as resolved, not-found, or ambiguous, with no retry/permanent/capped failures. A zero-candidate replay is also successful. |
 | `PARTIAL` | The run continued after one or more isolated retryable, permanent, or capped failures. |
 | `PAUSED` | An operator pause was observed between auction transactions; untouched work remains discoverable. |
+| `SKIPPED` | The shared worker was occupied by sync; no enrichment item started and the next tick may claim the work. |
 | `FAILED` | Submission/lock/run-level infrastructure failed; any in-flight item was reset to `PENDING`. |
 | `INTERRUPTED` | Startup recovery terminalized a run left `RUNNING` by a process exit. |
 
@@ -150,7 +163,12 @@ Per-auction current states distinguish `PENDING`, `RUNNING`, `SUCCEEDED`,
 `RETRYABLE_FAILURE`, `TERMINAL_NOT_FOUND`, `AMBIGUOUS`,
 `PERMANENT_FAILURE`, and `ATTEMPT_LIMIT_REACHED`. Retryable failures are picked
 up by the next normal run. The attempt that reaches the configured cap becomes
-terminal; there is no background backoff timer.
+terminal; there is no background backoff timer. Process interruption uses its
+own counter: it does not consume the retryable-failure budget, and the third
+interruption of one work key becomes `ATTEMPT_LIMIT_REACHED` with the fixed
+`INTERRUPTION_LIMIT_REACHED` code. A later deterministic success, terminal
+not-found, or ambiguous outcome resets both failure budgets for a future
+explicit replay of the same work key.
 
 ## Backlog and safe status
 
@@ -160,8 +178,11 @@ The public read-only operational summary exposes no snapshot JSON:
 curl --fail-with-body http://localhost:8081/api/enrichment/status
 ```
 
-It returns the active version set, durable pause flag, active run ID, backlog
-size, `oldestPendingSince`, and the full current-state distribution. For local
+It performs no bootstrap or other writes. It returns the active version set,
+durable pause flag, active run ID, backlog size, `oldestPendingSince`,
+`populationGapCount`, and the full current-state distribution. The population
+gap count exposes successful-sync auctions missing a current snapshot or
+matching success-gated observation instead of silently omitting them. For local
 database diagnosis, equivalent payload-free queries are:
 
 ```sql
@@ -236,11 +257,18 @@ transaction starts. If the process exits:
 1. PostgreSQL releases the session advisory lock;
 2. application startup acquires that same #17 worker lock;
 3. retained `RUNNING` runs become `INTERRUPTED`, and their in-flight state
-   becomes `PENDING` while append-only interruption evidence is retained;
+   becomes `PENDING` while append-only interruption evidence is retained
+   (or reaches the separate bounded interruption limit);
 4. one idempotent `RECOVERY` run discovers all accepted unfinished work,
    including items the old run had not started; and
 5. deterministic stage upserts make a committed-but-not-yet-acknowledged item
    safe to execute again.
+
+Startup recovery is opportunistic rather than one-shot: if the shared lock is
+busy or recovery temporarily fails, every later manual/scheduled start checks
+the retained heartbeat. A run older than `running-stale-after` is recovered
+under the shared worker lock before the new claim, so a dead executor thread
+cannot wedge the unique `RUNNING` slot until another process restart.
 
 Every auction has its own transaction. A stage failure rolls back only that
 auction's derived writes, records a bounded safe code, updates the run counter,
@@ -255,11 +283,11 @@ local artifact/configuration, then use a bounded replay or normal version bump.
 ## Measured cold pass and deferred queue trigger
 
 On 2026-08-25, the production five-stage pipeline processed a cold 601-auction
-fixture through real PostgreSQL/PostGIS on one thread in **3,667 ms**. Exactly
+fixture through real PostgreSQL/PostGIS on one thread in **3,506 ms**. Exactly
 600 auctions completed and one intentionally incompatible KO artifact failed
 at `ADDRESS_FALLBACK`; the run continued, and its unchanged follow-up selected
 zero items. The source client was mocked and verified to have zero interactions.
-The containing JUnit method took 4.256 seconds.
+The containing JUnit method took 3.770 seconds.
 
 Reproduce the measurement with:
 

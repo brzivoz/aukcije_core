@@ -104,7 +104,8 @@ CREATE TABLE enrichment_runs (
                                 CHECK (trigger_kind IN ('MANUAL', 'SCHEDULED', 'REPLAY', 'RECOVERY')),
     status                      VARCHAR(16) NOT NULL
                                 CHECK (status IN (
-                                    'RUNNING', 'SUCCEEDED', 'PARTIAL', 'PAUSED', 'FAILED', 'INTERRUPTED'
+                                    'RUNNING', 'SUCCEEDED', 'PARTIAL', 'PAUSED', 'SKIPPED',
+                                    'FAILED', 'INTERRUPTED'
                                 )),
     started_at                  TIMESTAMP WITH TIME ZONE NOT NULL,
     heartbeat_at                TIMESTAMP WITH TIME ZONE NOT NULL,
@@ -115,7 +116,7 @@ CREATE TABLE enrichment_runs (
     selector_type               VARCHAR(24) NOT NULL DEFAULT 'NONE'
                                 CHECK (selector_type IN (
                                     'NONE', 'SOURCE_SYNC_RUN', 'ENRICHMENT_RUN',
-                                    'AUCTION', 'VERSION', 'RECOVERY_RUN'
+                                    'AUCTION', 'VERSION'
                                 )),
     selector_value              TEXT,
     max_items                   INTEGER NOT NULL CHECK (max_items BETWEEN 1 AND 1000),
@@ -166,6 +167,8 @@ CREATE TABLE enrichment_state (
                                     'ATTEMPT_LIMIT_REACHED'
                                 )),
     attempt_count               INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    retryable_failure_count     INTEGER NOT NULL DEFAULT 0 CHECK (retryable_failure_count >= 0),
+    interruption_count          INTEGER NOT NULL DEFAULT 0 CHECK (interruption_count >= 0),
     pending_since               TIMESTAMP WITH TIME ZONE NOT NULL,
     last_attempt_at             TIMESTAMP WITH TIME ZONE,
     completed_at                TIMESTAMP WITH TIME ZONE,
@@ -197,6 +200,9 @@ CREATE TABLE enrichment_state (
     CONSTRAINT ck_enrichment_state_output CHECK (
         (status IN ('SUCCEEDED', 'TERMINAL_NOT_FOUND', 'AMBIGUOUS') AND output_sha256 IS NOT NULL)
         OR (status NOT IN ('SUCCEEDED', 'TERMINAL_NOT_FOUND', 'AMBIGUOUS') AND output_sha256 IS NULL)
+    ),
+    CONSTRAINT ck_enrichment_state_attempt_counts CHECK (
+        retryable_failure_count + interruption_count <= attempt_count
     )
 );
 

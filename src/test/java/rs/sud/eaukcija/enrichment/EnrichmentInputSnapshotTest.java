@@ -17,11 +17,17 @@ class EnrichmentInputSnapshotTest {
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
-    void canonicalizesEquivalentValuesAndExcludesSyncBookkeeping() {
+    void hashesOnlyTheLocationFieldsConsumedByThePipeline() {
         Auction auction = auction(new BigDecimal("100.00"));
         EnrichmentInputSnapshot first = EnrichmentInputSnapshot.from(auction, objectMapper);
 
-        auction.setStartingPrice(new BigDecimal("100.0"));
+        auction.setStartingPrice(new BigDecimal("999999.99"));
+        auction.setCurrentPrice(new BigDecimal("123456.78"));
+        auction.setMaxOfferedPrice(new BigDecimal("120000.00"));
+        auction.setBidStep(new BigDecimal("1000"));
+        auction.setStatus("SOLD");
+        auction.setDescription("completely different description");
+        auction.setListingFingerprint("f".repeat(64));
         auction.setLastSuccessfulSyncRunId(UUID.randomUUID());
         auction.setAbsenceCount(99);
         auction.setLastSeenAt(Instant.parse("2026-08-24T20:00:00Z"));
@@ -29,7 +35,14 @@ class EnrichmentInputSnapshotTest {
         EnrichmentInputSnapshot sameInput = EnrichmentInputSnapshot.from(auction, objectMapper);
 
         assertThat(sameInput).isEqualTo(first);
-        assertThat(first.canonicalInput().path("startingPrice").asText()).isEqualTo("100");
+        assertThat(first.canonicalInput().fieldNames())
+                .toIterable()
+                .containsExactly("schemaVersion", "auctionId", "placeName", "municipality", "cadastral");
+        assertThat(first.canonicalInput().has("startingPrice")).isFalse();
+        assertThat(first.canonicalInput().has("currentPrice")).isFalse();
+        assertThat(first.canonicalInput().has("status")).isFalse();
+        assertThat(first.canonicalInput().has("description")).isFalse();
+        assertThat(first.canonicalInput().has("listingFingerprint")).isFalse();
         assertThat(first.canonicalInput().has("lastSuccessfulSyncRunId")).isFalse();
         assertThat(first.canonicalInput().has("absenceCount")).isFalse();
         assertThat(first.canonicalInput().has("lastSeenAt")).isFalse();
@@ -50,6 +63,16 @@ class EnrichmentInputSnapshotTest {
         assertThat(changed.sha256()).isNotEqualTo(original.sha256());
         assertThat(original.canonicalInput().path("cadastral").asText()).isEqualTo("ГРАД");
         assertThat(changed.canonicalInput().path("cadastral").asText()).isEqualTo("Нови КО");
+
+        auction.setCadastral("ГРАД");
+        auction.setPlaceName("Ново насеље");
+        assertThat(EnrichmentInputSnapshot.from(auction, objectMapper).sha256())
+                .isNotEqualTo(original.sha256());
+
+        auction.setPlaceName("Насеље Б");
+        auction.setMunicipality("Нова општина");
+        assertThat(EnrichmentInputSnapshot.from(auction, objectMapper).sha256())
+                .isNotEqualTo(original.sha256());
     }
 
     private static Auction auction(BigDecimal price) {

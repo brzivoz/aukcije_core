@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** One Spring-managed schedule; the default '-' marker keeps it opt-in. */
+/** One Spring-managed hourly schedule; '-' remains an explicit disable switch. */
 @Component
 public class EnrichmentScheduler {
 
@@ -31,8 +31,8 @@ public class EnrichmentScheduler {
     }
 
     @Scheduled(
-            cron = "${eaukcija.enrichment.schedule-cron:-}",
-            zone = "${eaukcija.enrichment.schedule-zone:UTC}")
+            cron = "${eaukcija.enrichment.schedule-cron:0 15 * * * *}",
+            zone = "${eaukcija.enrichment.schedule-zone:Europe/Belgrade}")
     public void trigger() {
         String occurrence = "eaukcija-enrichment:"
                 + clock.instant().truncatedTo(ChronoUnit.SECONDS);
@@ -44,6 +44,9 @@ public class EnrichmentScheduler {
                     overlap.activeRunId());
         } catch (EnrichmentUnavailableException unavailable) {
             log.info("Scheduled enrichment skipped code=ENRICHMENT_UNAVAILABLE");
+        } catch (EnrichmentWorkerBusyException busy) {
+            log.info("Scheduled enrichment skipped code=ENRICHMENT_WORKER_BUSY runId={} activeSyncRunId={}",
+                    busy.runId(), busy.activeSyncRunId());
         } catch (EnrichmentSubmissionException rejected) {
             log.error("Scheduled enrichment failed code=ENRICHMENT_EXECUTOR_UNAVAILABLE runId={}",
                     rejected.runId());

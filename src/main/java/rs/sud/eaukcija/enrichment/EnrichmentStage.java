@@ -10,5 +10,10 @@ public interface EnrichmentStage {
     /** Active local dataset identity, or a stable NONE marker for dataset-free stages. */
     String activeDatasetVersion();
 
+    /** Pins any mutable ACTIVE pointer to one immutable snapshot for this worker thread. */
+    default EnrichmentVersionPin pinActiveVersion() {
+        return () -> { };
+    }
+
     EnrichmentStageResult process(EnrichmentWorkItem item);
 }

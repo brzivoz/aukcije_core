@@ -10,6 +10,9 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -18,7 +21,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -34,6 +39,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -107,6 +113,45 @@ class EnrichmentReprocessingIntegrationTest {
     }
 
     @Test
+    void retryingTheSameIdempotencyKeyWhileItsRunIsHealthyReturnsThatRun() {
+        seedAcceptedAuctions(1, 15_000L);
+        EnrichmentPipeline pipeline = mock(EnrichmentPipeline.class);
+        when(pipeline.activeVersions()).thenReturn(V1);
+        when(pipeline.pinActiveVersions())
+                .thenAnswer(invocation -> new EnrichmentPipeline.PinnedRun(V1, List.of()));
+        EnrichmentItemProcessor processor = mock(EnrichmentItemProcessor.class);
+        when(processor.process(any())).thenAnswer(invocation ->
+                success(invocation.getArgument(0)));
+        AtomicReference<Runnable> submitted = new AtomicReference<>();
+        AtomicInteger submissionCount = new AtomicInteger();
+        EnrichmentService service = new EnrichmentService(
+                new EnrichmentProperties(),
+                pipeline,
+                processor,
+                repository,
+                syncRuns,
+                task -> {
+                    submissionCount.incrementAndGet();
+                    if (!submitted.compareAndSet(null, task)) {
+                        throw new AssertionError("idempotent replay submitted a second task");
+                    }
+                });
+        UUID key = UUID.randomUUID();
+
+        EnrichmentRunClaim original = service.startManual(key);
+        EnrichmentRunClaim replay = service.startManual(key);
+
+        assertThat(repository.find(original.runId()).orElseThrow().status())
+                .isEqualTo(EnrichmentRunStatus.RUNNING);
+        assertThat(replay).isEqualTo(new EnrichmentRunClaim(original.runId(), true));
+        assertThat(submissionCount).hasValue(1);
+
+        submitted.get().run();
+        assertThat(repository.find(original.runId()).orElseThrow().status())
+                .isEqualTo(EnrichmentRunStatus.SUCCEEDED);
+    }
+
+    @Test
     void parserResolverAndDatasetBumpsSelectExactlyMismatchedAuctions() {
         seedAcceptedAuctions(3, 20_000L);
         EnrichmentService first = service(V1, EnrichmentReprocessingIntegrationTest::success, 3);
@@ -143,12 +188,14 @@ class EnrichmentReprocessingIntegrationTest {
     }
 
     @Test
-    void activeVersionChangeDuringAnItemCannotCompleteTheOldWorkKey() {
+    void activeVersionChangeBetweenClaimAndPinnedExecutionCannotStartTheOldWorkKey() {
         seedAcceptedAuctions(1, 25_000L);
         EnrichmentVersions version2 = new EnrichmentVersions(
                 "parser-v2", "resolver-v2", "dataset-v2");
         EnrichmentPipeline changingPipeline = mock(EnrichmentPipeline.class);
-        when(changingPipeline.activeVersions()).thenReturn(V1, V1, version2, version2);
+        when(changingPipeline.activeVersions()).thenReturn(V1);
+        when(changingPipeline.pinActiveVersions())
+                .thenReturn(new EnrichmentPipeline.PinnedRun(version2, List.of()));
         EnrichmentItemProcessor processor = mock(EnrichmentItemProcessor.class);
         when(processor.process(any())).thenAnswer(invocation ->
                 success(invocation.getArgument(0)));
@@ -165,12 +212,10 @@ class EnrichmentReprocessingIntegrationTest {
 
         assertThat(repository.find(interrupted.runId()).orElseThrow().status())
                 .isEqualTo(EnrichmentRunStatus.FAILED);
-        assertThat(repository.items(interrupted.runId()))
-                .extracting(EnrichmentRunItemView::status)
-                .containsExactly(EnrichmentStateStatus.INTERRUPTED);
+        assertThat(repository.items(interrupted.runId())).isEmpty();
         assertThat(jdbc.queryForObject("""
-                SELECT status FROM enrichment_state WHERE auction_id = 25000
-                """, String.class)).isEqualTo("PENDING");
+                SELECT COUNT(*) FROM enrichment_state WHERE auction_id = 25000
+                """, Long.class)).isZero();
         assertThat(repository.discoverCandidates(
                 version2, EnrichmentSelector.none(), 3, 100))
                 .extracting(candidate -> candidate.item().auctionId())
@@ -178,7 +223,8 @@ class EnrichmentReprocessingIntegrationTest {
     }
 
     @Test
-    void killAndRestartRetainsInterruptedEvidenceAndConvergesToUninterruptedOutputs() {
+    void killAndRestartRetainsInterruptedEvidenceAndConvergesToUninterruptedOutputs()
+            throws Exception {
         seedAcceptedAuctions(3, 30_000L);
         EnrichmentRunClaim interrupted = repository.claim(
                 "interrupted-run", EnrichmentTriggerKind.MANUAL, V1,
@@ -195,9 +241,9 @@ class EnrichmentReprocessingIntegrationTest {
                 firstResult.lastStage(), firstResult.outputSha256(), null, null);
 
         EnrichmentCandidate inFlight = initial.get(1);
-        repository.startItem(interrupted.runId(), 2, inFlight, V1);
+        crashAfterStartingItem(interrupted.runId(), inFlight);
         try (WorkerLockLease ignored = syncRuns.tryAcquireWorkerLock().orElseThrow()) {
-            assertThat(repository.recoverInterruptedRuns()).containsExactly(interrupted.runId());
+            assertThat(repository.recoverInterruptedRuns(3)).containsExactly(interrupted.runId());
         }
 
         assertThat(repository.find(interrupted.runId()).orElseThrow().status())
@@ -283,6 +329,205 @@ class EnrichmentReprocessingIntegrationTest {
                 SELECT auction_id FROM enrichment_state
                  WHERE status = 'SUCCEEDED' ORDER BY auction_id
                 """, Long.class)).containsExactly(35_000L, 35_001L, 35_002L);
+    }
+
+    @Test
+    void aLaterStartSelfHealsAStaleRunningRunWithoutRestartingTheProcess() {
+        seedAcceptedAuctions(1, 36_000L);
+        EnrichmentRunClaim wedged = repository.claim(
+                "wedged-run", EnrichmentTriggerKind.MANUAL, V1,
+                EnrichmentSelector.none(), 100);
+        jdbc.update("""
+                UPDATE enrichment_runs
+                   SET heartbeat_at = CURRENT_TIMESTAMP - INTERVAL '16 minutes'
+                 WHERE id = ?
+                """, wedged.runId());
+
+        EnrichmentService service = service(V1, EnrichmentReprocessingIntegrationTest::success, 3);
+        EnrichmentRunClaim replacement = service.startManual(UUID.randomUUID());
+
+        assertThat(repository.find(wedged.runId()).orElseThrow().status())
+                .isEqualTo(EnrichmentRunStatus.INTERRUPTED);
+        assertThat(repository.find(replacement.runId()).orElseThrow().status())
+                .isEqualTo(EnrichmentRunStatus.SUCCEEDED);
+        assertThat(repository.items(replacement.runId()))
+                .extracting(EnrichmentRunItemView::auctionId)
+                .containsExactly(36_000L);
+    }
+
+    @Test
+    void statusIsReadOnlyAndReportsAuctionsMissingFromTheSnapshotLineage() {
+        seedAcceptedAuctions(1, 37_000L);
+        jdbc.update("""
+                UPDATE auctions SET current_enrichment_snapshot_sha256 = NULL WHERE id = 37000
+                """);
+        long snapshotsBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_enrichment_input_snapshots", Long.class);
+        long observationsBefore = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_enrichment_snapshot_observations", Long.class);
+
+        EnrichmentBacklogStatus status = service(
+                V1, EnrichmentReprocessingIntegrationTest::success, 3).status();
+
+        assertThat(status.backlogSize()).isZero();
+        assertThat(status.populationGapCount()).isOne();
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_enrichment_input_snapshots", Long.class))
+                .isEqualTo(snapshotsBefore);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_enrichment_snapshot_observations", Long.class))
+                .isEqualTo(observationsBefore);
+        assertThat(jdbc.queryForObject("""
+                SELECT current_enrichment_snapshot_sha256 FROM auctions WHERE id = 37000
+                """, String.class)).isNull();
+    }
+
+    @Test
+    void interruptionsHaveTheirOwnCapAndDoNotConsumeRetryableFailureAttempts() {
+        seedAcceptedAuctions(1, 38_000L);
+        interruptOnlyCandidate("interruption-one", 3);
+        interruptOnlyCandidate("interruption-two", 3);
+
+        assertThat(jdbc.queryForMap("""
+                SELECT attempt_count, retryable_failure_count, interruption_count
+                  FROM enrichment_state WHERE auction_id = 38000
+                """)).containsEntry("attempt_count", 2)
+                .containsEntry("retryable_failure_count", 0)
+                .containsEntry("interruption_count", 2);
+
+        EnrichmentService failures = service(V1, item -> {
+            throw EnrichmentStageException.retryable("TEST_TRANSIENT_FAILURE", null);
+        }, 3);
+        assertThat(run(failures).retryableFailureCount()).isOne();
+        assertThat(run(failures).retryableFailureCount()).isOne();
+        assertThat(run(failures).attemptLimitCount()).isOne();
+        assertThat(run(failures).candidateCount()).isZero();
+        assertThat(jdbc.queryForMap("""
+                SELECT status, attempt_count, retryable_failure_count, interruption_count
+                  FROM enrichment_state WHERE auction_id = 38000
+                """)).containsEntry("status", "ATTEMPT_LIMIT_REACHED")
+                .containsEntry("attempt_count", 5)
+                .containsEntry("retryable_failure_count", 3)
+                .containsEntry("interruption_count", 2);
+    }
+
+    @Test
+    void deterministicSuccessResetsFailureBudgetsBeforeAnExplicitReplay() {
+        seedAcceptedAuctions(1, 38_500L);
+        interruptOnlyCandidate("reset-interruption-one", 3);
+        interruptOnlyCandidate("reset-interruption-two", 3);
+        EnrichmentService transientFailure = service(V1, item -> {
+            throw EnrichmentStageException.retryable("TEST_TRANSIENT_FAILURE", null);
+        }, 3);
+        assertThat(run(transientFailure).retryableFailureCount()).isOne();
+
+        assertThat(run(service(V1, EnrichmentReprocessingIntegrationTest::success, 3)).succeededCount())
+                .isOne();
+        assertThat(jdbc.queryForMap("""
+                SELECT status, retryable_failure_count, interruption_count
+                  FROM enrichment_state WHERE auction_id = 38500
+                """)).containsEntry("status", "SUCCEEDED")
+                .containsEntry("retryable_failure_count", 0)
+                .containsEntry("interruption_count", 0);
+
+        EnrichmentSelector selector = new EnrichmentSelector(EnrichmentSelectorType.AUCTION, "38500");
+        EnrichmentRunClaim replay = repository.claim(
+                "post-success-explicit-replay", EnrichmentTriggerKind.REPLAY, V1, selector, 1);
+        EnrichmentCandidate candidate = repository.discoverCandidates(V1, selector, 3, 1).get(0);
+        repository.setCandidateCount(replay.runId(), 1);
+        repository.startItem(replay.runId(), 1, candidate, V1);
+        try (WorkerLockLease ignored = syncRuns.tryAcquireWorkerLock().orElseThrow()) {
+            assertThat(repository.recoverInterruptedRuns(3)).containsExactly(replay.runId());
+        }
+
+        assertThat(jdbc.queryForMap("""
+                SELECT status, retryable_failure_count, interruption_count
+                  FROM enrichment_state WHERE auction_id = 38500
+                """)).containsEntry("status", "PENDING")
+                .containsEntry("retryable_failure_count", 0)
+                .containsEntry("interruption_count", 1);
+    }
+
+    @Test
+    void repeatedProcessInterruptionsReachABoundedTerminalState() {
+        seedAcceptedAuctions(1, 39_000L);
+        interruptOnlyCandidate("crash-one", 3);
+        interruptOnlyCandidate("crash-two", 3);
+        interruptOnlyCandidate("crash-three", 3);
+
+        assertThat(repository.discoverCandidates(
+                V1, EnrichmentSelector.none(), 3, 100)).isEmpty();
+        assertThat(jdbc.queryForMap("""
+                SELECT status, interruption_count, error_class, error_message
+                  FROM enrichment_state WHERE auction_id = 39000
+                """)).containsEntry("status", "ATTEMPT_LIMIT_REACHED")
+                .containsEntry("interruption_count", 3)
+                .containsEntry("error_class", "ATTEMPT_LIMIT_REACHED")
+                .containsEntry("error_message", "INTERRUPTION_LIMIT_REACHED");
+    }
+
+    @Test
+    void anErrorEscapingItemExecutionTerminalizesTheRunAndInFlightItem() {
+        seedAcceptedAuctions(1, 39_500L);
+        EnrichmentService service = service(V1, item -> {
+            throw new AssertionError("simulated executor thread death");
+        }, 3);
+
+        assertThatThrownBy(() -> service.startManual(UUID.randomUUID()))
+                .isInstanceOf(AssertionError.class);
+
+        UUID runId = jdbc.queryForObject(
+                "SELECT id FROM enrichment_runs ORDER BY started_at DESC LIMIT 1", UUID.class);
+        assertThat(repository.find(runId).orElseThrow().status()).isEqualTo(EnrichmentRunStatus.FAILED);
+        assertThat(repository.items(runId))
+                .extracting(EnrichmentRunItemView::status)
+                .containsExactly(EnrichmentStateStatus.INTERRUPTED);
+        assertThat(jdbc.queryForMap("""
+                SELECT status, interruption_count FROM enrichment_state WHERE auction_id = 39500
+                """)).containsEntry("status", "PENDING")
+                .containsEntry("interruption_count", 1);
+    }
+
+    @Test
+    void workerContentionSkipsRatherThanFailsTheRecordedRun() {
+        seedAcceptedAuctions(1, 39_600L);
+        EnrichmentService service = service(V1, EnrichmentReprocessingIntegrationTest::success, 3);
+
+        EnrichmentRunClaim claim;
+        try (WorkerLockLease ignored = syncRuns.tryAcquireWorkerLock().orElseThrow()) {
+            claim = service.startScheduled(UUID.randomUUID());
+        }
+
+        assertThat(repository.find(claim.runId()).orElseThrow().status())
+                .isEqualTo(EnrichmentRunStatus.SKIPPED);
+        assertThat(repository.items(claim.runId())).isEmpty();
+    }
+
+    @Test
+    void rejectedSubmissionDuringAnActiveSyncIsASkipNotAnOperationalFailure() {
+        seedAcceptedAuctions(1, 39_700L);
+        UUID activeSyncRunId = insertActiveSyncRun();
+        EnrichmentPipeline pipeline = mock(EnrichmentPipeline.class);
+        when(pipeline.activeVersions()).thenReturn(V1);
+        when(pipeline.pinActiveVersions())
+                .thenAnswer(invocation -> new EnrichmentPipeline.PinnedRun(V1, List.of()));
+        EnrichmentProperties properties = new EnrichmentProperties();
+        EnrichmentService service = new EnrichmentService(
+                properties,
+                pipeline,
+                mock(EnrichmentItemProcessor.class),
+                repository,
+                syncRuns,
+                task -> { throw new TaskRejectedException("shared worker occupied"); });
+
+        assertThatThrownBy(() -> service.startScheduled(UUID.randomUUID()))
+                .isInstanceOf(EnrichmentWorkerBusyException.class)
+                .satisfies(failure -> {
+                    EnrichmentWorkerBusyException busy = (EnrichmentWorkerBusyException) failure;
+                    assertThat(busy.activeSyncRunId()).isEqualTo(activeSyncRunId);
+                    assertThat(repository.find(busy.runId()).orElseThrow().status())
+                            .isEqualTo(EnrichmentRunStatus.SKIPPED);
+                });
     }
 
     @ParameterizedTest
@@ -491,6 +736,8 @@ class EnrichmentReprocessingIntegrationTest {
             int maxAttempts) {
         EnrichmentPipeline pipeline = mock(EnrichmentPipeline.class);
         when(pipeline.activeVersions()).thenReturn(versions);
+        when(pipeline.pinActiveVersions())
+                .thenAnswer(invocation -> new EnrichmentPipeline.PinnedRun(versions, List.of()));
         EnrichmentItemProcessor processor = mock(EnrichmentItemProcessor.class);
         when(processor.process(any())).thenAnswer(invocation ->
                 behavior.process(invocation.getArgument(0)));
@@ -505,6 +752,75 @@ class EnrichmentReprocessingIntegrationTest {
                 repository,
                 syncRuns,
                 Runnable::run);
+    }
+
+    private void interruptOnlyCandidate(String idempotencyKey, int maxInterruptions) {
+        EnrichmentRunClaim run = repository.claim(
+                idempotencyKey, EnrichmentTriggerKind.MANUAL, V1,
+                EnrichmentSelector.none(), 100);
+        EnrichmentCandidate candidate = repository.discoverCandidates(
+                V1, EnrichmentSelector.none(), 3, 100).get(0);
+        repository.setCandidateCount(run.runId(), 1);
+        repository.startItem(run.runId(), 1, candidate, V1);
+        try (WorkerLockLease ignored = syncRuns.tryAcquireWorkerLock().orElseThrow()) {
+            assertThat(repository.recoverInterruptedRuns(maxInterruptions))
+                    .containsExactly(run.runId());
+        }
+    }
+
+    private void crashAfterStartingItem(UUID runId, EnrichmentCandidate candidate) throws Exception {
+        EnrichmentWorkItem item = candidate.item();
+        String canonical = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                objectMapper.writeValueAsBytes(item.canonicalInput()));
+        ProcessBuilder processBuilder = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-cp",
+                System.getProperty("java.class.path"),
+                EnrichmentCrashProbe.class.getName(),
+                runId.toString(),
+                Long.toString(item.auctionId()),
+                V1.parserVersion(),
+                V1.resolverVersion(),
+                V1.datasetVersion(),
+                item.sourceSyncRunId().toString(),
+                item.snapshotSha256(),
+                item.dependencySha256(),
+                canonical);
+        processBuilder.redirectErrorStream(true);
+        processBuilder.environment().put("ENRICHMENT_CRASH_DB_URL", POSTGIS.getJdbcUrl());
+        processBuilder.environment().put("ENRICHMENT_CRASH_DB_USER", POSTGIS.getUsername());
+        processBuilder.environment().put("ENRICHMENT_CRASH_DB_PASSWORD", POSTGIS.getPassword());
+        Process process = processBuilder.start();
+        boolean exited = process.waitFor(15, TimeUnit.SECONDS);
+        if (!exited) {
+            process.destroyForcibly();
+            throw new AssertionError("crash probe did not exit");
+        }
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(process.exitValue()).isEqualTo(29);
+        assertThat(output).contains("ENRICHMENT_ITEM_DURABLY_STARTED");
+        assertThat(repository.items(runId))
+                .extracting(EnrichmentRunItemView::status)
+                .containsExactly(EnrichmentStateStatus.SUCCEEDED, EnrichmentStateStatus.RUNNING);
+    }
+
+    private UUID insertActiveSyncRun() {
+        UUID runId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO sync_runs (
+                    id, idempotency_key_sha256, trigger_kind, status, stage,
+                    started_at, heartbeat_at, configured_roots, page_size,
+                    category_tree_sha256, category_tree_observed_at
+                ) VALUES (?, ?, 'SCHEDULED', 'RUNNING', 'PROMOTING', ?, ?,
+                          CAST('[7]' AS jsonb), 3000, ?, ?)
+                """,
+                runId,
+                EnrichmentHashing.sha256("active-sync", runId.toString()),
+                databaseTime(BASE_TIME.plusSeconds(10)),
+                databaseTime(BASE_TIME.plusSeconds(10)),
+                TAXONOMY_HASH,
+                databaseTime(BASE_TIME));
+        return runId;
     }
 
     private static EnrichmentRunView run(EnrichmentService service) {

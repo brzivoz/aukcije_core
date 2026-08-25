@@ -23,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
+import rs.sud.eaukcija.enrichment.EnrichmentVersionPin;
 import rs.sud.eaukcija.enrichment.StructuredLocationParseStage;
 import rs.sud.eaukcija.spatial.LocationSelectionSql;
 import rs.sud.eaukcija.komatching.StructuredKoMatchService;
@@ -45,6 +46,7 @@ public class CoarseLocationResolutionService {
     private final CoarseLocationResolutionProperties properties;
     private final Clock clock;
     private volatile CachedSnapshot cachedSnapshot;
+    private final ThreadLocal<CentroidSnapshot> pinnedSnapshot = new ThreadLocal<>();
 
     @Autowired
     public CoarseLocationResolutionService(
@@ -213,6 +215,15 @@ public class CoarseLocationResolutionService {
     public ActiveVersion activeVersion() {
         CentroidSnapshot snapshot = activeSnapshot();
         return new ActiveVersion(snapshot.version(), snapshot.sourceGpkgSha256());
+    }
+
+    public EnrichmentVersionPin pinActiveVersion() {
+        if (pinnedSnapshot.get() != null) {
+            throw new IllegalStateException("centroid snapshot is already pinned on this thread");
+        }
+        CentroidSnapshot snapshot = activeSnapshot();
+        pinnedSnapshot.set(snapshot);
+        return pinnedSnapshot::remove;
     }
 
     private List<CoarseLocationResolver.Input> readInputs() {
@@ -586,6 +597,10 @@ public class CoarseLocationResolutionService {
     }
 
     private CentroidSnapshot activeSnapshot() {
+        CentroidSnapshot pinned = pinnedSnapshot.get();
+        if (pinned != null) {
+            return pinned;
+        }
         properties.validate();
         String pointer = activePointer(properties.getCentroidDirectory());
         CachedSnapshot existing = cachedSnapshot;

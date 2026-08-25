@@ -5,6 +5,5 @@ public enum EnrichmentSelectorType {
     SOURCE_SYNC_RUN,
     ENRICHMENT_RUN,
     AUCTION,
-    VERSION,
-    RECOVERY_RUN
+    VERSION
 }

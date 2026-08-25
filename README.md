@@ -118,7 +118,7 @@ POST /api/enrichment/runs    start deterministic local enrichment; requires Idem
 POST /api/enrichment/replays bounded replay by sync/enrichment run, auction, or version
 POST /api/enrichment/pause   durably pause between auction transactions
 POST /api/enrichment/resume  resume normal work discovery
-GET  /api/enrichment/status  active versions, backlog/age/distribution, active run
+GET  /api/enrichment/status  active versions, backlog/age/gaps/distribution, active run
 GET  /api/enrichment/runs/{runId} retained redacted run and item evidence
 GET  /api/locations/{id}    best selected location with explicit precision
 GET  /api/map/auctions      bounded GeoJSON features for one WGS84 viewport

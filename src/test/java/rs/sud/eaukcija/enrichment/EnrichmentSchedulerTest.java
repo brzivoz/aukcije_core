@@ -59,6 +59,13 @@ class EnrichmentSchedulerTest {
 
         reset(service);
         when(service.startScheduled(any()))
+                .thenThrow(new EnrichmentWorkerBusyException(RUN_ID, ACTIVE_RUN_ID));
+        assertSafeLog(captureLogs(scheduler::trigger),
+                "Scheduled enrichment skipped code=ENRICHMENT_WORKER_BUSY runId="
+                        + RUN_ID + " activeSyncRunId=" + ACTIVE_RUN_ID);
+
+        reset(service);
+        when(service.startScheduled(any()))
                 .thenThrow(new EnrichmentUnavailableException(SENTINEL));
         assertSafeLog(captureLogs(scheduler::trigger),
                 "Scheduled enrichment skipped code=ENRICHMENT_UNAVAILABLE");

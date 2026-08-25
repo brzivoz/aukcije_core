@@ -48,6 +48,19 @@ public class EnrichmentPipeline {
                 "dataset-set-" + EnrichmentHashing.sha256(datasetComponents.toArray(String[]::new)));
     }
 
+    public PinnedRun pinActiveVersions() {
+        List<EnrichmentVersionPin> pins = new ArrayList<>();
+        try {
+            for (EnrichmentStage stage : stages) {
+                pins.add(stage.pinActiveVersion());
+            }
+            return new PinnedRun(activeVersions(), pins);
+        } catch (RuntimeException | Error failure) {
+            closePins(pins);
+            throw failure;
+        }
+    }
+
     public EnrichmentItemResult process(EnrichmentWorkItem item) {
         List<String> outputComponents = new ArrayList<>();
         EnrichmentStageResult last = null;
@@ -88,5 +101,35 @@ public class EnrichmentPipeline {
             throw new IllegalStateException(stage + " has no valid active " + kind + " version");
         }
         return value.trim();
+    }
+
+    private static void closePins(List<EnrichmentVersionPin> pins) {
+        for (int index = pins.size() - 1; index >= 0; index--) {
+            pins.get(index).close();
+        }
+    }
+
+    public static final class PinnedRun implements AutoCloseable {
+
+        private final EnrichmentVersions versions;
+        private final List<EnrichmentVersionPin> pins;
+        private boolean closed;
+
+        public PinnedRun(EnrichmentVersions versions, List<EnrichmentVersionPin> pins) {
+            this.versions = versions;
+            this.pins = List.copyOf(pins);
+        }
+
+        public EnrichmentVersions versions() {
+            return versions;
+        }
+
+        @Override
+        public void close() {
+            if (!closed) {
+                closed = true;
+                closePins(pins);
+            }
+        }
     }
 }

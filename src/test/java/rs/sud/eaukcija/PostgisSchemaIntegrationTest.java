@@ -227,6 +227,7 @@ class PostgisSchemaIntegrationTest {
                         "auction_id", "source_sync_run_id", "snapshot_sha256",
                         "parser_version", "resolver_version", "dataset_version",
                         "dependency_sha256", "work_key_sha256", "status", "attempt_count",
+                        "retryable_failure_count", "interruption_count",
                         "pending_since", "last_attempt_at", "completed_at",
                         "last_enrichment_run_id", "last_stage", "output_sha256",
                         "error_class", "error_message");

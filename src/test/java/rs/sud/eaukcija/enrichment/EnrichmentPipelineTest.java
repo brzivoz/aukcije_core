@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,32 @@ class EnrichmentPipelineTest {
         assertThat(first.datasetVersion()).startsWith("dataset-set-");
         assertThat(first.resolverVersion()).hasSize("resolver-set-".length() + 64);
         assertThat(first.datasetVersion()).hasSize("dataset-set-".length() + 64);
+    }
+
+    @Test
+    void pinsMutableArtifactPointersOnceForTheWholeRun() {
+        AtomicInteger pointerReads = new AtomicInteger();
+        List<PinAwareStage> stages = new ArrayList<>();
+        for (EnrichmentStageName name : EnrichmentStageName.values()) {
+            stages.add(new PinAwareStage(name, pointerReads));
+        }
+        EnrichmentPipeline pipeline = new EnrichmentPipeline(new ArrayList<>(stages));
+
+        EnrichmentVersions pinnedVersions;
+        try (EnrichmentPipeline.PinnedRun pinned = pipeline.pinActiveVersions()) {
+            pinnedVersions = pinned.versions();
+            stages.forEach(stage -> stage.activeDataset = "data-v2-" + stage.name());
+
+            assertThat(pipeline.activeVersions()).isEqualTo(pinnedVersions);
+            pipeline.process(item());
+            pipeline.process(item());
+            assertThat(stages).allSatisfy(stage -> assertThat(stage.observedDatasets)
+                    .containsExactly("data-v1-" + stage.name(), "data-v1-" + stage.name()));
+            assertThat(pointerReads).hasValue(5);
+        }
+
+        assertThat(pipeline.activeVersions()).isNotEqualTo(pinnedVersions);
+        assertThat(pointerReads).hasValue(10);
     }
 
     @Test
@@ -198,6 +225,56 @@ class EnrichmentPipelineTest {
         public EnrichmentStageResult process(EnrichmentWorkItem item) {
             calls.add(name);
             return result;
+        }
+    }
+
+    private static final class PinAwareStage implements EnrichmentStage {
+
+        private final EnrichmentStageName name;
+        private final AtomicInteger pointerReads;
+        private final ThreadLocal<String> pinnedDataset = new ThreadLocal<>();
+        private final List<String> observedDatasets = new ArrayList<>();
+        private String activeDataset;
+
+        private PinAwareStage(EnrichmentStageName name, AtomicInteger pointerReads) {
+            this.name = name;
+            this.pointerReads = pointerReads;
+            this.activeDataset = "data-v1-" + name;
+        }
+
+        @Override
+        public EnrichmentStageName name() {
+            return name;
+        }
+
+        @Override
+        public String implementationVersion() {
+            return "impl-" + name;
+        }
+
+        @Override
+        public String activeDatasetVersion() {
+            String pinned = pinnedDataset.get();
+            if (pinned != null) {
+                return pinned;
+            }
+            pointerReads.incrementAndGet();
+            return activeDataset;
+        }
+
+        @Override
+        public EnrichmentVersionPin pinActiveVersion() {
+            pinnedDataset.set(activeDatasetVersion());
+            return pinnedDataset::remove;
+        }
+
+        @Override
+        public EnrichmentStageResult process(EnrichmentWorkItem item) {
+            observedDatasets.add(activeDatasetVersion());
+            EnrichmentStageResult.Disposition disposition = name == EnrichmentStageName.SELECTED_RESOLUTION
+                    ? EnrichmentStageResult.Disposition.NOT_FOUND
+                    : EnrichmentStageResult.Disposition.CONTINUE;
+            return new EnrichmentStageResult(disposition, EnrichmentHashing.sha256(name.name()));
         }
     }
 }

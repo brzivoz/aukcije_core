@@ -1,8 +1,5 @@
 package rs.sud.eaukcija.enrichment;
 
-import java.math.BigDecimal;
-import java.time.Instant;
-
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -13,7 +10,7 @@ import rs.sud.eaukcija.model.Auction;
 /** Canonical, minimized local input accepted at the successful-sync boundary. */
 public record EnrichmentInputSnapshot(String sha256, JsonNode canonicalInput) {
 
-    public static final String SCHEMA_VERSION = "enrichment-input-v1";
+    public static final String SCHEMA_VERSION = "enrichment-location-input-v1";
 
     public EnrichmentInputSnapshot {
         EnrichmentVersions.requireSha256(sha256, "sha256");
@@ -35,37 +32,9 @@ public record EnrichmentInputSnapshot(String sha256, JsonNode canonicalInput) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("schemaVersion", SCHEMA_VERSION);
         root.put("auctionId", auction.getId());
-        put(root, "auctionNumber", auction.getAuctionNumber());
-        put(root, "startDate", auction.getStartDate());
-        put(root, "endDate", auction.getEndDate());
-        put(root, "publicationDate", auction.getPublicationDate());
-        put(root, "startingPrice", auction.getStartingPrice());
-        put(root, "estimatedPrice", auction.getEstimatedPrice());
-        put(root, "currentPrice", auction.getCurrentPrice());
-        put(root, "maxOfferedPrice", auction.getMaxOfferedPrice());
-        put(root, "bidStep", auction.getBidStep());
-        put(root, "shortDescription", auction.getShortDescription());
-        put(root, "description", auction.getDescription());
-        put(root, "status", auction.getStatus());
-        root.put("firstSale", auction.isFirstSale());
-        put(root, "propertyType", auction.getPropertyType());
-        put(root, "executorName", auction.getExecutorName());
-        put(root, "categoryName", auction.getCategoryName());
         put(root, "placeName", auction.getPlaceName());
-        put(root, "placeZipCode", auction.getPlaceZipCode());
         put(root, "municipality", auction.getMunicipality());
         put(root, "cadastral", auction.getCadastral());
-        root.put("detailsFetched", auction.isDetailsFetched());
-        put(root, "listingFingerprint", auction.getListingFingerprint());
-        if (auction.getSourceDetailCategoryId() == null) {
-            root.putNull("sourceDetailCategoryId");
-        } else {
-            root.put("sourceDetailCategoryId", auction.getSourceDetailCategoryId());
-        }
-        put(root, "saleScope", auction.getSaleScope() == null ? null : auction.getSaleScope().name());
-        put(root, "normalizedPropertyKind", auction.getNormalizedPropertyKind() == null
-                ? null : auction.getNormalizedPropertyKind().name());
-        put(root, "taxonomySha256", auction.getTaxonomySha256());
         try {
             String canonicalJson = objectMapper.writeValueAsString(root);
             return new EnrichmentInputSnapshot(
@@ -83,19 +52,4 @@ public record EnrichmentInputSnapshot(String sha256, JsonNode canonicalInput) {
         }
     }
 
-    private static void put(ObjectNode root, String field, Instant value) {
-        put(root, field, value == null ? null : value.toString());
-    }
-
-    private static void put(ObjectNode root, String field, BigDecimal value) {
-        put(root, field, value == null ? null : normalizedDecimal(value));
-    }
-
-    private static String normalizedDecimal(BigDecimal value) {
-        BigDecimal normalized = value.stripTrailingZeros();
-        if (normalized.scale() < 0) {
-            normalized = normalized.setScale(0);
-        }
-        return normalized.toPlainString();
-    }
 }

@@ -5,6 +5,7 @@ public enum EnrichmentRunStatus {
     SUCCEEDED,
     PARTIAL,
     PAUSED,
+    SKIPPED,
     FAILED,
     INTERRUPTED
 }

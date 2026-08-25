@@ -8,6 +8,7 @@ import rs.sud.eaukcija.enrichment.EnrichmentStage;
 import rs.sud.eaukcija.enrichment.EnrichmentStageException;
 import rs.sud.eaukcija.enrichment.EnrichmentStageName;
 import rs.sud.eaukcija.enrichment.EnrichmentStageResult;
+import rs.sud.eaukcija.enrichment.EnrichmentVersionPin;
 import rs.sud.eaukcija.enrichment.EnrichmentWorkItem;
 
 /** Per-auction local fallback through KO, settlement, municipality, then NONE. */
@@ -34,6 +35,11 @@ public class CoarseLocationEnrichmentStage implements EnrichmentStage {
     public String activeDatasetVersion() {
         CoarseLocationResolutionService.ActiveVersion active = service.activeVersion();
         return active.version() + ":" + active.sourceSha256();
+    }
+
+    @Override
+    public EnrichmentVersionPin pinActiveVersion() {
+        return service.pinActiveVersion();
     }
 
     @Override

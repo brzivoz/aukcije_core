@@ -3,6 +3,8 @@ package rs.sud.eaukcija.enrichment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
+
 import org.junit.jupiter.api.Test;
 
 class EnrichmentPropertiesTest {
@@ -15,10 +17,12 @@ class EnrichmentPropertiesTest {
 
         assertThat(properties.isEnabled()).isTrue();
         assertThat(properties.getMaxAttempts()).isEqualTo(3);
+        assertThat(properties.getMaxInterruptions()).isEqualTo(3);
+        assertThat(properties.getRunningStaleAfter()).isEqualTo(Duration.ofMinutes(15));
         assertThat(properties.getMaxItemsPerRun()).isEqualTo(1_000);
         assertThat(properties.getMaxReplayItems()).isEqualTo(1_000);
-        assertThat(properties.getScheduleCron()).isEqualTo("-");
-        assertThat(properties.getScheduleZone()).isEqualTo("UTC");
+        assertThat(properties.getScheduleCron()).isEqualTo("0 15 * * * *");
+        assertThat(properties.getScheduleZone()).isEqualTo("Europe/Belgrade");
     }
 
     @Test
@@ -26,6 +30,14 @@ class EnrichmentPropertiesTest {
         EnrichmentProperties properties = new EnrichmentProperties();
         properties.setMaxAttempts(0);
         assertThatThrownBy(properties::validate).hasMessageContaining("max-attempts");
+
+        properties = new EnrichmentProperties();
+        properties.setMaxInterruptions(21);
+        assertThatThrownBy(properties::validate).hasMessageContaining("max-interruptions");
+
+        properties = new EnrichmentProperties();
+        properties.setRunningStaleAfter(Duration.ofMinutes(4));
+        assertThatThrownBy(properties::validate).hasMessageContaining("running-stale-after");
 
         properties = new EnrichmentProperties();
         properties.setMaxItemsPerRun(1_001);

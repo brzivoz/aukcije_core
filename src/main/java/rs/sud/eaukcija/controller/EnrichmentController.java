@@ -36,6 +36,7 @@ import rs.sud.eaukcija.enrichment.EnrichmentSelectorType;
 import rs.sud.eaukcija.enrichment.EnrichmentService;
 import rs.sud.eaukcija.enrichment.EnrichmentSubmissionException;
 import rs.sud.eaukcija.enrichment.EnrichmentUnavailableException;
+import rs.sud.eaukcija.enrichment.EnrichmentWorkerBusyException;
 
 @RestController
 @RequestMapping("/api/enrichment")
@@ -204,6 +205,16 @@ public class EnrichmentController {
         if (failure instanceof EnrichmentUnavailableException) {
             return problem(HttpStatus.SERVICE_UNAVAILABLE, "ENRICHMENT_UNAVAILABLE",
                     "Durable enrichment is disabled, paused, or lacks an active local version.");
+        }
+        if (failure instanceof EnrichmentWorkerBusyException busy) {
+            ProblemDetail detail = detail(
+                    HttpStatus.CONFLICT,
+                    "ENRICHMENT_WORKER_BUSY",
+                    "The shared sync/enrichment worker is busy; the recorded run was skipped.");
+            detail.setProperty("runId", busy.runId());
+            detail.setProperty("activeSyncRunId", busy.activeSyncRunId());
+            detail.setProperty("statusUrl", "/api/enrichment/runs/" + busy.runId());
+            return problem(detail);
         }
         if (failure instanceof EnrichmentSubmissionException rejected) {
             ProblemDetail detail = detail(

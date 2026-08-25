@@ -10,6 +10,7 @@ public record EnrichmentBacklogStatus(
         EnrichmentVersions activeVersions,
         long backlogSize,
         Instant oldestPendingSince,
+        long populationGapCount,
         Map<EnrichmentStateStatus, Long> statusDistribution,
         UUID activeRunId) {
 }

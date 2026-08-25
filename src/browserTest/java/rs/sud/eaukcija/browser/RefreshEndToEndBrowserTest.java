@@ -3,6 +3,7 @@ package rs.sud.eaukcija.browser;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -24,6 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import rs.sud.eaukcija.basemap.BasemapTestBundle;
 import rs.sud.eaukcija.coarselocation.CentroidTestArtifact;
 import rs.sud.eaukcija.komatching.KoDictionaryTestArtifact;
 import rs.sud.eaukcija.testsupport.Fixtures;
@@ -35,6 +37,8 @@ class RefreshEndToEndBrowserTest extends PostgisBrowserFixture {
     private static final MockWebServer SOURCE = sourceServer();
     private static final Path CENTROIDS = centroids();
     private static final Path DICTIONARY = dictionary();
+    private static final String BASEMAP_VERSION = "browser-issue-40-v1";
+    private static final Path BASEMAP_ROOT = basemap();
 
     @DynamicPropertySource
     static void workflowProperties(DynamicPropertyRegistry registry) {
@@ -47,6 +51,8 @@ class RefreshEndToEndBrowserTest extends PostgisBrowserFixture {
         registry.add("eaukcija.enrichment.schedule-cron", () -> "-");
         registry.add("coarse.location.centroid-directory", CENTROIDS::toString);
         registry.add("ko.structured-match.dictionary-directory", DICTIONARY::toString);
+        registry.add("basemap.assets.directory", BASEMAP_ROOT::toString);
+        registry.add("basemap.assets.poll-interval", () -> "PT0.05S");
         registry.add("map.browser-test-hooks", () -> "true");
     }
 
@@ -124,7 +130,7 @@ class RefreshEndToEndBrowserTest extends PostgisBrowserFixture {
         assertThat(status.get("lastSuccessfulSync")).isNotNull();
         assertThat(((Number) status.get("mappedAuctionCount")).intValue()).isEqualTo(1);
 
-        page.waitForFunction("window.__auctionMap?.ready === true");
+        page.waitForFunction("window.__auctionMap?.ready === true && window.__auctionMap.map !== null");
         page.evaluate("() => { window.__auctionMap.map.jumpTo({center: [21.2, 44.2], zoom: 14}); }");
         page.waitForFunction("window.__auctionMap.getDiagnostics().lastFeatureCount === 1");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
@@ -222,6 +228,21 @@ class RefreshEndToEndBrowserTest extends PostgisBrowserFixture {
                     Files.createTempDirectory("issue-40-dictionary-"), MAPPER);
         } catch (Exception failure) {
             throw new IllegalStateException("could not create dictionary fixture", failure);
+        }
+    }
+
+    private static Path basemap() {
+        URL fixture = RefreshEndToEndBrowserTest.class.getResource("/fixtures/basemap-bundle");
+        if (fixture == null) {
+            throw new IllegalStateException("compact PMTiles browser fixture is missing");
+        }
+        try {
+            Path root = Files.createTempDirectory("issue-40-basemap-");
+            BasemapTestBundle.fromDirectory(root, BASEMAP_VERSION, Path.of(fixture.toURI()));
+            BasemapTestBundle.activate(root, BASEMAP_VERSION);
+            return root;
+        } catch (Exception failure) {
+            throw new IllegalStateException("could not stage issue #40 basemap fixture", failure);
         }
     }
 }

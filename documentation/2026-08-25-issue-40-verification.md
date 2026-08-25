@@ -26,7 +26,7 @@ loopback and same-origin guarded; status reads are loopback-only and `no-store`.
 | Private mutation boundary | Controller tests reject non-loopback, forwarded-loopback, headerless browser mutation, and cross-site metadata. The accepted browser request carries a canonical idempotency UUID and `X-Operator-Request: refresh-v1`. The full browser suite proves only loopback HTTP(S) and WebSocket traffic; this feature introduces no WebSocket. |
 | Accessibility | Playwright activates primary and retry actions with Enter, proves focus transfers retry→busy primary→retry across a real running/failure transition, and keeps success focus predictable. Separate static polite and assertive live regions provide progress/success and failure delivery. Browser-computed WCAG relative luminance for both the inner outline and outer focus ring remains at least 3:1 on the primary/retry default and hover backgrounds. |
 | Anonymous status boundary | The map service retains workflow/resolution UUIDs for server-side correlation, while `MapDataStatusControllerTest` proves `/api/map/status` publishes version, freshness, counts, and precision only—neither internal run identifier is serialized. |
-| Real browser/PostGIS outcome | `RefreshEndToEndBrowserTest` starts with no successful map run, activates the production page once, uses the real source client against a local fixture server, runs the production enrichment and coarse-location pipeline over PostGIS, and proves the workflow/source/enrichment/map IDs correlate, `/api/map/status` is available with a non-null timestamp, and the MapLibre feature is visible. No Gradle/CLI population task is part of that workflow. |
+| Real browser/PostGIS outcome | `RefreshEndToEndBrowserTest` starts with no successful map run, activates the production page once, uses the real source client against a local fixture server and an independently staged checked local basemap, runs the production enrichment and coarse-location pipeline over PostGIS, and proves the workflow/source/enrichment/map IDs correlate, `/api/map/status` is available with a non-null timestamp, and the MapLibre feature is visible. No developer-machine basemap state or Gradle/CLI population task is part of that workflow. |
 
 ## Operator contract
 
@@ -50,7 +50,7 @@ Java/PostgreSQL tests: 397; passed: 393; skipped: 4; failures: 0
 Basemap contract tests: 14/14
 
 ./gradlew browserTest --no-daemon
-BUILD SUCCESSFUL in 54s
+BUILD SUCCESSFUL in 52s
 Playwright tests: 24/24; skipped: 0; failures: 0
 ```
 

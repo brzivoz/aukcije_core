@@ -1,6 +1,9 @@
 package rs.sud.eaukcija.coarselocation;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -20,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
+import rs.sud.eaukcija.enrichment.StructuredLocationParseStage;
 import rs.sud.eaukcija.spatial.LocationSelectionSql;
 import rs.sud.eaukcija.komatching.StructuredKoMatchService;
 import rs.sud.eaukcija.spatial.LocationPrecision;
@@ -40,6 +44,7 @@ public class CoarseLocationResolutionService {
     private final CentroidSnapshotLoader snapshotLoader;
     private final CoarseLocationResolutionProperties properties;
     private final Clock clock;
+    private volatile CachedSnapshot cachedSnapshot;
 
     @Autowired
     public CoarseLocationResolutionService(
@@ -67,7 +72,7 @@ public class CoarseLocationResolutionService {
     public RunResult run() {
         properties.validate();
         Instant started = Instant.now(clock);
-        CentroidSnapshot snapshot = snapshotLoader.load(properties.getCentroidDirectory());
+        CentroidSnapshot snapshot = activeSnapshot();
 
         // Hold the same population lock as #37 before reading its rows, then
         // serialize #38's unchanged checks and writes behind its own lock.
@@ -171,6 +176,45 @@ public class CoarseLocationResolutionService {
                 Map.copyOf(rationaleCounts));
     }
 
+    /** Runs the same resolver for one auction inside the caller's item transaction. */
+    @Transactional
+    public AuctionResult resolveAuction(long auctionId) {
+        if (auctionId <= 0) {
+            throw new IllegalArgumentException("auctionId must be positive");
+        }
+        properties.validate();
+        CentroidSnapshot snapshot = activeSnapshot();
+        jdbc.execute("SELECT pg_advisory_xact_lock("
+                + StructuredKoMatchService.POPULATION_LOCK_ID + ")");
+        jdbc.execute("SELECT pg_advisory_xact_lock(" + ADVISORY_LOCK_ID + ")");
+        List<CoarseLocationResolver.Input> inputs = readInput(auctionId);
+        if (inputs.isEmpty()) {
+            throw new CoarseLocationResolutionException(
+                    "AUCTION_NOT_FOUND", "auction is unavailable for local resolution");
+        }
+        validateUpstreamSnapshot(inputs, snapshot);
+        CoarseLocationResolver.Input input = inputs.get(0);
+        UUID referenceId = upsertStructuredReference(input);
+        CoarseLocationResolver.Resolution resolution =
+                new CoarseLocationResolver(snapshot, objectMapper).resolve(input);
+        boolean unchanged = attemptExists(referenceId, resolution.inputFingerprint(), snapshot);
+        if (!unchanged) {
+            persistResolution(referenceId, resolution, snapshot);
+        }
+        return new AuctionResult(
+                resolution.status(),
+                resolution.precision().name(),
+                resolution.inputFingerprint(),
+                snapshot.version(),
+                snapshot.sourceGpkgSha256(),
+                unchanged);
+    }
+
+    public ActiveVersion activeVersion() {
+        CentroidSnapshot snapshot = activeSnapshot();
+        return new ActiveVersion(snapshot.version(), snapshot.sourceGpkgSha256());
+    }
+
     private List<CoarseLocationResolver.Input> readInputs() {
         return jdbc.query("""
                 SELECT a.id, a.cadastral, a.place_name, a.municipality,
@@ -206,6 +250,43 @@ public class CoarseLocationResolutionService {
                 resultSet.getString("municipality_alias_dataset_version"),
                 resultSet.getString("municipality_alias_sha256"),
                 parseCandidates(resultSet.getString("ko_candidates"))));
+    }
+
+    private List<CoarseLocationResolver.Input> readInput(long auctionId) {
+        return jdbc.query("""
+                SELECT a.id, a.cadastral, a.place_name, a.municipality,
+                       match.status AS ko_status,
+                       match.method AS ko_method,
+                       match.rationale AS ko_rationale,
+                       match.matched_ko_code,
+                       match.dictionary_version,
+                       match.dictionary_source_sha256,
+                       match.normalizer_version,
+                       match.alias_dataset_version,
+                       match.alias_sha256,
+                       match.municipality_alias_dataset_version,
+                       match.municipality_alias_sha256,
+                       match.candidates::text AS ko_candidates
+                  FROM auctions a
+                  LEFT JOIN auction_structured_ko_matches match ON match.auction_id = a.id
+                 WHERE a.id = ?
+                """, (resultSet, rowNumber) -> new CoarseLocationResolver.Input(
+                resultSet.getLong("id"),
+                resultSet.getString("cadastral"),
+                resultSet.getString("place_name"),
+                resultSet.getString("municipality"),
+                resultSet.getString("ko_status"),
+                resultSet.getString("ko_method"),
+                resultSet.getString("ko_rationale"),
+                resultSet.getString("matched_ko_code"),
+                resultSet.getString("dictionary_version"),
+                resultSet.getString("dictionary_source_sha256"),
+                resultSet.getString("normalizer_version"),
+                resultSet.getString("alias_dataset_version"),
+                resultSet.getString("alias_sha256"),
+                resultSet.getString("municipality_alias_dataset_version"),
+                resultSet.getString("municipality_alias_sha256"),
+                parseCandidates(resultSet.getString("ko_candidates"))), auctionId);
     }
 
     private UpstreamProvenance validateUpstreamSnapshot(
@@ -279,8 +360,7 @@ public class CoarseLocationResolutionService {
     }
 
     private UUID upsertStructuredReference(CoarseLocationResolver.Input input) {
-        UUID id = UUID.nameUUIDFromBytes(("coarse-structured-place:" + input.auctionId())
-                .getBytes(StandardCharsets.UTF_8));
+        UUID id = StructuredLocationParseStage.referenceId(input.auctionId());
         String normalizedKo = SerbianNameNormalizer.normalize(input.cadastral());
         String koCode = "MATCHED".equals(input.koStatus()) ? input.matchedKoCode() : null;
         String extractionStatus = input.cadastral() == null
@@ -311,6 +391,7 @@ public class CoarseLocationResolutionService {
                     address_settlement = EXCLUDED.address_settlement,
                     raw_evidence = EXCLUDED.raw_evidence,
                     extraction_status = EXCLUDED.extraction_status
+                WHERE NOT property_references.user_reviewed
                 """,
                 id,
                 input.auctionId(),
@@ -504,6 +585,35 @@ public class CoarseLocationResolutionService {
         }
     }
 
+    private CentroidSnapshot activeSnapshot() {
+        properties.validate();
+        String pointer = activePointer(properties.getCentroidDirectory());
+        CachedSnapshot existing = cachedSnapshot;
+        if (existing != null && existing.pointer().equals(pointer)) {
+            return existing.snapshot();
+        }
+        synchronized (this) {
+            existing = cachedSnapshot;
+            if (existing != null && existing.pointer().equals(pointer)) {
+                return existing.snapshot();
+            }
+            CentroidSnapshot loaded = snapshotLoader.load(properties.getCentroidDirectory());
+            cachedSnapshot = new CachedSnapshot(pointer, loaded);
+            return loaded;
+        }
+    }
+
+    private static String activePointer(Path directory) {
+        try {
+            return Files.readString(
+                    directory.toAbsolutePath().normalize().resolve("ACTIVE"),
+                    StandardCharsets.UTF_8).trim();
+        } catch (IOException failure) {
+            throw new CoarseLocationResolutionException(
+                    "ACTIVE_VERSION_UNAVAILABLE", "active centroid pointer is unavailable", failure);
+        }
+    }
+
     private String json(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
@@ -540,6 +650,21 @@ public class CoarseLocationResolutionService {
     }
 
     private record CacheRecord(UUID id, UUID geometryId) {
+    }
+
+    private record CachedSnapshot(String pointer, CentroidSnapshot snapshot) {
+    }
+
+    public record ActiveVersion(String version, String sourceSha256) {
+    }
+
+    public record AuctionResult(
+            String status,
+            String precision,
+            String inputFingerprint,
+            String datasetVersion,
+            String datasetSha256,
+            boolean unchanged) {
     }
 
     private record UpstreamProvenance(

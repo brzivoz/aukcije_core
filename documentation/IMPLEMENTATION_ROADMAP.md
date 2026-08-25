@@ -63,7 +63,7 @@ Every figure below was verified directly against the live API on 2026-08-21.
 
 10. **The plan was sized for a system a hundred times larger than the one that exists.** Removed or downgraded:
     - #26, #28, and #7 previously required "2,000 representative rows, warm p95 under 500 ms, retained query-plan evidence." At ~600 rows Postgres will sequential-scan and win. The GiST index is kept — it costs nothing and survives growth — but the benchmark harnesses and evidence rituals are replaced by correctness-and-boundedness bars.
-    - #29 previously specified a leased durable queue: `FOR UPDATE SKIP LOCKED`, lease owners and expiry, multi-worker concurrency, per-job backoff with jitter. Peak backlog is a few hundred jobs, each a pure function of a locally stored snapshot; a full cold reprocess costs minutes on one thread. It is now **deterministic idempotent reprocessing**, with the leased queue deferred behind explicit trigger conditions (sustained backlog above ~5,000, cold reprocess above ~30 minutes, or a slow external dependency in an enrichment stage).
+    - #29 previously specified a leased durable queue: `FOR UPDATE SKIP LOCKED`, lease owners and expiry, multi-worker concurrency, per-job backoff with jitter. Peak backlog is a few hundred jobs, each a pure function of a locally stored snapshot. The implemented current five-stage pipeline measured 3.667 seconds for a cold 601-auction PostGIS fixture on one thread; future high-precision stages must be remeasured. It is now **deterministic idempotent reprocessing**, with the leased queue deferred behind explicit trigger conditions (sustained backlog above ~5,000, cold reprocess above ~30 minutes, or a slow external dependency in an enrichment stage).
     - #17's pagination machinery is demoted to a defensive concern. All 622 records return in a single request; the current `page-size=10` default costs 63 round trips for nothing.
     - #18's corpus target drops from 100 auctions / 150 references to 60 / 100 for the first pass — the original was 16% of the entire population, hand-annotated and double-reviewed by one person, sitting on the critical path before any parser existed. The held-out split and double review are retained, since those are what make the numbers mean anything.
 
@@ -275,10 +275,15 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 8 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
 | 9 | #19 | Held-out parser thresholds met, or a reviewed threshold revision citing #32 |
 | 10 | #33, #21 | Zero exact-match false positives on extracted names; selected parcel/fallback contract |
-| 11 | #23, #29 | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
+| 11 | #23, **#29 coordinator ✅** | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
 | 12 | #30 | Persisted freshness/backlog/precision status |
 | 13 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
 | 14 | #31 | Fresh-machine private release, backup/restore, and dependency/secret scan evidence |
+
+#29's coordinator, V13 ledger, controls, recovery proof, and current-stage cold
+measurement landed early on 2026-08-25. Wave 11 remains open because #19/#21/#23
+still own the full extracted-reference, private-import, and higher-precision
+resolver implementations that plug into those stage/version boundaries.
 
 ## Definition of done for every issue
 

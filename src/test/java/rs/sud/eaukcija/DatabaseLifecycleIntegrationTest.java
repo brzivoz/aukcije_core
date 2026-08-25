@@ -71,7 +71,8 @@ class DatabaseLifecycleIntegrationTest {
                         "V9__coarse_location_upstream_provenance.sql",
                         "V10__eaukcija_sync_runs.sql",
                         "V11__eaukcija_detail_quarantine.sql",
-                        "V12__eaukcija_listing_quarantine.sql");
+                        "V12__eaukcija_listing_quarantine.sql",
+                        "V13__deterministic_enrichment_reprocessing.sql");
     }
 
     @Test

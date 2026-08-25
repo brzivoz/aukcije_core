@@ -18,6 +18,7 @@ import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
 /** Pure, deterministic matcher for the structured eAukcija place fields. */
 final class StructuredKoMatcher {
 
+    static final String MATCHER_VERSION = "structured-ko-match-v2";
     static final int DEFAULT_FUZZY_CANDIDATE_LIMIT = 5;
     static final int MIN_FUZZY_SIMILARITY_BASIS_POINTS = 7_000;
 
@@ -192,6 +193,7 @@ final class StructuredKoMatcher {
     static String fingerprint(Input input, KoDictionarySnapshot dictionary) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            add(digest, MATCHER_VERSION);
             add(digest, Long.toString(input.auctionId()));
             add(digest, input.cadastral());
             add(digest, input.placeName());

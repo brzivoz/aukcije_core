@@ -87,7 +87,8 @@ class PostgisSchemaIntegrationTest {
                         "V9__coarse_location_upstream_provenance.sql",
                         "V10__eaukcija_sync_runs.sql",
                         "V11__eaukcija_detail_quarantine.sql",
-                        "V12__eaukcija_listing_quarantine.sql")
+                        "V12__eaukcija_listing_quarantine.sql",
+                        "V13__deterministic_enrichment_reprocessing.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -193,6 +194,72 @@ class PostgisSchemaIntegrationTest {
                   FROM information_schema.referential_constraints
                  WHERE constraint_name = 'sync_run_auction_observations_auction_id_fkey'
                 """, Boolean.class)).isTrue();
+    }
+
+    @Test
+    void flywayOwnsTheDeterministicEnrichmentStateAndEvidenceContract() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT table_name
+                  FROM information_schema.tables
+                 WHERE table_schema = 'public'
+                   AND table_name IN (
+                       'auction_enrichment_input_snapshots',
+                       'auction_enrichment_snapshot_observations',
+                       'enrichment_control', 'enrichment_runs',
+                       'enrichment_state', 'enrichment_run_items'
+                   )
+                 ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "auction_enrichment_input_snapshots",
+                        "auction_enrichment_snapshot_observations",
+                        "enrichment_control",
+                        "enrichment_run_items",
+                        "enrichment_runs",
+                        "enrichment_state");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'enrichment_state'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                        "auction_id", "source_sync_run_id", "snapshot_sha256",
+                        "parser_version", "resolver_version", "dataset_version",
+                        "dependency_sha256", "work_key_sha256", "status", "attempt_count",
+                        "pending_since", "last_attempt_at", "completed_at",
+                        "last_enrichment_run_id", "last_stage", "output_sha256",
+                        "error_class", "error_message");
+        assertThat(jdbc.queryForList("""
+                SELECT indexname
+                  FROM pg_indexes
+                 WHERE schemaname = 'public'
+                   AND tablename IN ('enrichment_runs', 'enrichment_state')
+                """, String.class)).contains(
+                        "uq_enrichment_runs_single_running",
+                        "idx_enrichment_runs_started",
+                        "idx_enrichment_state_status",
+                        "idx_enrichment_state_versions");
+        assertThat(jdbc.queryForList("""
+                SELECT tgname
+                  FROM pg_trigger
+                 WHERE tgrelid IN (
+                       'auction_enrichment_input_snapshots'::regclass,
+                       'auction_enrichment_snapshot_observations'::regclass,
+                       'enrichment_runs'::regclass,
+                       'enrichment_run_items'::regclass
+                   )
+                   AND NOT tgisinternal
+                 ORDER BY tgname
+                """, String.class)).containsExactly(
+                        "trg_enrichment_input_snapshots_immutable",
+                        "trg_enrichment_run_items_terminal_immutable",
+                        "trg_enrichment_runs_terminal_immutable",
+                        "trg_enrichment_snapshot_observations_immutable",
+                        "trg_enrichment_snapshot_success_only");
+        assertThat(jdbc.queryForObject("""
+                SELECT paused FROM enrichment_control WHERE singleton
+                """, Boolean.class)).isFalse();
     }
 
     @Test

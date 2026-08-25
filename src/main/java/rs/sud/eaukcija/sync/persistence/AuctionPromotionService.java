@@ -103,8 +103,10 @@ public class AuctionPromotionService {
 
         // Mark success before queue insertion so the database trigger can prove
         // the success-only gate. Both statements are in this transaction, so a
-        // queue failure rolls the status and every auction mutation back.
+        // downstream-publication failure rolls the status and every auction
+        // mutation back.
         runs.markSucceeded(runId);
+        runs.publishEnrichmentInputSnapshots(runId, candidates);
         runs.insertEnrichmentWork(runId, candidates);
     }
 

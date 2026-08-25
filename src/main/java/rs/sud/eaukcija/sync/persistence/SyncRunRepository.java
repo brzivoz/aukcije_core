@@ -33,6 +33,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import rs.sud.eaukcija.enrichment.EnrichmentInputSnapshot;
+
 /** PostgreSQL authority for durable sync claims, progress, evidence, and recovery. */
 @Repository
 public class SyncRunRepository {
@@ -1033,6 +1035,61 @@ public class SyncRunRepository {
                 INSERT INTO sync_enrichment_queue (run_id, auction_id, status, reason)
                 VALUES
                 """, 4, "", arguments);
+    }
+
+    /**
+     * Publishes the immutable local input consumed by #29. The caller invokes
+     * this only after the parent run has passed every success gate; all writes
+     * still share the promotion transaction and therefore roll back together.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void publishEnrichmentInputSnapshots(
+            UUID runId,
+            List<AuctionPromotionCandidate> candidates) {
+        record Published(long auctionId, EnrichmentInputSnapshot snapshot) {
+        }
+        List<Published> published = candidates.stream()
+                .map(candidate -> new Published(
+                        candidate.auction().getId(),
+                        EnrichmentInputSnapshot.from(candidate.auction(), objectMapper)))
+                .toList();
+
+        multiRowUpdate("""
+                INSERT INTO auction_enrichment_input_snapshots (
+                    auction_id, snapshot_sha256, canonical_input
+                )
+                SELECT incoming.auction_id,
+                       incoming.snapshot_sha256,
+                       CAST(incoming.canonical_input AS jsonb)
+                  FROM (VALUES
+                """, 3, """
+                ) AS incoming(auction_id, snapshot_sha256, canonical_input)
+                ON CONFLICT (auction_id, snapshot_sha256) DO NOTHING
+                """, published.stream()
+                .map(row -> new Object[] {
+                        row.auctionId(), row.snapshot().sha256(), json(row.snapshot().canonicalInput())
+                })
+                .toList());
+
+        multiRowUpdate("""
+                INSERT INTO auction_enrichment_snapshot_observations (
+                    source_sync_run_id, auction_id, snapshot_sha256
+                ) VALUES
+                """, 3, "", published.stream()
+                .map(row -> new Object[] {runId, row.auctionId(), row.snapshot().sha256()})
+                .toList());
+
+        for (Published row : published) {
+            int changed = jdbc.update("""
+                    UPDATE auctions
+                       SET current_enrichment_snapshot_sha256 = ?
+                     WHERE id = ?
+                    """, row.snapshot().sha256(), row.auctionId());
+            if (changed != 1) {
+                throw new SyncRunStateException(
+                        "could not select enrichment input for auction " + row.auctionId());
+            }
+        }
     }
 
     private void multiRowUpdate(

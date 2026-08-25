@@ -225,6 +225,23 @@ class SyncPersistenceIntegrationTest {
                 "SELECT COUNT(*) FROM sync_run_auction_observations WHERE run_id = ?",
                 Long.class, claim.runId())).isOne();
         assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_enrichment_input_snapshots WHERE auction_id = 901",
+                Long.class)).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM auction_enrichment_snapshot_observations
+                 WHERE source_sync_run_id = ? AND auction_id = 901
+                """, Long.class, claim.runId())).isOne();
+        String snapshotSha256 = jdbc.queryForObject("""
+                SELECT current_enrichment_snapshot_sha256 FROM auctions WHERE id = 901
+                """, String.class);
+        assertThat(snapshotSha256).matches("[0-9a-f]{64}");
+        assertThat(jdbc.queryForObject("""
+                SELECT snapshot_sha256
+                  FROM auction_enrichment_snapshot_observations
+                 WHERE source_sync_run_id = ? AND auction_id = 901
+                """, String.class, claim.runId())).isEqualTo(snapshotSha256);
+        assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sync_enrichment_queue WHERE run_id = ? AND status = 'PENDING'",
                 Long.class, claim.runId())).isOne();
         assertThat(jdbc.queryForObject(
@@ -237,6 +254,19 @@ class SyncPersistenceIntegrationTest {
                 """, claim.runId()))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("terminal sync run child evidence is immutable");
+        assertThatThrownBy(() -> jdbc.update("""
+                UPDATE auction_enrichment_input_snapshots
+                   SET canonical_input = '{"changed":true}'::jsonb
+                 WHERE auction_id = 901 AND snapshot_sha256 = ?
+                """, snapshotSha256))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("enrichment input snapshots are immutable");
+        assertThatThrownBy(() -> jdbc.update("""
+                DELETE FROM auction_enrichment_snapshot_observations
+                 WHERE source_sync_run_id = ? AND auction_id = 901
+                """, claim.runId()))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("enrichment snapshot observations are immutable");
 
         assertThat(jdbc.queryForObject("""
                 SELECT delete_rule
@@ -249,6 +279,19 @@ class SyncPersistenceIntegrationTest {
         assertThat(auctions.findById(901L)).isPresent();
 
         SyncRunClaimResult runningTarget = runs.claim(claim("terminal-child-reparent-target"));
+        jdbc.update("""
+                INSERT INTO sync_run_auction_observations (
+                    run_id, auction_id, listing_fingerprint, detail_refreshed,
+                    enrichment_eligible, enrichment_reason
+                ) VALUES (?, 901, ?, FALSE, FALSE, 'NONE')
+                """, runningTarget.runId(), LISTING_HASH);
+        assertThatThrownBy(() -> jdbc.update("""
+                INSERT INTO auction_enrichment_snapshot_observations (
+                    source_sync_run_id, auction_id, snapshot_sha256
+                ) VALUES (?, 901, ?)
+                """, runningTarget.runId(), snapshotSha256))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("only be published by a successful sync run");
         assertThatThrownBy(() -> jdbc.update("""
                 UPDATE sync_run_auction_observations
                    SET run_id = ?
@@ -300,6 +343,22 @@ class SyncPersistenceIntegrationTest {
                   FROM sync_enrichment_queue
                  WHERE run_id = ?
                 """, Long.class, claim.runId())).isEqualTo(candidateCount);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM auction_enrichment_input_snapshots
+                 WHERE auction_id BETWEEN 20000 AND 21004
+                """, Long.class)).isEqualTo(candidateCount);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM auction_enrichment_snapshot_observations
+                 WHERE source_sync_run_id = ?
+                """, Long.class, claim.runId())).isEqualTo(candidateCount);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM auctions
+                 WHERE id BETWEEN 20000 AND 21004
+                   AND current_enrichment_snapshot_sha256 IS NOT NULL
+                """, Long.class)).isEqualTo(candidateCount);
 
         Auction rich = auctions.findById(20_000L).orElseThrow();
         assertThat(rich.getAuctionNumber()).isEqualTo("bulk-all-columns");

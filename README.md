@@ -17,6 +17,7 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 | Layer | State |
 |---|---|
 | eAukcija ingest (complete durable runs) | working (#17) |
+| Deterministic enrichment reprocessing | working (single-threaded, restart-safe, #29) |
 | Local filtering / list UI | working |
 | Property reference extraction | planned (EPIC-02) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
@@ -113,6 +114,12 @@ at startup.
 ```
 POST /api/sync/runs          start one complete run; requires Idempotency-Key
 GET  /api/sync/runs/{runId} retained run status and completeness evidence
+POST /api/enrichment/runs    start deterministic local enrichment; requires Idempotency-Key
+POST /api/enrichment/replays bounded replay by sync/enrichment run, auction, or version
+POST /api/enrichment/pause   durably pause between auction transactions
+POST /api/enrichment/resume  resume normal work discovery
+GET  /api/enrichment/status  active versions, backlog/age/distribution, active run
+GET  /api/enrichment/runs/{runId} retained redacted run and item evidence
 GET  /api/locations/{id}    best selected location with explicit precision
 GET  /api/map/auctions      bounded GeoJSON features for one WGS84 viewport
 GET  /api/map/status        retained map-data version and freshness state
@@ -136,9 +143,17 @@ for the idempotent trigger, durable status, atomic promotion, retry limits,
 configuration bounds, and stale-run recovery. The related
 [source acceptable-use note](documentation/EAUKCIJA_SOURCE_ACCEPTABLE_USE.md)
 records the reviewed source posture and conservative traffic defaults.
+See [deterministic enrichment operations](documentation/ENRICHMENT_OPERATIONS.md)
+for immutable work identity, the fixed five-stage local pipeline, shared #17
+locking, retry/failure states, safe pause/resume, bounded replay, payload-free
+backlog status, restart recovery, and the measured cold-pass threshold.
 See [issues #12/#17 verification](documentation/2026-08-24-issue-17-verification.md)
 for taxonomy scope, child-subset and atomic-promotion evidence, exact focused
 suite counts, clean PostgreSQL/check results, and fresh browser proof.
+See [issue #29 verification](documentation/2026-08-25-issue-29-verification.md)
+for the immutable work-key/state contract, actual five-stage PostGIS replay,
+kill/startup convergence, every-stage 600-neighbor isolation, exact clean-suite
+counts, and the measured 601-auction cold pass.
 See [Centroid extract operations](documentation/CENTROID_EXTRACT_OPERATIONS.md)
 for the database-free coarse-location artifact, reviewed checksums,
 reproducible publication, status, and failure recovery.
@@ -210,7 +225,11 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error/listing/detail-quarantine evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
 | `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child/quarantine evidence, exact captured-taxonomy completeness/subset gates, scoped absences and held-back IDs, set-based membership/observation publication, atomic promotion/rollback, and success-only observations/enrichment |
 | `SyncPropertiesTest` / `SyncExecutionConfigurationTest` | orchestration defaults/bounds, single named queue-free worker, immediate interruption, and bounded Spring context shutdown |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V12, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync evidence/success gates, and the canonical-derivation trigger |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V13, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/enrichment evidence and success gates, and canonical/immutability triggers |
+| `EnrichmentPipelineTest` / `EnrichmentPropertiesTest` / `EnrichmentSchedulerTest` | exact five-stage order, deterministic hashes/version sets, complete stage wiring, redacted failure classification, bounded queue-free settings, deterministic schedule idempotency, overlap handling, and fixed safe logs |
+| `EnrichmentControllerTest` | loopback-only idempotent trigger, typed bounded replay, durable pause/resume, payload-free backlog/status distribution, retained redacted item evidence, and no-store `400`/`403`/`409`/`503` problems |
+| `EnrichmentReprocessingIntegrationTest` | real-PostgreSQL state/work-key discovery, unchanged zero-work replay, exact parser/resolver/dataset bumps, every-stage failure isolation across 601 auctions, retry cap, durable pause, bounded replay, database overlap, shared #17 worker lock, and kill/startup recovery including never-started accepted work |
+| `EnrichmentPipelinePostgisIntegrationTest` | all five production stages over real PostGIS; byte-stable local replay with zero source-client interactions; verified-parcel non-downgrade; ambiguity preservation; and a measured single-thread 601-auction cold pass with one isolated real stage failure |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |

@@ -1,5 +1,6 @@
 package rs.sud.eaukcija.sync.persistence;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -15,6 +16,8 @@ import rs.sud.eaukcija.model.Auction;
 /** Publishes one complete source snapshot as a single PostgreSQL transaction. */
 @Service
 public class AuctionPromotionService {
+
+    private static final Duration POSTGRES_TIMESTAMP_PRECISION = Duration.ofNanos(1_000);
 
     private final SyncRunRepository runs;
 
@@ -69,8 +72,7 @@ public class AuctionPromotionService {
         if (!taxonomySha256.equals(run.categoryTreeSha256())) {
             throw new SyncRunStateException("promotion taxonomy does not match the run observation");
         }
-        if (run.categoryTreeObservedAt() == null
-                || !observedAt.equals(run.categoryTreeObservedAt())) {
+        if (!samePostgresInstant(observedAt, run.categoryTreeObservedAt())) {
             throw new SyncRunStateException("promotion taxonomy observation time does not match the run");
         }
         if (run.uniqueAuctionCount()
@@ -108,6 +110,12 @@ public class AuctionPromotionService {
         runs.markSucceeded(runId);
         runs.publishEnrichmentInputSnapshots(runId, candidates);
         runs.insertEnrichmentWork(runId, candidates);
+    }
+
+    private static boolean samePostgresInstant(Instant expected, Instant retained) {
+        return retained != null
+                && Duration.between(expected, retained).abs()
+                        .compareTo(POSTGRES_TIMESTAMP_PRECISION) < 0;
     }
 
     private static void prepareAuction(

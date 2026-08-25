@@ -302,6 +302,26 @@ class SyncPersistenceIntegrationTest {
     }
 
     @Test
+    void promotionAcceptsTheSameObservationAfterPostgresRoundsNanosecondsToMicroseconds()
+            throws Exception {
+        Instant highPrecisionObservedAt = OBSERVED_AT.plusNanos(123_456_789);
+        SyncRunClaimResult claim = runs.claim(claim("postgres-timestamp-precision"));
+        prepareCompleteRun(claim.runId(), 1, 1, 1, 0, highPrecisionObservedAt);
+        AuctionPromotionCandidate candidate = candidate(
+                auction(902L, "postgres-timestamp-precision"),
+                EnrichmentReason.NEW,
+                new CategoryMembership(7, CategoryMembershipType.ROOT, "Непокретности"),
+                new CategoryMembership(47, CategoryMembershipType.CHILD, "Земљиште"));
+
+        promotion.promote(
+                claim.runId(), TAXONOMY_HASH, highPrecisionObservedAt, List.of(candidate));
+
+        assertThat(runs.find(claim.runId()).orElseThrow().status())
+                .isEqualTo(SyncRunStatus.SUCCEEDED);
+        assertThat(auctions.findById(902L)).isPresent();
+    }
+
+    @Test
     void promotionChunksLargeMultiRowUpsertsBelowBindLimitsAndPersistsEveryAuctionColumn() throws Exception {
         int candidateCount = 1_005;
         SyncRunClaimResult claim = runs.claim(claim("chunked-multi-row-promotion"));
@@ -1155,13 +1175,25 @@ class SyncPersistenceIntegrationTest {
             long detailsRequired,
             long detailsSucceeded,
             long unresolvedErrors) throws Exception {
+        prepareCompleteRun(
+                runId, uniqueAuctions, detailsRequired, detailsSucceeded,
+                unresolvedErrors, OBSERVED_AT);
+    }
+
+    private void prepareCompleteRun(
+            java.util.UUID runId,
+            long uniqueAuctions,
+            long detailsRequired,
+            long detailsSucceeded,
+            long unresolvedErrors,
+            Instant observedAt) throws Exception {
         runs.recordTaxonomy(new TaxonomySnapshot(
                 TAXONOMY_HASH,
                 "taxonomy-v1",
                 objectMapper.readTree(DEFAULT_TAXONOMY_JSON),
-                OBSERVED_AT));
+                observedAt));
         runs.updateProgress(runId, new SyncRunProgress(
-                SyncRunStage.CATEGORIES, TAXONOMY_HASH, OBSERVED_AT,
+                SyncRunStage.CATEGORIES, TAXONOMY_HASH, observedAt,
                 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0));
         runs.recordRootResult(runId, new SyncRunRootResult(
@@ -1174,7 +1206,7 @@ class SyncPersistenceIntegrationTest {
         runs.recordChildResult(runId, completeChild(8, 121, 0));
         runs.updateProgress(runId, completeProgress(
                 TAXONOMY_HASH, 4, 4, uniqueAuctions,
-                detailsRequired, detailsSucceeded, unresolvedErrors));
+                detailsRequired, detailsSucceeded, unresolvedErrors, observedAt));
     }
 
     private void captureTaxonomy(java.util.UUID runId, String taxonomyHash) {
@@ -1202,10 +1234,24 @@ class SyncPersistenceIntegrationTest {
             long detailsRequired,
             long detailsSucceeded,
             long unresolvedErrors) {
+        return completeProgress(
+                taxonomyHash, pagesExpected, pagesCompleted, uniqueAuctions,
+                detailsRequired, detailsSucceeded, unresolvedErrors, OBSERVED_AT);
+    }
+
+    private static SyncRunProgress completeProgress(
+            String taxonomyHash,
+            int pagesExpected,
+            int pagesCompleted,
+            long uniqueAuctions,
+            long detailsRequired,
+            long detailsSucceeded,
+            long unresolvedErrors,
+            Instant observedAt) {
         return new SyncRunProgress(
                 SyncRunStage.PROMOTING,
                 taxonomyHash,
-                OBSERVED_AT,
+                observedAt,
                 pagesExpected,
                 pagesCompleted,
                 uniqueAuctions,

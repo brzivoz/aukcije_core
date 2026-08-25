@@ -19,7 +19,7 @@ loopback and same-origin guarded; status reads are loopback-only and `no-store`.
 | Contract | Executable evidence |
 |---|---|
 | One persisted four-stage experience | `RefreshWorkflowBrowserTest` drives the Serbian UI through listings, details, locations, and map preparation, reloads at every stage, opens a second tab, and proves neither tab announces success before correlated map readiness. Progress, start/elapsed/last-success times, next daily run, mapped totals, and precision summary are rendered without internal enum names. |
-| Strict #17 → #29 → #30 order | `RefreshCoordinatorTest` proves only a complete `SUCCEEDED` source advances, enrichment uses the workflow-pinned source and versions, every eligible source observation must have a matching snapshot/current terminal state, and completion requires the exact workflow and coarse-resolution IDs in the server-side readiness snapshot. Missing snapshot lineage and concurrent claims are checked against real PostgreSQL by `RefreshRepositoryIntegrationTest`. |
+| Strict #17 → #29 → #30 order | `RefreshCoordinatorTest` proves only a complete `SUCCEEDED` source advances, enrichment uses the workflow-pinned source and versions, every eligible source observation must have a matching snapshot/current terminal state, and completion requires the exact workflow and coarse-resolution IDs in the server-side readiness snapshot. Missing snapshot lineage and concurrent claims are checked against real PostgreSQL by `RefreshRepositoryIntegrationTest`; `SyncPersistenceIntegrationTest` also proves a Linux nanosecond observation remains the same evidence after PostgreSQL's microsecond timestamp normalization. |
 | Fail closed without losing last-good data | Partial source, failed detail, failed enrichment, active-version drift, missing enrichment lineage, empty population, and map-status mismatch all terminalize with fixed safe codes before a false success. Existing spatial evidence is append-only. The browser failure path keeps and labels the retained successful refresh time, exposes Serbian retry, and never renders a code, exception, payload, description, or personal data. |
 | Duplicate/retry/restart semantics | Rapid duplicate activation and two tabs attach to one workflow. Real PostgreSQL gives eight manual contenders and a scheduled collision one durable winner. A terminal restore clears the browser idempotency key, while a terminal retry gets a new workflow and the old row remains immutable. Claim and status reconciliation atomically reclaim an expired refresh heartbeat; source/enrichment child heartbeats are bounded by the same lease. Startup recovery reconnects deterministic child keys, recognizes an already committed correlated map run, and terminalizes executor rejection instead of leaving an unowned active row. A one-slot executor handoff closes the terminal-commit/worker-return race while the database remains the one-active authority. |
 | Daily local operation | The shared schedule defaults to `03:00` once per day in `Europe/Belgrade`; cron, zone, polling, and the complete disable switch are validated and documented. The stage-only source/enrichment schedules default to `-`. |
@@ -45,12 +45,12 @@ eaukcija.sud.rs, RGZ, geocoder, CDN, or other external host was contacted.
 
 ```text
 ./gradlew clean check --no-daemon
-BUILD SUCCESSFUL in 1m 39s
-Java/PostgreSQL tests: 396; passed: 392; skipped: 4; failures: 0
+BUILD SUCCESSFUL in 1m 43s
+Java/PostgreSQL tests: 397; passed: 393; skipped: 4; failures: 0
 Basemap contract tests: 14/14
 
 ./gradlew browserTest --no-daemon
-BUILD SUCCESSFUL in 53s
+BUILD SUCCESSFUL in 54s
 Playwright tests: 24/24; skipped: 0; failures: 0
 ```
 

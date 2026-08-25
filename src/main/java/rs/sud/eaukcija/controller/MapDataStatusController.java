@@ -7,7 +7,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import rs.sud.eaukcija.map.MapDataStatus;
 import rs.sud.eaukcija.map.MapDataStatusService;
 
 /** Anonymous status endpoint for map version and visible freshness disclosure. */
@@ -23,9 +22,9 @@ public class MapDataStatusController {
     }
 
     @GetMapping
-    public ResponseEntity<MapDataStatus> status() {
+    public ResponseEntity<MapDataStatusResponse> status() {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(service.status());
+                .body(MapDataStatusResponse.from(service.status()));
     }
 }

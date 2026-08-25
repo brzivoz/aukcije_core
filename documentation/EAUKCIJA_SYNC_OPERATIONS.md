@@ -242,9 +242,11 @@ sleep while holding the worker advisory lock.
 
 ## Optional scheduling
 
-Scheduling is disabled by default with `eaukcija.sync.schedule-cron=-`. Keep it
-disabled until the source acceptable-use note has been reviewed for the intended
-deployment and cadence. A configured schedule uses the same durable claim,
+The stage-only sync schedule is disabled by default with
+`eaukcija.sync.schedule-cron=-`; issue #40's refresh coordinator owns the normal
+daily schedule. Keep this advanced schedule disabled unless an operator has an
+explicit source-only maintenance need and the source acceptable-use note has
+been reviewed for the intended deployment and cadence. A configured schedule uses the same durable claim,
 database lock, rate gate, completeness checks, and atomic promotion as a manual
 trigger; it cannot overlap an existing run. `eaukcija.sync.schedule-zone`
 defaults to `UTC`, so an operator who enables a civil-time schedule must choose

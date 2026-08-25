@@ -59,7 +59,7 @@ class PipelineReadinessHealthIndicatorTest {
                 ready, !ready, failures, List.of(),
                 List.of(),
                 new PipelineStatus.Policy(93_600, 100, 7_200, false),
-                new PipelineStatus.Database(true, "14", "14", true),
+                new PipelineStatus.Database(true, "15", "15", true),
                 new PipelineStatus.Sync(null, null, null, !ready, "UNKNOWN"),
                 new PipelineStatus.Enrichment(
                         null, null, 0, null, null, false,

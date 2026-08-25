@@ -89,7 +89,8 @@ class PostgisSchemaIntegrationTest {
                         "V11__eaukcija_detail_quarantine.sql",
                         "V12__eaukcija_listing_quarantine.sql",
                         "V13__deterministic_enrichment_reprocessing.sql",
-                        "V14__pipeline_observability.sql")
+                        "V14__pipeline_observability.sql",
+                        "V15__durable_refresh_workflow.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -195,6 +196,40 @@ class PostgisSchemaIntegrationTest {
                   FROM information_schema.referential_constraints
                  WHERE constraint_name = 'sync_run_auction_observations_auction_id_fkey'
                 """, Boolean.class)).isTrue();
+    }
+
+    @Test
+    void flywayOwnsTheDurableSourceToMapRefreshAggregate() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'refresh_runs'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                "id", "idempotency_key_sha256", "trigger_kind", "status", "stage",
+                "started_at", "heartbeat_at", "finished_at", "source_sync_run_id",
+                "enrichment_run_id", "map_resolution_run_id", "parser_version",
+                "resolver_version", "dataset_version", "listings_processed", "listings_total",
+                "details_processed", "details_total", "locations_processed", "locations_total",
+                "mapped_count", "population_count", "precision_counts", "map_data_version",
+                "map_ready_at", "failure_code");
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                 WHERE schemaname = 'public' AND tablename = 'refresh_runs'
+                """, String.class)).contains(
+                "uq_refresh_runs_single_running", "idx_refresh_runs_started",
+                "idx_refresh_runs_success");
+        assertThat(jdbc.queryForList("""
+                SELECT tgname FROM pg_trigger
+                 WHERE tgrelid = 'refresh_runs'::regclass AND NOT tgisinternal
+                """, String.class)).containsExactly("trg_refresh_runs_terminal_immutable");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'coarse_location_resolution_runs'
+                """, String.class)).contains("refresh_run_id");
     }
 
     @Test

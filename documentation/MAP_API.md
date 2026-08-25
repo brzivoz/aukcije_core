@@ -119,6 +119,7 @@ population run can never become the visible version.
   "stale": false,
   "populationCount": 589,
   "mappedAuctionCount": 587,
+  "precisionSummary": {"ADDRESS": 240, "MUNICIPALITY": 347, "NONE": 2},
   "warning": null
 }
 ```
@@ -129,6 +130,8 @@ the successful run's durable `finished_at`, not page-load time or process-local
 state. `mappedAuctionCount` is the population less explicit `NONE` results.
 `map.data.stale-after` (default `PT24H`, environment override
 `MAP_DATA_STALE_AFTER`) controls the stale boundary.
+Internal coarse-resolution and refresh-workflow UUIDs are used by the
+server-side readiness check but are not fields of this anonymous response.
 
 If no completed run exists, the endpoint deliberately returns
 `available=false`, `stale=true`, null version/timestamp, and

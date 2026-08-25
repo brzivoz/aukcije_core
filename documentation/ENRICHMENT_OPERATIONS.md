@@ -76,15 +76,14 @@ client in this path.
 
 ## Enable and schedule
 
-The subsystem is enabled for PostgreSQL profiles and ships with one hourly
-cadence at minute 15 in `Europe/Belgrade`. This is deliberate for every
-environment inheriting `application.properties`; set the cron to `-` to opt an
-environment out or override it when coordinating a different sync/artifact
-publication cadence:
+The subsystem is enabled for PostgreSQL profiles, but its stage-only schedule
+defaults to `-`. Issue #40 owns the normal once-daily cadence through the
+source-to-map refresh coordinator. Enable this advanced schedule only for an
+explicit maintenance reason; it does not prove that the map is ready:
 
 ```text
 EAUKCIJA_ENRICHMENT_ENABLED=true
-EAUKCIJA_ENRICHMENT_SCHEDULE_CRON=0 15 * * * *
+EAUKCIJA_ENRICHMENT_SCHEDULE_CRON=-
 EAUKCIJA_ENRICHMENT_SCHEDULE_ZONE=Europe/Belgrade
 EAUKCIJA_ENRICHMENT_MAX_ATTEMPTS=3
 EAUKCIJA_ENRICHMENT_MAX_INTERRUPTIONS=3
@@ -102,10 +101,10 @@ Bounds are fail-fast:
 | `running-stale-after` | 5 minutes–12 hours | 15 minutes |
 | `max-items-per-run` | 1–1,000 | 1,000 |
 | `max-replay-items` | 1–1,000 | 1,000 |
-| schedule | `-` or valid Spring cron | `0 15 * * * *` |
+| schedule | `-` or valid Spring cron | `-` |
 | zone | valid IANA zone | `Europe/Belgrade` |
 
-There is one Spring enrichment schedule and no lease, owner, expiry, per-item
+The optional advanced Spring enrichment schedule has no lease, owner, expiry, per-item
 timer, jitter, or backoff queue. It submits to the same capacity-zero,
 single-threaded `syncRunExecutor` used by #17 and acquires the same PostgreSQL
 session advisory worker lock. A unique partial index also prevents two retained

@@ -58,6 +58,11 @@ public final class BrowserHarnessExtension implements BeforeEachCallback, TestWa
         return page;
     }
 
+    public Page newPage() {
+        ensureStarted();
+        return context.newPage();
+    }
+
     public LocalhostOnlyNetwork network() {
         ensureStarted();
         return network;

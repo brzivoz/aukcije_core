@@ -9,7 +9,9 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 
@@ -54,6 +56,27 @@ class MapDataStatusServiceTest {
         assertThat(missing.lastSuccessfulSync()).isNull();
         assertThat(missing.stale()).isTrue();
         assertThat(missing.warning()).isEqualTo(MapDataStatusService.NO_SUCCESSFUL_SYNC);
+    }
+
+    @Test
+    void reportsOneBestPublishablePrecisionPerAuctionAndDerivesTheUnmappedRemainder() {
+        UUID mapRun = UUID.randomUUID();
+        UUID refreshRun = UUID.randomUUID();
+        when(repository.findLatest()).thenReturn(Optional.of(
+                new MapDataStatusRepository.LatestRun(
+                        mapRun, refreshRun, "coarse-v1", "centroids-v2", "a".repeat(64),
+                        NOW.minus(Duration.ofHours(2)), 4, 1,
+                        Map.of("ADDRESS", 1L, "MUNICIPALITY", 2L))));
+
+        MapDataStatus status = service(Duration.ofHours(24)).status();
+
+        assertThat(status.mappedAuctionCount()).isEqualTo(3);
+        assertThat(status.precisionSummary())
+                .containsEntry("ADDRESS", 1L)
+                .containsEntry("MUNICIPALITY", 2L)
+                .containsEntry("NONE", 1L);
+        assertThat(status.successfulResolutionRunId()).isEqualTo(mapRun);
+        assertThat(status.refreshWorkflowId()).isEqualTo(refreshRun);
     }
 
     @Test

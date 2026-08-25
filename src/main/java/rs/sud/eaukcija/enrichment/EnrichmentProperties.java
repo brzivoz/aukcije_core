@@ -17,7 +17,7 @@ public class EnrichmentProperties {
     private Duration runningStaleAfter = Duration.ofMinutes(15);
     private int maxItemsPerRun = 1_000;
     private int maxReplayItems = 1_000;
-    private String scheduleCron = "0 15 * * * *";
+    private String scheduleCron = "-";
     private String scheduleZone = "Europe/Belgrade";
 
     @PostConstruct

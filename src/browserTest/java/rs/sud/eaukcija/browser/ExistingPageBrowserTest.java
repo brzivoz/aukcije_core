@@ -14,10 +14,8 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 
 class ExistingPageBrowserTest extends PostgisBrowserFixture {
 
-    private static final String STORED_SYNC_RUN_ID =
+    private static final String STORED_REFRESH_RUN_ID =
             "33333333-3333-4333-8333-333333333333";
-    private static final String STORED_IDEMPOTENCY_KEY =
-            "44444444-4444-4444-8444-444444444444";
 
     @RegisterExtension
     final BrowserHarnessExtension browser = new BrowserHarnessExtension();
@@ -41,29 +39,27 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
     }
 
     @Test
-    void staleStoredSyncRunIsClearedAfterARealNotFoundStatusResponse() {
+    void staleStoredRefreshRunIsClearedAfterARealNotFoundStatusResponse() {
         Page page = browser.page();
-        seedStoredSyncRun(page);
+        seedStoredRefreshRun(page);
 
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         page.waitForFunction("""
-                () => sessionStorage.getItem('eaukcija.sync.runId') === null
-                  && sessionStorage.getItem('eaukcija.sync.idempotencyKey') === null
-                  && !document.querySelector('#btnSync').disabled
+                () => localStorage.getItem('eaukcija.refresh.workflowId') === null
+                  && document.querySelector('#refresh-status')?.textContent
+                        === 'Освежавање није покренуто.'
                 """);
 
-        assertThat(page.locator("#progressBar").isHidden()).isTrue();
-        assertThat(page.locator("#syncStatus").textContent())
-                .isEqualTo("Сачувана синхронизација више не постоји.");
+        assertThat(page.locator("#refresh-start").getAttribute("aria-disabled")).isEqualTo("false");
     }
 
     @Test
     void secretBearingJsonStatusErrorIsNeverRendered() {
         String sentinel = "password=json-status-secret";
         Page page = browser.page();
-        seedStoredSyncRun(page);
-        page.route("**/api/sync/runs/" + STORED_SYNC_RUN_ID, route -> route.fulfill(
+        seedStoredRefreshRun(page);
+        page.route("**/api/operator/refresh/" + STORED_REFRESH_RUN_ID, route -> route.fulfill(
                 new Route.FulfillOptions()
                         .setStatus(400)
                         .setContentType("application/problem+json")
@@ -72,16 +68,16 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
         navigateAndWaitForStoredRunToClear(page);
 
         assertThat(page.locator("body").textContent()).doesNotContain(sentinel);
-        assertThat(page.locator("#syncStatus").textContent())
-                .isEqualTo("Сачувани идентификатор синхронизације није важећи.");
+        assertThat(page.locator("#refresh-status").textContent())
+                .isEqualTo("Статус освежавања тренутно није доступан.");
     }
 
     @Test
     void secretBearingNonJsonStatusErrorIsNeverRenderedByTheParserFallback() {
         String sentinel = "password=plain-status-secret";
         Page page = browser.page();
-        seedStoredSyncRun(page);
-        page.route("**/api/sync/runs/" + STORED_SYNC_RUN_ID, route -> route.fulfill(
+        seedStoredRefreshRun(page);
+        page.route("**/api/operator/refresh/" + STORED_REFRESH_RUN_ID, route -> route.fulfill(
                 new Route.FulfillOptions()
                         .setStatus(400)
                         .setContentType("text/plain")
@@ -90,8 +86,8 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
         navigateAndWaitForStoredRunToClear(page);
 
         assertThat(page.locator("body").textContent()).doesNotContain(sentinel);
-        assertThat(page.locator("#syncStatus").textContent())
-                .isEqualTo("Сачувани идентификатор синхронизације није важећи.");
+        assertThat(page.locator("#refresh-status").textContent())
+                .isEqualTo("Статус освежавања тренутно није доступан.");
     }
 
     @Test
@@ -99,8 +95,8 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
         String sentinel = "token=transient-status-secret";
         AtomicInteger requests = new AtomicInteger();
         Page page = browser.page();
-        seedStoredSyncRun(page);
-        page.route("**/api/sync/runs/" + STORED_SYNC_RUN_ID, route -> {
+        seedStoredRefreshRun(page);
+        page.route("**/api/operator/refresh/" + STORED_REFRESH_RUN_ID, route -> {
             int request = requests.incrementAndGet();
             if (request == 1) {
                 route.fulfill(new Route.FulfillOptions()
@@ -114,22 +110,42 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
                     .setStatus(200)
                     .setContentType("application/json")
                     .setBody("""
-                            {"runId":"%s","status":"%s","stage":"%s",
-                             "pagesExpected":1,"pagesCompleted":1,
-                             "detailsRequired":1,"detailsSucceeded":1}
+                            {"enabled":true,"workflowId":"%s","trigger":"MANUAL",
+                             "status":"%s","stage":"%s",
+                             "startedAt":"2026-08-25T10:00:00Z",
+                             "finishedAt":%s,"elapsedSeconds":60,
+                             "listingsProcessed":1,"listingsTotal":1,
+                             "detailsProcessed":1,"detailsTotal":1,
+                             "locationsProcessed":1,"locationsTotal":1,
+                             "mappedCount":%d,"populationCount":%d,
+                             "precisionSummary":%s,
+                             "sourceSyncRunId":null,"enrichmentRunId":null,
+                             "mapResolutionRunId":null,"mapDataVersion":%s,
+                             "mapReadyAt":%s,"failureCode":null,"failureMessage":null,
+                             "lastSuccessfulWorkflowId":%s,
+                             "lastSuccessfulCompleteRefresh":%s,
+                             "scheduleEnabled":true,"scheduleZone":"Europe/Belgrade",
+                             "nextScheduledRun":"2026-08-26T01:00:00Z"}
                             """.formatted(
-                                    STORED_SYNC_RUN_ID,
+                                    STORED_REFRESH_RUN_ID,
                                     terminal ? "SUCCEEDED" : "RUNNING",
-                                    terminal ? "COMPLETED" : "DETAILS")));
+                                    terminal ? "COMPLETED" : "PROCESS_LOCATIONS",
+                                    terminal ? "\"2026-08-25T10:01:00Z\"" : "null",
+                                    terminal ? 1 : 0,
+                                    terminal ? 1 : 0,
+                                    terminal ? "{\"CADASTRAL_MUNICIPALITY\":1}" : "{}",
+                                    terminal ? "\"map-v1\"" : "null",
+                                    terminal ? "\"2026-08-25T10:01:00Z\"" : "null",
+                                    terminal ? "\"" + STORED_REFRESH_RUN_ID + "\"" : "null",
+                                    terminal ? "\"2026-08-25T10:01:00Z\"" : "null")));
         });
 
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         page.waitForFunction("""
-                () => document.querySelector('#syncStatus')?.textContent
-                        === 'SUCCEEDED — COMPLETED'
-                  && sessionStorage.getItem('eaukcija.sync.runId') === null
-                  && sessionStorage.getItem('eaukcija.sync.idempotencyKey') === null
+                () => document.querySelector('#refresh-status')?.textContent
+                        === 'Карта је спремна. Мапирано је 1 од 1 аукција.'
+                  && localStorage.getItem('eaukcija.refresh.workflowId') === null
                 """);
 
         assertThat(requests).hasValue(3);
@@ -205,22 +221,20 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
                 """, url);
     }
 
-    private static void seedStoredSyncRun(Page page) {
+    private static void seedStoredRefreshRun(Page page) {
         page.addInitScript("""
-                if (window.name !== 'eaukcija-sync-seeded') {
-                  window.name = 'eaukcija-sync-seeded';
-                  sessionStorage.setItem('eaukcija.sync.runId', '%s');
-                  sessionStorage.setItem('eaukcija.sync.idempotencyKey', '%s');
+                if (window.name !== 'eaukcija-refresh-seeded') {
+                  window.name = 'eaukcija-refresh-seeded';
+                  localStorage.setItem('eaukcija.refresh.workflowId', '%s');
                 }
-                """.formatted(STORED_SYNC_RUN_ID, STORED_IDEMPOTENCY_KEY));
+                """.formatted(STORED_REFRESH_RUN_ID));
     }
 
     private void navigateAndWaitForStoredRunToClear(Page page) {
         page.navigate(applicationUri().toString(), new Page.NavigateOptions()
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         page.waitForFunction("""
-                () => sessionStorage.getItem('eaukcija.sync.runId') === null
-                  && sessionStorage.getItem('eaukcija.sync.idempotencyKey') === null
+                () => localStorage.getItem('eaukcija.refresh.workflowId') === null
                 """);
     }
 

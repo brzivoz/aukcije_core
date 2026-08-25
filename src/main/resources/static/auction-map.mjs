@@ -138,6 +138,11 @@ restoreFiltersFromUrl();
 bindFilterControls();
 const metadataPromise = loadMetadata();
 initialize();
+window.addEventListener('eaukcija:refresh-complete', () => {
+    state.metadataWarnings.clear();
+    loadMetadata();
+    refreshNow();
+});
 
 async function initialize() {
     if (state.initializationPromise) {

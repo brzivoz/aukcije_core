@@ -60,6 +60,32 @@ public class EnrichmentService {
                 properties.getMaxItemsPerRun());
     }
 
+    /** Starts version-pinned work for one successful source-sync observation set. */
+    public EnrichmentRunClaim startForSource(
+            UUID idempotencyKey,
+            UUID sourceSyncRunId,
+            EnrichmentTriggerKind triggerKind) {
+        if (sourceSyncRunId == null) {
+            throw new IllegalArgumentException("sourceSyncRunId is required");
+        }
+        if (triggerKind != EnrichmentTriggerKind.MANUAL
+                && triggerKind != EnrichmentTriggerKind.SCHEDULED
+                && triggerKind != EnrichmentTriggerKind.RECOVERY) {
+            throw new IllegalArgumentException("coordinated trigger kind is invalid");
+        }
+        return start(
+                idempotencyKey.toString(),
+                triggerKind,
+                new EnrichmentSelector(
+                        EnrichmentSelectorType.SOURCE_SYNC_RUN, sourceSyncRunId.toString()),
+                properties.getMaxItemsPerRun());
+    }
+
+    public EnrichmentVersions activeVersions() {
+        requireEnabled();
+        return pipeline.activeVersions();
+    }
+
     public EnrichmentRunClaim startReplay(
             UUID idempotencyKey,
             EnrichmentSelector selector,

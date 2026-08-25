@@ -42,6 +42,7 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.ContextClosedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -80,13 +81,20 @@ public final class EAukcijaClient {
     private final AtomicBoolean shuttingDown = new AtomicBoolean();
 
     @Autowired
-    public EAukcijaClient(EAukcijaClientProperties properties, ObjectMapper objectMapper) {
+    public EAukcijaClient(
+            EAukcijaClientProperties properties,
+            ObjectMapper objectMapper,
+            @Value("${eaukcija.api.allow-http-loopback-test:false}") boolean allowHttpForLoopbackTest) {
         this(properties, objectMapper, EAukcijaTiming.system(),
                 inclusiveMaximum -> inclusiveMaximum == 0
                         ? 0
                         : ThreadLocalRandom.current().nextLong(inclusiveMaximum + 1),
-                false,
+                allowHttpForLoopbackTest,
                 List.of());
+    }
+
+    public EAukcijaClient(EAukcijaClientProperties properties, ObjectMapper objectMapper) {
+        this(properties, objectMapper, false);
     }
 
     EAukcijaClient(

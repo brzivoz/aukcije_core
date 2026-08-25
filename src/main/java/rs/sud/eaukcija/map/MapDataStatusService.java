@@ -51,13 +51,25 @@ public class MapDataStatusService {
                         true,
                         0,
                         0,
+                        java.util.Map.of(),
+                        null,
+                        null,
                         NO_SUCCESSFUL_SYNC));
     }
 
     private MapDataStatus available(MapDataStatusRepository.LatestRun run) {
         Instant staleBoundary = clock.instant().minus(staleAfter);
         boolean stale = run.finishedAt().isBefore(staleBoundary);
-        long mapped = Math.max(0, run.populationCount() - run.noneCount());
+        java.util.LinkedHashMap<String, Long> precisionSummary =
+                new java.util.LinkedHashMap<>(run.precisionSummary());
+        long mapped = precisionSummary.values().stream().mapToLong(Long::longValue).sum();
+        if (run.precisionSummary().isEmpty()) {
+            mapped = Math.max(0, run.populationCount() - run.noneCount());
+        }
+        long withoutPosition = Math.max(0, run.populationCount() - mapped);
+        if (!precisionSummary.isEmpty() && withoutPosition > 0) {
+            precisionSummary.put("NONE", withoutPosition);
+        }
         return new MapDataStatus(
                 true,
                 "AVAILABLE",
@@ -66,6 +78,9 @@ public class MapDataStatusService {
                 stale,
                 run.populationCount(),
                 mapped,
+                precisionSummary,
+                run.runId(),
+                run.refreshRunId(),
                 stale ? STALE_DATA : null);
     }
 

@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import rs.sud.eaukcija.service.SyncService;
+import rs.sud.eaukcija.operations.OperatorRequestGuard;
 import rs.sud.eaukcija.service.SyncSubmissionException;
 import rs.sud.eaukcija.service.SyncUnavailableException;
 import rs.sud.eaukcija.sync.persistence.PersistedAuctionDetailQuarantine;
@@ -55,7 +56,8 @@ public class SyncController {
     public ResponseEntity<?> start(
             @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
             HttpServletRequest request) {
-        if (!isLoopback(request.getRemoteAddr())) {
+        if (!isLoopback(request.getRemoteAddr())
+                || !OperatorRequestGuard.isSameOriginBrowserContext(request)) {
             return problem(HttpStatus.FORBIDDEN, "SYNC_LOCAL_ONLY",
                     "Synchronization may only be triggered from a loopback client.");
         }

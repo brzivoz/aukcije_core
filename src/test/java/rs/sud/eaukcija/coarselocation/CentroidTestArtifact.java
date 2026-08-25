@@ -13,15 +13,15 @@ import java.util.Map;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Small immutable #36-compatible artifact shared by #38 tests. */
-final class CentroidTestArtifact {
+public final class CentroidTestArtifact {
 
-    static final String SOURCE_HASH = "a".repeat(64);
-    static final String VERSION = "2026-08-23-" + SOURCE_HASH;
+    public static final String SOURCE_HASH = "a".repeat(64);
+    public static final String VERSION = "2026-08-23-" + SOURCE_HASH;
 
     private CentroidTestArtifact() {
     }
 
-    static Path create(Path root, ObjectMapper objectMapper) throws IOException {
+    public static Path create(Path root, ObjectMapper objectMapper) throws IOException {
         Path version = root.resolve("versions").resolve(VERSION);
         Files.createDirectories(version);
         Files.writeString(root.resolve("ACTIVE"), VERSION + "\n", StandardCharsets.UTF_8);

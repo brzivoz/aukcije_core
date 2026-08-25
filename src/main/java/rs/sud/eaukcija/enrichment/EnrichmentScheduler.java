@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** One Spring-managed hourly schedule; '-' remains an explicit disable switch. */
+/** Advanced stage-only schedule; disabled because #40 owns normal scheduling. */
 @Component
 public class EnrichmentScheduler {
 
@@ -31,7 +31,7 @@ public class EnrichmentScheduler {
     }
 
     @Scheduled(
-            cron = "${eaukcija.enrichment.schedule-cron:0 15 * * * *}",
+            cron = "${eaukcija.enrichment.schedule-cron:-}",
             zone = "${eaukcija.enrichment.schedule-zone:Europe/Belgrade}")
     public void trigger() {
         String occurrence = "eaukcija-enrichment:"

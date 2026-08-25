@@ -72,6 +72,11 @@ public class CoarseLocationResolutionService {
 
     @Transactional
     public RunResult run() {
+        return run(null);
+    }
+
+    @Transactional
+    public RunResult run(UUID refreshRunId) {
         properties.validate();
         Instant started = Instant.now(clock);
         CentroidSnapshot snapshot = activeSnapshot();
@@ -124,9 +129,10 @@ public class CoarseLocationResolutionService {
                     municipality_alias_dataset_version, municipality_alias_sha256,
                     population_count, processed_count, unchanged_count,
                     cadastral_municipality_count, settlement_count, municipality_count, none_count,
-                    municipality_alias_ko_count, structured_ko_status_counts, rationale_counts
+                    municipality_alias_ko_count, structured_ko_status_counts, rationale_counts,
+                    refresh_run_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                          CAST(? AS jsonb), CAST(? AS jsonb))
+                          CAST(? AS jsonb), CAST(? AS jsonb), ?)
                 """,
                 runId,
                 databaseTime(started),
@@ -150,7 +156,8 @@ public class CoarseLocationResolutionService {
                 tierCounts.get(LocationPrecision.NONE.name()),
                 municipalityAliasKoCount,
                 json(koStatusCounts),
-                json(rationaleCounts));
+                json(rationaleCounts),
+                refreshRunId);
         }
 
         return new RunResult(

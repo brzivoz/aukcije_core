@@ -32,16 +32,19 @@ public class AuctionController {
     private final SyncService syncService;
     private final ObjectProvider<AuctionLocationRepository> locationRepository;
     private final boolean mapBrowserTestHooks;
+    private final boolean refreshEnabled;
 
     public AuctionController(
             AuctionRepository repo,
             SyncService syncService,
             ObjectProvider<AuctionLocationRepository> locationRepository,
-            @Value("${map.browser-test-hooks:false}") boolean mapBrowserTestHooks) {
+            @Value("${map.browser-test-hooks:false}") boolean mapBrowserTestHooks,
+            @Value("${eaukcija.refresh.enabled:true}") boolean refreshEnabled) {
         this.repo = repo;
         this.syncService = syncService;
         this.locationRepository = locationRepository;
         this.mapBrowserTestHooks = mapBrowserTestHooks;
+        this.refreshEnabled = refreshEnabled;
     }
 
     @GetMapping("/")
@@ -113,6 +116,8 @@ public class AuctionController {
         }
         var activeRun = latestRun.filter(run -> run.status() == SyncRunStatus.RUNNING);
         model.addAttribute("syncEnabled", syncEnabled);
+        model.addAttribute("refreshEnabled", refreshEnabled && syncEnabled);
+        model.addAttribute("syncStatusUnavailable", syncStatusUnavailable);
         model.addAttribute("activeSyncRunId", activeRun.map(run -> run.runId().toString()).orElse(""));
         model.addAttribute("syncing", activeRun.isPresent());
         model.addAttribute("syncStatus", latestRun

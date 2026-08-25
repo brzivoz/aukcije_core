@@ -16,18 +16,36 @@
         header h1 { font-size: 1.4rem; }
         .stats { font-size: 0.85rem; opacity: 0.85; }
 
-        .sync-panel { background: white; border-radius: 8px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-        .sync-panel h3 { margin-bottom: 10px; font-size: 1rem; }
-        .sync-buttons { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .refresh-panel { background: white; border-radius: 8px; padding: 18px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .refresh-panel h2 { margin-bottom: 6px; font-size: 1.12rem; }
+        .refresh-introduction, .refresh-schedule { color: #4b5563; font-size: 0.88rem; line-height: 1.45; }
+        .refresh-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 14px 0; }
         .btn { padding: 8px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; font-weight: 500; }
         .btn-primary { background: #1a237e; color: white; }
         .btn-primary:hover { background: #283593; }
         .btn-secondary { background: #455a64; color: white; }
         .btn-secondary:hover { background: #546e7a; }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .sync-status { font-size: 0.85rem; color: #666; margin-left: 10px; }
-        .progress-bar { width: 200px; height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: 8px; }
-        .progress-bar-fill { height: 100%; background: #1a237e; transition: width 0.3s; }
+        .btn[aria-disabled="true"] { opacity: 0.58; cursor: wait; }
+        .btn:focus-visible { outline: 3px solid white; outline-offset: 2px; box-shadow: 0 0 0 5px #0b2e59; }
+        .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+        .refresh-status { min-height: 1.4em; font-size: 0.9rem; color: #374151; }
+        .refresh-status[data-kind="error"] { color: #991b1b; font-weight: 600; }
+        .refresh-status[data-kind="success"] { color: #166534; font-weight: 600; }
+        .refresh-stages { list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+        .refresh-stages li { border: 2px solid #d1d5db; border-radius: 6px; padding: 9px; color: #4b5563; font-size: 0.82rem; }
+        .refresh-stages li[data-state="active"] { border-color: #1a237e; background: #eef2ff; color: #111827; font-weight: 650; }
+        .refresh-stages li[data-state="complete"] { border-color: #2e7d32; background: #f0fdf4; color: #166534; }
+        .refresh-stages li[data-state="error"] { border-color: #b91c1c; background: #fef2f2; color: #991b1b; font-weight: 650; }
+        .refresh-stage-count { display: block; margin-top: 3px; font-variant-numeric: tabular-nums; }
+        .refresh-metadata { display: flex; flex-wrap: wrap; gap: 8px 22px; margin: 12px 0; font-size: 0.82rem; color: #4b5563; }
+        .refresh-metadata dt { font-weight: 650; color: #374151; }
+        .refresh-metadata div { display: grid; gap: 2px; }
+        .refresh-result { margin-top: 10px; padding: 10px; border-left: 4px solid #2e7d32; background: #f0fdf4; font-size: 0.86rem; line-height: 1.45; }
+        .advanced-operator { margin-top: 14px; border-top: 1px solid #e5e7eb; padding-top: 10px; }
+        .advanced-operator summary { cursor: pointer; font-weight: 600; color: #374151; }
+        .advanced-operator p { margin: 9px 0; color: #4b5563; font-size: 0.82rem; line-height: 1.4; }
+        .advanced-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
         .filters { background: white; border-radius: 8px; padding: 16px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .filters h3 { margin-bottom: 12px; font-size: 1rem; }
@@ -68,6 +86,7 @@
         .pagination .active { background: #1a237e; color: white; border-color: #1a237e; }
         .auction-link { color: #1a237e; text-decoration: none; font-weight: 500; }
         .auction-link:hover { text-decoration: underline; }
+        @media (max-width: 760px) { .refresh-stages { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -83,23 +102,51 @@
 
 <div class="container">
 
-    <!-- Sync Panel -->
-    <div class="sync-panel" id="syncPanel"
-         th:attr="data-active-run-id=${activeSyncRunId},data-sync-enabled=${syncEnabled}">
-        <h3>Синхронизација података</h3>
-        <div class="sync-buttons">
-            <button class="btn btn-primary" onclick="startSync()" id="btnSync"
-                    th:disabled="${!syncEnabled or syncing}">
-                Покрени потпуну синхронизацију
-            </button>
-            <span class="sync-status" id="syncStatus" th:text="${syncStatus}"></span>
-            <div class="progress-bar" id="progressBar"
-                 th:style="${syncing} ? 'display:inline-block;' : 'display:none;'">
-                <div class="progress-bar-fill" id="progressFill"
-                     th:style="${syncTotal > 0} ? 'width: ' + ${#numbers.formatDecimal(syncProgress * 100.0 / syncTotal, 1, 0)} + '%' : 'width: 0%'"></div>
-            </div>
+    <section class="refresh-panel" id="refresh-panel"
+             aria-labelledby="refresh-heading" th:attr="data-refresh-enabled=${refreshEnabled}">
+        <h2 id="refresh-heading">Освежавање аукција и карте</h2>
+        <p class="refresh-introduction">
+            Једна радња преузима огласе и детаље, обрађује локације и потврђује да је карта спремна.
+            Претходна исправна карта остаје доступна ако нови покушај не успе.
+        </p>
+        <div class="refresh-actions">
+            <button type="button" class="btn btn-primary" id="refresh-start">Освежи све податке</button>
+            <button type="button" class="btn btn-secondary" id="refresh-retry" hidden>Покушај поново</button>
         </div>
-    </div>
+        <div id="refresh-status" class="refresh-status">
+            <span th:text="${syncStatusUnavailable
+                    ? 'Статус синхронизације тренутно није доступан'
+                    : 'Учитавање стања освежавања…'}">Учитавање стања освежавања…</span>
+        </div>
+        <div id="refresh-polite" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+        <div id="refresh-alert" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
+        <ol class="refresh-stages" aria-label="Фазе освежавања">
+            <li data-refresh-stage="DOWNLOAD_LISTINGS"><span>Преузимање огласа</span><span class="refresh-stage-count"></span></li>
+            <li data-refresh-stage="DOWNLOAD_DETAILS"><span>Преузимање детаља</span><span class="refresh-stage-count"></span></li>
+            <li data-refresh-stage="PROCESS_LOCATIONS"><span>Обрада локација</span><span class="refresh-stage-count"></span></li>
+            <li data-refresh-stage="PREPARE_MAP"><span>Припрема карте</span><span class="refresh-stage-count"></span></li>
+        </ol>
+        <dl class="refresh-metadata">
+            <div><dt>Почетак</dt><dd id="refresh-started-at">Није покренуто</dd></div>
+            <div><dt>Протекло време</dt><dd id="refresh-elapsed">—</dd></div>
+            <div><dt>Последње потпуно успешно освежавање</dt><dd id="refresh-last-success">Није забележено</dd></div>
+        </dl>
+        <div id="refresh-result" class="refresh-result" hidden></div>
+        <p id="refresh-schedule" class="refresh-schedule">Учитавање распореда…</p>
+        <details class="advanced-operator">
+            <summary>Напредне операторске контроле</summary>
+            <p>
+                Ове контроле покрећу само једну фазу и не значе да је карта спремна.
+                За редовно освежавање користите „Освежи све податке”.
+            </p>
+            <div class="advanced-actions">
+                <button type="button" class="btn btn-secondary" id="advanced-source-sync">Само преузми изворне податке</button>
+                <button type="button" class="btn btn-secondary" id="advanced-enrichment">Само обради локације</button>
+                <a class="btn btn-secondary" href="/operator/status">Дијагностика система</a>
+            </div>
+            <p id="advanced-status" role="status" aria-live="polite"></p>
+        </details>
+    </section>
 
     <section class="auction-map-panel" aria-labelledby="auction-map-heading"
              th:attr="data-map-test-hooks=${mapBrowserTestHooks}">
@@ -344,165 +391,8 @@
     </div>
 </div>
 
-<script>
-    const syncPanel = document.getElementById('syncPanel');
-    const syncButton = document.getElementById('btnSync');
-    const syncRunStorageKey = 'eaukcija.sync.runId';
-    const syncIdempotencyStorageKey = 'eaukcija.sync.idempotencyKey';
-    const syncRunIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const syncStatuses = new Set(['RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED']);
-    const syncStages = new Set(['CLAIMED', 'CATEGORIES', 'LISTINGS', 'DETAILS', 'PROMOTING', 'COMPLETED']);
-
-    function resetSyncUi(message, clearIdempotencyKey) {
-        sessionStorage.removeItem(syncRunStorageKey);
-        if (clearIdempotencyKey) {
-            sessionStorage.removeItem(syncIdempotencyStorageKey);
-        }
-        document.getElementById('syncStatus').textContent = message;
-        document.getElementById('progressFill').style.width = '0%';
-        document.getElementById('progressBar').style.display = 'none';
-        syncButton.disabled = syncPanel.dataset.syncEnabled !== 'true';
-    }
-
-    function fixedTriggerError(status, code) {
-        if (status === 400 || code === 'INVALID_IDEMPOTENCY_KEY') {
-            return 'Неважећи идентификатор захтева. Покушајте поново.';
-        }
-        if (status === 403 || code === 'SYNC_LOCAL_ONLY') {
-            return 'Синхронизација се може покренути само локално.';
-        }
-        if (status === 409 || code === 'SYNC_ALREADY_RUNNING') {
-            return 'Друга синхронизација је већ у току.';
-        }
-        if (status === 503) {
-            return 'Синхронизација тренутно није доступна.';
-        }
-        return 'Синхронизација није прихваћена.';
-    }
-
-    async function startSync() {
-        let idempotencyKey = sessionStorage.getItem(syncIdempotencyStorageKey);
-        if (!idempotencyKey) {
-            idempotencyKey = crypto.randomUUID();
-            sessionStorage.setItem(syncIdempotencyStorageKey, idempotencyKey);
-        }
-        syncButton.disabled = true;
-        document.getElementById('progressBar').style.display = 'inline-block';
-        document.getElementById('syncStatus').textContent = 'Покретање…';
-
-        try {
-            const response = await fetch('/api/sync/runs', {
-                method: 'POST',
-                headers: {'Idempotency-Key': idempotencyKey}
-            });
-            const body = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                if (response.status === 409 && syncRunIdPattern.test(body.activeRunId || '')) {
-                    sessionStorage.setItem(syncRunStorageKey, body.activeRunId);
-                    await pollStatus(body.activeRunId);
-                    return;
-                }
-                if (response.status === 503 && syncRunIdPattern.test(body.runId || '')) {
-                    sessionStorage.setItem(syncRunStorageKey, body.runId);
-                    await pollStatus(body.runId);
-                    return;
-                }
-                if (response.status === 400) {
-                    sessionStorage.removeItem(syncIdempotencyStorageKey);
-                }
-                resetSyncUi(fixedTriggerError(response.status, body.code), false);
-                return;
-            }
-            if (!syncRunIdPattern.test(body.runId || '')) {
-                resetSyncUi('Сервис је вратио неважећи одговор о синхронизацији.', false);
-                return;
-            }
-            sessionStorage.setItem(syncRunStorageKey, body.runId);
-            await pollStatus(body.runId);
-        } catch (error) {
-            document.getElementById('syncStatus').textContent =
-                'Мрежна грешка при покретању синхронизације.';
-            document.getElementById('progressBar').style.display = 'none';
-            syncButton.disabled = syncPanel.dataset.syncEnabled !== 'true';
-        }
-    }
-
-    async function pollStatus(runId, consecutiveFailures = 0) {
-        try {
-            const response = await fetch('/api/sync/runs/' + encodeURIComponent(runId), {
-                cache: 'no-store'
-            });
-            const run = await response.json().catch(() => null);
-            if (!response.ok) {
-                if (response.status === 503 && run?.code === 'SYNC_UNAVAILABLE') {
-                    resetSyncUi('Синхронизација није доступна у овом профилу.', true);
-                    return;
-                }
-                if (response.status >= 400 && response.status < 500) {
-                    resetSyncUi(
-                        response.status === 404
-                            ? 'Сачувана синхронизација више не постоји.'
-                            : 'Сачувани идентификатор синхронизације није важећи.',
-                        true);
-                    return;
-                }
-                throw new Error('retryable-status-failure');
-            }
-            if (run === null
-                    || !syncStatuses.has(run.status)
-                    || !syncStages.has(run.stage)) {
-                throw new Error('invalid-status-contract');
-            }
-            const listingQuarantines = Number.isSafeInteger(run.listingRowsQuarantined)
-                ? run.listingRowsQuarantined
-                : 0;
-            const detailQuarantines = Number.isSafeInteger(run.detailsQuarantined)
-                ? run.detailsQuarantined
-                : 0;
-            const quarantineStatus = listingQuarantines > 0 || detailQuarantines > 0
-                ? ' — издвојено: огласи ' + listingQuarantines
-                    + ', детаљи ' + detailQuarantines
-                : '';
-            document.getElementById('syncStatus').textContent =
-                run.status + ' — ' + run.stage + quarantineStatus;
-            const total = run.pagesExpected + run.detailsRequired;
-            const completed = run.pagesCompleted
-                + run.detailsSucceeded
-                + detailQuarantines;
-            const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-            document.getElementById('progressFill').style.width = pct + '%';
-            if (run.status === 'RUNNING') {
-                syncButton.disabled = true;
-                setTimeout(() => pollStatus(runId, 0), 1000);
-            } else {
-                sessionStorage.removeItem(syncRunStorageKey);
-                sessionStorage.removeItem(syncIdempotencyStorageKey);
-                setTimeout(() => location.reload(), 500);
-            }
-        } catch (error) {
-            document.getElementById('syncStatus').textContent =
-                'Статус синхронизације тренутно није доступан.';
-            if (consecutiveFailures >= 4) {
-                document.getElementById('syncStatus').textContent =
-                    'Провера статуса је паузирана после више грешака. Покушајте поново.';
-                syncButton.disabled = syncPanel.dataset.syncEnabled !== 'true';
-                return;
-            }
-            const delay = Math.min(30000, 1000 * (2 ** consecutiveFailures));
-            setTimeout(() => pollStatus(runId, consecutiveFailures + 1), delay);
-        }
-    }
-
-    const activeRunId = syncPanel.dataset.activeRunId || sessionStorage.getItem(syncRunStorageKey);
-    if (activeRunId && syncPanel.dataset.syncEnabled === 'true') {
-        syncButton.disabled = true;
-        document.getElementById('progressBar').style.display = 'inline-block';
-        pollStatus(activeRunId);
-    } else if (activeRunId) {
-        resetSyncUi('Синхронизација није доступна у овом профилу.', true);
-    }
-</script>
 <script src="/vendor/pmtiles/4.4.0/pmtiles.js"></script>
 <script type="module" src="/auction-map.mjs"></script>
+<script type="module" src="/refresh-workflow.mjs"></script>
 </body>
 </html>

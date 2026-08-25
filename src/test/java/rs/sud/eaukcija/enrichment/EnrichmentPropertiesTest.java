@@ -21,7 +21,7 @@ class EnrichmentPropertiesTest {
         assertThat(properties.getRunningStaleAfter()).isEqualTo(Duration.ofMinutes(15));
         assertThat(properties.getMaxItemsPerRun()).isEqualTo(1_000);
         assertThat(properties.getMaxReplayItems()).isEqualTo(1_000);
-        assertThat(properties.getScheduleCron()).isEqualTo("0 15 * * * *");
+        assertThat(properties.getScheduleCron()).isEqualTo("-");
         assertThat(properties.getScheduleZone()).isEqualTo("Europe/Belgrade");
     }
 

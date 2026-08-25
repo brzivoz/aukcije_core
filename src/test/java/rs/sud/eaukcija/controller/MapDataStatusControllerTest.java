@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +40,9 @@ class MapDataStatusControllerTest {
                 false,
                 589,
                 587,
+                Map.of("CADASTRAL_MUNICIPALITY", 587L),
+                UUID.fromString("38000000-0000-4000-8000-000000000038"),
+                UUID.fromString("40000000-0000-4000-8000-000000000040"),
                 null));
 
         mvc.perform(get("/api/map/status"))
@@ -50,6 +55,9 @@ class MapDataStatusControllerTest {
                         .value("2026-08-23T10:00:00Z"))
                 .andExpect(jsonPath("$.stale").value(false))
                 .andExpect(jsonPath("$.populationCount").value(589))
-                .andExpect(jsonPath("$.mappedAuctionCount").value(587));
+                .andExpect(jsonPath("$.mappedAuctionCount").value(587))
+                .andExpect(jsonPath("$.precisionSummary.CADASTRAL_MUNICIPALITY").value(587))
+                .andExpect(jsonPath("$.successfulResolutionRunId").doesNotExist())
+                .andExpect(jsonPath("$.refreshWorkflowId").doesNotExist());
     }
 }

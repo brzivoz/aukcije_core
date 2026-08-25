@@ -161,6 +161,13 @@ class SyncControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.status").value(403))
                 .andExpect(jsonPath("$.code").value("SYNC_LOCAL_ONLY"));
+        mvc.perform(post("/api/sync/runs")
+                        .with(remoteAddress("127.0.0.1"))
+                        .header("Idempotency-Key", KEY)
+                        .header("Sec-Fetch-Site", "cross-site")
+                        .header("Origin", "https://hostile.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SYNC_LOCAL_ONLY"));
 
         verify(syncService, never()).startManual(any());
     }

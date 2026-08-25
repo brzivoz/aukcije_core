@@ -128,6 +128,13 @@ class EnrichmentControllerTest {
                         .header("X-Forwarded-For", "127.0.0.1"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ENRICHMENT_LOCAL_ONLY"));
+        mvc.perform(post("/api/enrichment/runs")
+                        .with(remoteAddress("127.0.0.1"))
+                        .header("Idempotency-Key", KEY)
+                        .header("Sec-Fetch-Site", "cross-site")
+                        .header("Origin", "https://hostile.example"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ENRICHMENT_LOCAL_ONLY"));
         mvc.perform(post("/api/enrichment/pause")
                         .with(remoteAddress("203.0.113.29"))
                         .header("Forwarded", "for=127.0.0.1"))

@@ -128,7 +128,7 @@ class PipelineStatusServiceTest {
     void databaseMigrationAndBasemapGatesFailClosed() {
         PersistedEvidence base = evidence(success("SUCCEEDED", Map.of()), success("SUCCEEDED", Map.of()));
         when(repository.read()).thenReturn(new PersistedEvidence(
-                new DatabaseEvidence(true, "13", "14", false),
+                new DatabaseEvidence(true, "14", "15", false),
                 base.lastSyncAttempt(), base.lastSuccessfulSync(),
                 base.lastEnrichmentAttempt(), base.lastSuccessfulEnrichment(), base.backlog(),
                 base.enrichmentStateDistribution(), base.qualityParserVersion(), base.parserResults(),
@@ -235,7 +235,7 @@ class PipelineStatusServiceTest {
                 100_000L, UUID.fromString("44444444-4444-4444-8444-444444444444"),
                 "2026-08-25", 100L, 100L, null);
         return new PersistedEvidence(
-                new DatabaseEvidence(true, "14", "14", true),
+                new DatabaseEvidence(true, "15", "15", true),
                 attempt, successful, enrichment, enrichment,
                 new Backlog(0, null), Map.of("SUCCEEDED", 589L), "parser-v1",
                 Map.of("EXTRACTED", 589L), Map.of("PARCEL", 587L, "NONE", 2L),

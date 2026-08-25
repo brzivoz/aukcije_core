@@ -37,6 +37,7 @@ import rs.sud.eaukcija.enrichment.EnrichmentService;
 import rs.sud.eaukcija.enrichment.EnrichmentSubmissionException;
 import rs.sud.eaukcija.enrichment.EnrichmentUnavailableException;
 import rs.sud.eaukcija.enrichment.EnrichmentWorkerBusyException;
+import rs.sud.eaukcija.operations.OperatorRequestGuard;
 
 @RestController
 @RequestMapping("/api/enrichment")
@@ -52,7 +53,8 @@ public class EnrichmentController {
     public ResponseEntity<?> start(
             @RequestHeader(name = "Idempotency-Key", required = false) String key,
             HttpServletRequest request) {
-        if (!isLoopback(request.getRemoteAddr())) {
+        if (!isLoopback(request.getRemoteAddr())
+                || !OperatorRequestGuard.isSameOriginBrowserContext(request)) {
             return problem(HttpStatus.FORBIDDEN, "ENRICHMENT_LOCAL_ONLY",
                     "Enrichment may only be triggered from a loopback client.");
         }
@@ -75,7 +77,8 @@ public class EnrichmentController {
             @RequestHeader(name = "Idempotency-Key", required = false) String key,
             @RequestBody(required = false) ReplayRequest replay,
             HttpServletRequest request) {
-        if (!isLoopback(request.getRemoteAddr())) {
+        if (!isLoopback(request.getRemoteAddr())
+                || !OperatorRequestGuard.isSameOriginBrowserContext(request)) {
             return problem(HttpStatus.FORBIDDEN, "ENRICHMENT_LOCAL_ONLY",
                     "Enrichment may only be replayed from a loopback client.");
         }
@@ -157,7 +160,8 @@ public class EnrichmentController {
     }
 
     private ResponseEntity<?> control(boolean paused, HttpServletRequest request) {
-        if (!isLoopback(request.getRemoteAddr())) {
+        if (!isLoopback(request.getRemoteAddr())
+                || !OperatorRequestGuard.isSameOriginBrowserContext(request)) {
             return problem(HttpStatus.FORBIDDEN, "ENRICHMENT_LOCAL_ONLY",
                     "Enrichment control is restricted to a loopback client.");
         }

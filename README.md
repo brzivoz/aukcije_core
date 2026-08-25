@@ -118,6 +118,9 @@ POST /api/enrichment/runs    start deterministic local enrichment; requires Idem
 POST /api/enrichment/replays bounded replay by sync/enrichment run, auction, or version
 POST /api/enrichment/pause   durably pause between auction transactions
 POST /api/enrichment/resume  resume normal work discovery
+POST /api/operator/refresh   start or attach to the durable source-to-map workflow
+GET  /api/operator/refresh   latest workflow, schedule, and complete success
+GET  /api/operator/refresh/{workflowId} persisted workflow state and correlations
 GET  /api/enrichment/status  active versions, backlog/age/gaps/distribution, active run
 GET  /api/enrichment/runs/{runId} retained redacted run and item evidence
 GET  /api/locations/{id}    best selected location with explicit precision
@@ -161,6 +164,12 @@ See [pipeline status and recovery operations](documentation/PIPELINE_OPERATIONS.
 for evidence traceability, alert thresholds, fail-closed readiness, the
 last-good external-source outage policy, diagnostics, recovery, and structured
 log redaction.
+See [one-click refresh operations](documentation/REFRESH_OPERATIONS.md) for the
+single manual action, shared daily schedule, persisted cross-tab progress,
+last-good behavior, retry, same-origin mutation gate, and restart reconciliation.
+See [issue #40 verification](documentation/2026-08-25-issue-40-verification.md)
+for the durable correlation contract, acceptance matrix, and fresh clean /
+Playwright/PostGIS evidence.
 See [issue #30 verification](documentation/2026-08-25-issue-30-verification.md)
 for the persisted status/readiness contract and executable acceptance evidence.
 See [Centroid extract operations](documentation/CENTROID_EXTRACT_OPERATIONS.md)
@@ -234,10 +243,12 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error/listing/detail-quarantine evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
 | `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child/quarantine evidence, exact captured-taxonomy completeness/subset gates, scoped absences and held-back IDs, set-based membership/observation publication, atomic promotion/rollback, and success-only observations/enrichment |
 | `SyncPropertiesTest` / `SyncExecutionConfigurationTest` | orchestration defaults/bounds, single named queue-free worker, correlation propagation, immediate interruption, and bounded Spring context shutdown |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V14, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/enrichment/observability evidence and success gates, and canonical/immutability triggers |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V15, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/enrichment/refresh/observability evidence and success gates, and canonical/immutability triggers |
 | `PipelineStatusServiceTest` / `OperatorStatusControllerTest` | success/partial/stale/backlog/import/source-outage policy, fail-closed readiness, loopback access, no-store responses, correlation IDs, and payload/log redaction |
 | `PipelineStatusRepositoryIntegrationTest` | restart-stable persisted attempts/successes, source and raw-snapshot deltas, parser/import evidence, and terminal run/job immutability |
 | `EnrichmentPipelineTest` / `EnrichmentPropertiesTest` / `EnrichmentSchedulerTest` | exact five-stage order, deterministic hashes/version sets, complete stage wiring, redacted failure classification, bounded queue-free settings, deterministic schedule idempotency, overlap handling, and fixed safe logs |
+| `RefreshCoordinatorTest` / `RefreshControllerTest` / `RefreshPropertiesTest` / `RefreshSchedulerTest` / `RefreshExecutionConfigurationTest` | strict source→enrichment→map order, detail/partial/enrichment failure isolation, active-version and readiness correlation, child/aggregate stale-heartbeat recovery, startup/error/executor recovery, no false success, duplicate attachment, race-free one-slot handoff, deterministic daily Belgrade scheduling through the shared coordinator, localized failures, and loopback same-origin mutation protection |
+| `RefreshRepositoryIntegrationTest` | real-PostgreSQL concurrent manual/scheduled claim winner, atomic stale-active reclaim, fail-closed missing-snapshot lineage, durable retry, and append-only terminal workflow evidence |
 | `EnrichmentControllerTest` | loopback-only idempotent trigger, typed bounded replay, durable pause/resume, payload-free backlog/status distribution, retained redacted item evidence, and no-store `400`/`403`/`409`/`503` problems |
 | `EnrichmentReprocessingIntegrationTest` | real-PostgreSQL state/work-key discovery, unchanged zero-work replay, exact parser/resolver/dataset bumps, every-stage failure isolation across 601 auctions, retry cap, durable pause, bounded replay, database overlap, shared #17 worker lock, and kill/startup recovery including never-started accepted work |
 | `EnrichmentPipelinePostgisIntegrationTest` | all five production stages over real PostGIS; byte-stable local replay with zero source-client interactions; verified-parcel non-downgrade; ambiguity preservation; and a measured single-thread 601-auction cold pass with one isolated real stage failure |
@@ -248,7 +259,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `SpatialResolutionSchemaIntegrationTest` | isolated PostGIS database; source CRS transform; point/polygon/multipolygon fidelity; invalid geometry/bounds/SRID rejection; recorded repair; write-free identity replay; immutable provenance; supersession; `STREET` representative-point semantics; and a default-planner exact-query proof over 20k geometries/100k attempts |
 | `MapAuctionRequestParserTest` / `MapAuctionControllerTest` | WGS84 order/ranges/edges/area, allowlisted filters, Belgrade date boundaries, structured errors, GeoJSON fields, safe links, and observable truncation |
 | `MapAuctionRepositoryIntegrationTest` / `MapAuctionRepositoryUnitTest` | stable multi-property deduplication, highest selected precision, bbox/date/status/kind/precision filters, amounts, inclusive edges, one bounded JDBC query, and no N+1 hydration |
-| `MapDataStatusServiceTest` / `MapDataStatusControllerTest` | retained successful resolution version/timestamp, mapped counts, configurable stale boundary, never-synchronized disclosure, and no-store HTTP metadata |
+| `MapDataStatusServiceTest` / `MapDataStatusControllerTest` | retained successful resolution version/timestamp and internal workflow correlation, anonymous DTO exclusion of both internal run IDs, mapped/precision counts, configurable stale boundary, never-synchronized disclosure, and no-store HTTP metadata |
 | `LocationSelectionSqlTest` | enum-generated precision ranking, unknown-tier fail-closed ordering, shared tie-breaks, and publication policy |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |
 | `AddressRegistryCentroidCrsIntegrationTest` | production 25834→4326 transform cross-checked against PostGIS |
@@ -265,6 +276,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `AuctionMapBrowserTest` | real local basemap plus PostGIS GeoJSON; all six precision styles; shared-centroid cluster/list; keyboard selection; escaped popup and allowlisted source link; allowlisted URL restoration; coalesced pan/zoom refresh with an idle-or-250-ms fallback; retained loading/empty/error/limit state; desktop/narrow evidence; exact localhost-only traffic |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |
+| `RefreshWorkflowBrowserTest` / `RefreshEndToEndBrowserTest` | Enter-key activation, rapid-click coalescing, every-stage reload, two-tab restoration, terminal idempotency reset, retry→busy→retry focus transfer, retained last-good time, static polite/assertive announcements, measured ≥3:1 default/hover focus contrast, no pre-readiness success, in-place list/map refresh, and one real fixture source→production enrichment→PostGIS map-ready browser flow |
 | `basemapTest` | dated-source checksum failures, immutable tool/asset pins, canonical metadata drift, PMTiles v3/layer/smoke validation, complete manifest inventory, host-neutral command/manifest equality and drift rejection, orphaned/concurrent lock recovery, active sprite references, six glyph ranges, and external-style-asset rejection without a full map rebuild |
 | `BasemapAssetHttpIntegrationTest` | full/prefix/open/suffix/invalid/conditional/concurrent PMTiles reads over real HTTP, RFC-correct unsupported-range fallback, public notices/licenses, correct content types, strong ETags, `304`, `416`, cache/version headers, and health |
 | `BasemapArtifactActivationTest` / `FrontendAssetLockTest` | durable atomic pointer publication, failed-update last-good retention, steady-state poll timestamps, non-blocking unavailable requests, explicit republish-to-retry behavior, rollback, and exact transformed vendored dependency license/hash/inventory pins |

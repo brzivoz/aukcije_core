@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -31,6 +32,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.testcontainers.containers.PostgreSQLContainer;
 import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory;
+import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotReplayParser;
+import rs.sud.eaukcija.testsupport.Fixtures;
 import rs.sud.eaukcija.testsupport.PostgisTestContainer;
 
 @SpringBootTest(
@@ -225,6 +230,18 @@ class SyncPersistenceIntegrationTest {
                 "SELECT COUNT(*) FROM sync_run_auction_observations WHERE run_id = ?",
                 Long.class, claim.runId())).isOne();
         assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_source_snapshots WHERE auction_id = 901",
+                Long.class)).isOne();
+        String sourceSnapshotSha256 = jdbc.queryForObject("""
+                SELECT current_source_snapshot_sha256 FROM auctions WHERE id = 901
+                """, String.class);
+        assertThat(sourceSnapshotSha256).matches("[0-9a-f]{64}");
+        assertThat(jdbc.queryForObject("""
+                SELECT source_snapshot_sha256
+                  FROM sync_run_auction_observations
+                 WHERE run_id = ? AND auction_id = 901
+                """, String.class, claim.runId())).isEqualTo(sourceSnapshotSha256);
+        assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM auction_enrichment_input_snapshots WHERE auction_id = 901",
                 Long.class)).isOne();
         assertThat(jdbc.queryForObject("""
@@ -282,9 +299,9 @@ class SyncPersistenceIntegrationTest {
         jdbc.update("""
                 INSERT INTO sync_run_auction_observations (
                     run_id, auction_id, listing_fingerprint, detail_refreshed,
-                    enrichment_eligible, enrichment_reason
-                ) VALUES (?, 901, ?, FALSE, FALSE, 'NONE')
-                """, runningTarget.runId(), LISTING_HASH);
+                    enrichment_eligible, enrichment_reason, source_snapshot_sha256
+                ) VALUES (?, 901, ?, FALSE, FALSE, 'NONE', ?)
+                """, runningTarget.runId(), LISTING_HASH, sourceSnapshotSha256);
         assertThatThrownBy(() -> jdbc.update("""
                 INSERT INTO auction_enrichment_snapshot_observations (
                     source_sync_run_id, auction_id, snapshot_sha256
@@ -299,6 +316,191 @@ class SyncPersistenceIntegrationTest {
                 """, runningTarget.runId(), claim.runId()))
                 .isInstanceOf(DataAccessException.class)
                 .hasMessageContaining("child evidence identity is immutable");
+    }
+
+    @Test
+    void sourceSnapshotsDeduplicateAppendCorrectionsAndRejectMutation() throws Exception {
+        SyncRunClaimResult firstRun = runs.claim(claim("source-snapshot-first"));
+        prepareCompleteRun(firstRun.runId(), 1, 1, 1, 0, OBSERVED_AT);
+        promotion.promote(
+                firstRun.runId(), TAXONOMY_HASH, OBSERVED_AT,
+                List.of(candidateWithExponentMoney(
+                        auction(911L, "N911"),
+                        EnrichmentReason.NEW,
+                        new CategoryMembership(7, CategoryMembershipType.ROOT, "Непокретности"),
+                        new CategoryMembership(47, CategoryMembershipType.CHILD, "Земљиште"))));
+        String original = jdbc.queryForObject("""
+                SELECT current_source_snapshot_sha256 FROM auctions WHERE id = 911
+                """, String.class);
+
+        Instant unchangedAt = OBSERVED_AT.plusSeconds(60);
+        SyncRunClaimResult unchangedRun = runs.claim(claim("source-snapshot-unchanged"));
+        prepareCompleteRun(unchangedRun.runId(), 1, 1, 1, 0, unchangedAt);
+        promotion.promote(
+                unchangedRun.runId(), TAXONOMY_HASH, unchangedAt,
+                List.of(candidateWithExponentMoney(
+                        auction(911L, "N911"),
+                        EnrichmentReason.NONE,
+                        new CategoryMembership(7, CategoryMembershipType.ROOT, "Непокретности"),
+                        new CategoryMembership(47, CategoryMembershipType.CHILD, "Земљиште"))));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_source_snapshots WHERE auction_id = 911",
+                Long.class)).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT canonical_payload::text FROM auction_source_snapshots
+                 WHERE auction_id = 911
+                """, String.class))
+                .contains("\"StartingPrice\": 159600")
+                .doesNotContain("1.596E");
+        assertThat(jdbc.queryForObject("""
+                SELECT source_snapshot_sha256 FROM sync_run_auction_observations
+                 WHERE run_id = ? AND auction_id = 911
+                """, String.class, unchangedRun.runId())).isEqualTo(original);
+
+        Instant changedAt = OBSERVED_AT.plusSeconds(120);
+        SyncRunClaimResult changedRun = runs.claim(claim("source-snapshot-changed"));
+        prepareCompleteRun(changedRun.runId(), 1, 1, 1, 0, changedAt);
+        promotion.promote(
+                changedRun.runId(), TAXONOMY_HASH, changedAt,
+                List.of(candidateWithExponentMoney(
+                        auction(911L, "N911-corrected"),
+                        EnrichmentReason.LISTING_CHANGED,
+                        new CategoryMembership(7, CategoryMembershipType.ROOT, "Непокретности"),
+                        new CategoryMembership(47, CategoryMembershipType.CHILD, "Земљиште"))));
+        String corrected = jdbc.queryForObject("""
+                SELECT current_source_snapshot_sha256 FROM auctions WHERE id = 911
+                """, String.class);
+
+        assertThat(corrected).isNotEqualTo(original);
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_source_snapshots WHERE auction_id = 911",
+                Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForList("""
+                SELECT content_sha256 FROM auction_source_snapshots
+                 WHERE auction_id = 911 ORDER BY content_sha256
+                """, String.class)).containsExactlyInAnyOrder(original, corrected);
+        assertThat(runs.currentSourceSnapshots(List.of(911L)).get(911L).contentSha256())
+                .isEqualTo(corrected);
+
+        assertThatThrownBy(() -> jdbc.update("""
+                UPDATE auction_source_snapshots
+                   SET minimization_policy_version = 'tampered'
+                 WHERE auction_id = 911 AND content_sha256 = ?
+                """, original))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("auction source snapshots are immutable");
+        assertThatThrownBy(() -> jdbc.update("""
+                DELETE FROM auction_source_snapshots
+                 WHERE auction_id = 911 AND content_sha256 = ?
+                """, original))
+                .isInstanceOf(DataAccessException.class)
+                .hasMessageContaining("auction source snapshots are immutable");
+    }
+
+    @Test
+    void goldenSourceSnapshotRetainsRepresentativePostgresStorageEvidence() throws Exception {
+        var listingEnvelope = AuctionSourceCanonicalJson.readTree(
+                Fixtures.read("eaukcija/auctions-by-category-page1.json"));
+        var detailEnvelope = AuctionSourceCanonicalJson.readTree(
+                Fixtures.read("eaukcija/immovable-property-detail.json"));
+        var sourceSnapshot = new AuctionSourceSnapshotFactory(objectMapper).create(
+                180466L,
+                listingEnvelope.path("Data").path("Auctions").get(0),
+                detailEnvelope.path("Data"),
+                SaleScope.IMMOVABLE,
+                OBSERVED_AT,
+                OBSERVED_AT.plusSeconds(1));
+        Auction sourceAuction = auction(180466L, "Н180466");
+        AuctionPromotionCandidate sourceCandidate = new AuctionPromotionCandidate(
+                sourceAuction,
+                LISTING_HASH,
+                OBSERVED_AT.plusSeconds(1),
+                47,
+                SaleScope.IMMOVABLE,
+                NormalizedPropertyKind.PARCEL,
+                List.of(
+                        new CategoryMembership(7, CategoryMembershipType.ROOT, "Непокретности"),
+                        new CategoryMembership(47, CategoryMembershipType.CHILD, "Земљиште")),
+                true,
+                EnrichmentReason.NEW,
+                sourceSnapshot);
+        SyncRunClaimResult run = runs.claim(claim("golden-source-storage"));
+        prepareCompleteRun(run.runId(), 1, 1, 1, 0, OBSERVED_AT);
+
+        promotion.promote(
+                run.runId(), TAXONOMY_HASH, OBSERVED_AT, List.of(sourceCandidate));
+
+        var storedCurrent = runs.currentSourceSnapshots(List.of(180466L)).get(180466L);
+        assertThat(storedCurrent.canonicalPayload().path("detail").path("EstimatedPrice")
+                .decimalValue().toPlainString()).isEqualTo("228000.00");
+        AuctionSourceSnapshotFactory sourceFactory =
+                new AuctionSourceSnapshotFactory(objectMapper);
+        var reusedSnapshot = sourceFactory.combineWithCurrentDetail(
+                180466L,
+                sourceFactory.minimizeListing(
+                        180466L,
+                        listingEnvelope.path("Data").path("Auctions").get(0)),
+                storedCurrent,
+                OBSERVED_AT.plusSeconds(60));
+        assertThat(reusedSnapshot.contentSha256())
+                .isEqualTo(sourceSnapshot.contentSha256());
+
+        Instant reusedAt = OBSERVED_AT.plusSeconds(60);
+        SyncRunClaimResult reusedRun = runs.claim(claim("golden-source-storage-reuse"));
+        prepareCompleteRun(reusedRun.runId(), 1, 0, 0, 0, reusedAt);
+        AuctionPromotionCandidate reusedCandidate = new AuctionPromotionCandidate(
+                auction(180466L, "Н180466"),
+                LISTING_HASH,
+                sourceSnapshot.detailFetchedAt(),
+                47,
+                SaleScope.IMMOVABLE,
+                NormalizedPropertyKind.PARCEL,
+                sourceCandidate.memberships(),
+                false,
+                EnrichmentReason.NONE,
+                reusedSnapshot);
+        promotion.promote(
+                reusedRun.runId(), TAXONOMY_HASH, reusedAt, List.of(reusedCandidate));
+
+        assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_source_snapshots WHERE auction_id = 180466",
+                Long.class)).isOne();
+        assertThat(jdbc.queryForObject("""
+                SELECT current_source_snapshot_sha256 FROM auctions WHERE id = 180466
+                """, String.class)).isEqualTo(sourceSnapshot.contentSha256());
+        assertThat(jdbc.queryForObject("""
+                SELECT source_snapshot_sha256 FROM sync_run_auction_observations
+                 WHERE run_id = ? AND auction_id = 180466
+                """, String.class, reusedRun.runId()))
+                .isEqualTo(sourceSnapshot.contentSha256());
+
+        Map<String, Object> evidence = jdbc.queryForMap("""
+                SELECT pg_column_size(canonical_payload) AS stored_bytes,
+                       octet_length(canonical_payload::text) AS export_bytes,
+                       canonical_payload::text LIKE '%redaction-sentinel%' AS leaked_binary,
+                       canonical_payload::text LIKE '%UnmappedFutureField%' AS leaked_unreviewed
+                  FROM auction_source_snapshots
+                 WHERE auction_id = 180466 AND content_sha256 = ?
+                """, sourceSnapshot.contentSha256());
+        int storedBytes = ((Number) evidence.get("stored_bytes")).intValue();
+        int exportBytes = ((Number) evidence.get("export_bytes")).intValue();
+        assertThat(storedBytes).isBetween(500, 4_096);
+        assertThat(exportBytes).isBetween(500, AuctionSourceSnapshotFactory.MAX_CANONICAL_BYTES);
+        assertThat(evidence).containsEntry("leaked_binary", false)
+                .containsEntry("leaked_unreviewed", false);
+        String storedPayload = jdbc.queryForObject("""
+                SELECT canonical_payload::text FROM auction_source_snapshots
+                 WHERE auction_id = 180466 AND content_sha256 = ?
+                """, String.class, sourceSnapshot.contentSha256());
+        assertThat(storedPayload).contains("\"StartingPrice\": 159600.00");
+        var replayed = new AuctionSourceSnapshotReplayParser(objectMapper)
+                .parse(objectMapper.readTree(storedPayload));
+        assertThat(replayed.listing().auctionNumber()).isEqualTo("Н180466");
+        assertThat(replayed.detail().place().cadastral()).isEqualTo("Димитровград");
+        System.err.printf(
+                "issue10 source snapshot storage evidence storedBytes=%d exportBytes=%d%n",
+                storedBytes, exportBytes);
     }
 
     @Test
@@ -358,6 +560,17 @@ class SyncPersistenceIntegrationTest {
                   FROM sync_run_auction_observations
                  WHERE run_id = ?
                 """, Long.class, claim.runId())).isEqualTo(candidateCount);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM auctions
+                 WHERE id BETWEEN 20000 AND 21004
+                   AND current_source_snapshot_sha256 IS NOT NULL
+                """, Long.class)).isEqualTo(candidateCount);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM auction_source_snapshots
+                 WHERE auction_id BETWEEN 20000 AND 21004
+                """, Long.class)).isEqualTo(candidateCount);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*)
                   FROM sync_enrichment_queue
@@ -1306,6 +1519,10 @@ class SyncPersistenceIntegrationTest {
                 Long.class,
                 runId)).isZero();
         assertThat(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM auction_source_snapshots WHERE auction_id = ?",
+                Long.class,
+                auctionId)).isZero();
+        assertThat(jdbc.queryForObject(
                 "SELECT COUNT(*) FROM sync_enrichment_queue WHERE run_id = ?",
                 Long.class,
                 runId)).isZero();
@@ -1323,10 +1540,46 @@ class SyncPersistenceIntegrationTest {
         return new SyncRunClaimRequest(key, List.of(7, 8), 3000, SyncTriggerKind.MANUAL);
     }
 
-    private static AuctionPromotionCandidate candidate(
+    private AuctionPromotionCandidate candidate(
             Auction auction,
             EnrichmentReason reason,
             CategoryMembership... memberships) {
+        return candidate(auction, reason, null, memberships);
+    }
+
+    private AuctionPromotionCandidate candidateWithExponentMoney(
+            Auction auction,
+            EnrichmentReason reason,
+            CategoryMembership... memberships) {
+        return candidate(auction, reason, new BigDecimal("1.596E5"), memberships);
+    }
+
+    private AuctionPromotionCandidate candidate(
+            Auction auction,
+            EnrichmentReason reason,
+            BigDecimal startingPrice,
+            CategoryMembership... memberships) {
+        var listing = objectMapper.createObjectNode();
+        listing.put("Id", auction.getId());
+        listing.put("AuctionNumber", auction.getAuctionNumber());
+        listing.put("StartDate", "2026-08-24T09:00:00Z");
+        listing.put("EndDate", "2026-08-24T11:00:00Z");
+        if (startingPrice != null) {
+            listing.put("StartingPrice", startingPrice);
+        }
+        var detail = objectMapper.createObjectNode();
+        detail.put("Id", auction.getId());
+        detail.put("AuctionNumber", auction.getAuctionNumber());
+        detail.put("StartDate", "2026-08-24T09:00:00Z");
+        detail.put("EndDate", "2026-08-24T11:00:00Z");
+        detail.put("PublicationDate", "2026-08-23T09:00:00Z");
+        if (startingPrice != null) {
+            detail.put("StartingPrice", startingPrice);
+        }
+        var sourceSnapshot = new rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory(objectMapper)
+                .create(
+                        auction.getId(), listing, detail, SaleScope.IMMOVABLE,
+                        OBSERVED_AT, OBSERVED_AT.minus(Duration.ofHours(1)));
         return new AuctionPromotionCandidate(
                 auction,
                 LISTING_HASH,
@@ -1336,7 +1589,8 @@ class SyncPersistenceIntegrationTest {
                 NormalizedPropertyKind.PARCEL,
                 List.of(memberships),
                 true,
-                reason);
+                reason,
+                sourceSnapshot);
     }
 
     private static Auction auction(long id, String number) {

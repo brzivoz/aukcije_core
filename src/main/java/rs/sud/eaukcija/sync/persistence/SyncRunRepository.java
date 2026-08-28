@@ -15,8 +15,10 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -34,6 +36,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import rs.sud.eaukcija.enrichment.EnrichmentInputSnapshot;
+import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
+import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 
 /** PostgreSQL authority for durable sync claims, progress, evidence, and recovery. */
 @Repository
@@ -885,15 +889,154 @@ public class SyncRunRepository {
                         candidate.listingFingerprint(),
                         candidate.detailRefreshed(),
                         candidate.enrichmentEligible(),
-                        candidate.enrichmentReason().name()
+                        candidate.enrichmentReason().name(),
+                        candidate.sourceSnapshot().contentSha256()
                 })
                 .toList();
         multiRowUpdate("""
                 INSERT INTO sync_run_auction_observations (
                     run_id, auction_id, listing_fingerprint, detail_refreshed,
-                    enrichment_eligible, enrichment_reason
+                    enrichment_eligible, enrichment_reason, source_snapshot_sha256
                 ) VALUES
-                """, 6, "", arguments);
+                """, 7, "", arguments);
+    }
+
+    /**
+     * Inserts only content changes, selects the exact hash as current, and
+     * leaves unchanged observations to reuse the existing immutable row.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void publishSourceSnapshots(
+            UUID runId,
+            List<AuctionPromotionCandidate> candidates) {
+        List<Object[]> arguments = candidates.stream()
+                .map(AuctionPromotionCandidate::sourceSnapshot)
+                .map(snapshot -> new Object[] {
+                        snapshot.auctionId(),
+                        snapshot.contentSha256(),
+                        snapshot.schemaVersion(),
+                        snapshot.minimizationPolicyVersion(),
+                        snapshot.listingEndpoint(),
+                        snapshot.detailEndpoint(),
+                        AuctionSourceCanonicalJson.write(snapshot.canonicalPayload()),
+                        databaseTime(snapshot.fetchedAt()),
+                        databaseTime(snapshot.listingFetchedAt()),
+                        databaseTime(snapshot.detailFetchedAt()),
+                        databaseTime(snapshot.sourceStartAt()),
+                        databaseTime(snapshot.sourceEndAt()),
+                        databaseTime(snapshot.sourcePublicationAt()),
+                        runId
+                })
+                .toList();
+        multiRowUpdate("""
+                INSERT INTO auction_source_snapshots (
+                    auction_id, content_sha256, schema_version,
+                    minimization_policy_version, listing_endpoint, detail_endpoint,
+                    canonical_payload, fetched_at, listing_fetched_at, detail_fetched_at,
+                    source_start_at, source_end_at, source_publication_at, ingest_run_id
+                )
+                SELECT incoming.auction_id,
+                       incoming.content_sha256,
+                       incoming.schema_version,
+                       incoming.minimization_policy_version,
+                       incoming.listing_endpoint,
+                       incoming.detail_endpoint,
+                       CAST(incoming.canonical_payload AS jsonb),
+                       CAST(incoming.fetched_at AS timestamp with time zone),
+                       CAST(incoming.listing_fetched_at AS timestamp with time zone),
+                       CAST(incoming.detail_fetched_at AS timestamp with time zone),
+                       CAST(incoming.source_start_at AS timestamp with time zone),
+                       CAST(incoming.source_end_at AS timestamp with time zone),
+                       CAST(incoming.source_publication_at AS timestamp with time zone),
+                       CAST(incoming.ingest_run_id AS uuid)
+                  FROM (VALUES
+                """, 14, """
+                ) AS incoming(
+                    auction_id, content_sha256, schema_version,
+                    minimization_policy_version, listing_endpoint, detail_endpoint,
+                    canonical_payload, fetched_at, listing_fetched_at, detail_fetched_at,
+                    source_start_at, source_end_at, source_publication_at, ingest_run_id
+                )
+                ON CONFLICT (auction_id, content_sha256) DO NOTHING
+                """, arguments);
+
+        Long[] auctionIds = candidates.stream()
+                .map(candidate -> candidate.sourceSnapshot().auctionId())
+                .toArray(Long[]::new);
+        String[] contentHashes = candidates.stream()
+                .map(candidate -> candidate.sourceSnapshot().contentSha256())
+                .toArray(String[]::new);
+        int selected = jdbc.execute((ConnectionCallback<Integer>) connection -> {
+            Array idArray = connection.createArrayOf("bigint", auctionIds);
+            Array hashArray = connection.createArrayOf("text", contentHashes);
+            try (PreparedStatement update = connection.prepareStatement("""
+                    UPDATE auctions AS auction
+                       SET current_source_snapshot_sha256 =
+                           CAST(incoming.content_sha256 AS char(64))
+                      FROM unnest(?::bigint[], ?::text[])
+                           AS incoming(auction_id, content_sha256)
+                     WHERE auction.id = incoming.auction_id
+                    """)) {
+                update.setArray(1, idArray);
+                update.setArray(2, hashArray);
+                return update.executeUpdate();
+            } finally {
+                idArray.free();
+                hashArray.free();
+            }
+        });
+        if (selected != candidates.size()) {
+            throw new SyncRunStateException(
+                    "could not select a source snapshot for every promoted auction");
+        }
+    }
+
+    /** Batch-loads the immutable detail used when a fresh listing needs no refetch. */
+    @Transactional(readOnly = true)
+    public Map<Long, CurrentAuctionSourceSnapshot> currentSourceSnapshots(
+            Iterable<Long> auctionIds) {
+        List<Long> collectedIds = new ArrayList<>();
+        auctionIds.forEach(id -> {
+            if (id != null && id > 0) {
+                collectedIds.add(id);
+            }
+        });
+        List<Long> ids = collectedIds.stream().distinct().sorted().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, CurrentAuctionSourceSnapshot> snapshots = new LinkedHashMap<>();
+        for (int start = 0; start < ids.size(); start += MAX_MULTI_ROW_ROWS) {
+            List<Long> chunk = ids.subList(start, Math.min(ids.size(), start + MAX_MULTI_ROW_ROWS));
+            String placeholders = String.join(", ", Collections.nCopies(chunk.size(), "?"));
+            jdbc.query("""
+                    SELECT snapshot.auction_id,
+                           snapshot.content_sha256,
+                           snapshot.canonical_payload::text,
+                           snapshot.detail_endpoint,
+                           snapshot.detail_fetched_at
+                      FROM auctions auction
+                      JOIN auction_source_snapshots snapshot
+                        ON snapshot.auction_id = auction.id
+                       AND snapshot.content_sha256 = auction.current_source_snapshot_sha256
+                     WHERE auction.id IN (""" + placeholders + ") ORDER BY auction.id",
+                    result -> {
+                        try {
+                            CurrentAuctionSourceSnapshot snapshot =
+                                    new CurrentAuctionSourceSnapshot(
+                                            result.getLong("auction_id"),
+                                            result.getString("content_sha256").trim(),
+                                            parseSourceJson(result.getString("canonical_payload")),
+                                            result.getString("detail_endpoint"),
+                                            instant(result, "detail_fetched_at"));
+                            snapshots.put(snapshot.auctionId(), snapshot);
+                        } catch (IllegalArgumentException invalidLineage) {
+                            throw new SyncRunStateException(
+                                    "stored source snapshot lineage is invalid", invalidLineage);
+                        }
+                    }, chunk.toArray());
+        }
+        return Map.copyOf(snapshots);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -1278,7 +1421,15 @@ public class SyncRunRepository {
         try {
             return objectMapper.readTree(value);
         } catch (JsonProcessingException e) {
-            throw new SyncRunStateException("stored taxonomy evidence is invalid JSON");
+            throw new SyncRunStateException("stored taxonomy evidence is invalid JSON", e);
+        }
+    }
+
+    private static JsonNode parseSourceJson(String value) {
+        try {
+            return AuctionSourceCanonicalJson.readTree(value);
+        } catch (JsonProcessingException e) {
+            throw new SyncRunStateException("stored source snapshot is invalid JSON", e);
         }
     }
 

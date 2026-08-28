@@ -35,8 +35,8 @@ class PipelineStatusRepositoryIntegrationTest {
         }
 
         assertThat(firstRead).isEqualTo(reread);
-        assertThat(reread.database().schemaVersion()).isEqualTo("15");
-        assertThat(reread.database().expectedSchemaVersion()).isEqualTo("15");
+        assertThat(reread.database().schemaVersion()).isEqualTo("16");
+        assertThat(reread.database().expectedSchemaVersion()).isEqualTo("16");
         assertThat(reread.database().migrationsCurrent()).isTrue();
         assertThat(reread.lastSyncAttempt().status()).isEqualTo("PARTIAL");
         assertThat(reread.lastSyncAttempt().sourceDelta()).isNull();
@@ -69,7 +69,7 @@ class PipelineStatusRepositoryIntegrationTest {
         PersistedEvidence evidence = new PipelineStatusRepository(
                 database.jdbc(), flywayWithPendingTestMigration).read();
 
-        assertThat(evidence.database().schemaVersion()).isEqualTo("15");
+        assertThat(evidence.database().schemaVersion()).isEqualTo("16");
         assertThat(evidence.database().expectedSchemaVersion()).isEqualTo("900");
         assertThat(evidence.database().migrationsCurrent()).isFalse();
     }
@@ -307,11 +307,35 @@ class PipelineStatusRepositoryIntegrationTest {
                           repeat('a', 64), ?::timestamptz, ?)
                 """, runId, keyDigit, startedAt, startedAt, startedAt, sourceCount);
         jdbc.update("""
+                INSERT INTO auction_source_snapshots (
+                    auction_id, content_sha256, schema_version,
+                    minimization_policy_version, listing_endpoint, detail_endpoint,
+                    canonical_payload, fetched_at, listing_fetched_at, detail_fetched_at,
+                    source_start_at, source_end_at, source_publication_at, ingest_run_id
+                ) VALUES (
+                    30, repeat(?, 64), 'eaukcija-listing-detail-v1',
+                    'public-auction-fields-v1', 'GetAuctionsByCategoryId',
+                    'GetImmovablePropertyDetails',
+                    '{"detail":{"Id":30},"listing":{"Id":30}}'::jsonb,
+                    ?::timestamptz, ?::timestamptz, ?::timestamptz,
+                    ?::timestamptz, ?::timestamptz + INTERVAL '1 hour',
+                    NULL, ?::uuid
+                )
+                ON CONFLICT (auction_id, content_sha256) DO NOTHING
+                """, snapshotHashDigit, startedAt, startedAt, startedAt,
+                startedAt, startedAt, runId);
+        jdbc.update("""
+                UPDATE auctions SET current_source_snapshot_sha256 = repeat(?, 64)
+                 WHERE id = 30
+                """, snapshotHashDigit);
+        jdbc.update("""
                 INSERT INTO sync_run_auction_observations (
                     run_id, auction_id, listing_fingerprint, detail_refreshed,
-                    enrichment_eligible, enrichment_reason
-                ) VALUES (?::uuid, 30, repeat(?, 64), FALSE, FALSE, 'NONE')
-                """, runId, listingHashDigit);
+                    enrichment_eligible, enrichment_reason, source_snapshot_sha256
+                ) VALUES (
+                    ?::uuid, 30, repeat(?, 64), FALSE, FALSE, 'NONE', repeat(?, 64)
+                )
+                """, runId, listingHashDigit, snapshotHashDigit);
         jdbc.update("""
                 UPDATE sync_runs
                    SET status = 'SUCCEEDED', stage = 'COMPLETED',

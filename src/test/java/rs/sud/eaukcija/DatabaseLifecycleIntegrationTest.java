@@ -74,7 +74,8 @@ class DatabaseLifecycleIntegrationTest {
                         "V12__eaukcija_listing_quarantine.sql",
                         "V13__deterministic_enrichment_reprocessing.sql",
                         "V14__pipeline_observability.sql",
-                        "V15__durable_refresh_workflow.sql");
+                        "V15__durable_refresh_workflow.sql",
+                        "V16__immutable_eaukcija_source_snapshots.sql");
     }
 
     @Test

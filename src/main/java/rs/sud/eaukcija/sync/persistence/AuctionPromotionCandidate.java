@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.List;
 
 import rs.sud.eaukcija.model.Auction;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshot;
 
 public record AuctionPromotionCandidate(
         Auction auction,
@@ -14,7 +15,8 @@ public record AuctionPromotionCandidate(
         NormalizedPropertyKind propertyKind,
         List<CategoryMembership> memberships,
         boolean detailRefreshed,
-        EnrichmentReason enrichmentReason) {
+        EnrichmentReason enrichmentReason,
+        AuctionSourceSnapshot sourceSnapshot) {
 
     public AuctionPromotionCandidate {
         SyncPersistenceValidation.required(auction, "auction");
@@ -39,6 +41,10 @@ public record AuctionPromotionCandidate(
             throw new IllegalArgumentException("a promoted auction must retain a contributing root category");
         }
         SyncPersistenceValidation.required(enrichmentReason, "enrichmentReason");
+        SyncPersistenceValidation.required(sourceSnapshot, "sourceSnapshot");
+        if (sourceSnapshot.auctionId() != auction.getId()) {
+            throw new IllegalArgumentException("sourceSnapshot belongs to another auction");
+        }
         if (enrichmentReason == EnrichmentReason.DETAIL_REFRESHED && !detailRefreshed) {
             throw new IllegalArgumentException("DETAIL_REFRESHED requires a refreshed detail response");
         }

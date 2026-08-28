@@ -187,6 +187,10 @@ tier reports, idempotent refreshes, precision-aware consumers, and recovery.
 See [Address Registry snapshot operations](documentation/ADDRESS_REGISTRY_OPERATIONS.md)
 for reviewed checksums, full GPKG import, status, evidence, retention, and atomic
 rollback.
+See [eAukcija source snapshot operations](documentation/SOURCE_SNAPSHOT_OPERATIONS.md)
+for the pre-DTO listing+detail contract, versioned minimization policy,
+append-only replay lineage, retention/export/redaction policy, and storage
+evidence.
 See [issue #20 spatial verification](documentation/2026-08-23-issue-20-verification.md)
 for the V7 reference/resolution model, geometry gates, bounded repository
 contract, and reproducible PostGIS evidence.
@@ -238,12 +242,13 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 
 | Suite | Covers |
 |---|---|
-| `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, bounded streaming/content types, invalid/null and persistence-incompatible text/money data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, immediate over-budget shared-pause refusal, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
-| `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, bounded listing/detail record quarantine with continued promotion, aggregate/capped error evidence, duplicate/conflict/short-page/changed-total refusal, client-failure coordinates/retries, new/changed/stale refresh policy, checkpointed heartbeats, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on unresolved partial work |
+| `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, arbitrary-precision pre-DTO source `Data` with no `double` round-trip, bounded JSON/content types, invalid/null and persistence-incompatible text/money data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, immediate over-budget shared-pause refusal, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
+| `AuctionSourceSnapshotFactoryTest` | golden exact source replay including decimal scale, key-order/configuration-stable canonical SHA-256, versioned binary/image/token/unreviewed-field exclusion, allowed-detail changes, scalar schema-drift and malformed/null/ID/size/depth rejection, and a parser with no network client |
+| `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, one-pass per-page source indexing and immediate minimized staging, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, bounded listing/detail record quarantine including an unminimizable 64-KiB rejected row with continued promotion, aggregate/capped error evidence, duplicate/conflict/short-page/changed-total refusal, client/failure coordinates including snapshot-read classification, new/changed/stale refresh and legacy-source-snapshot bootstrap policy, checkpointed heartbeats, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on unresolved partial work |
 | `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error/listing/detail-quarantine evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
-| `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child/quarantine evidence, exact captured-taxonomy completeness/subset gates with PostgreSQL timestamp-precision normalization, scoped absences and held-back IDs, set-based membership/observation publication, atomic promotion/rollback, and success-only observations/enrichment |
+| `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child/quarantine evidence, exact captured-taxonomy completeness/subset gates with PostgreSQL timestamp-precision normalization, scoped absences and held-back IDs, set-based membership/observation/current-snapshot publication, exact fixed-point and exponent-normalized JSONB read-back plus reused-detail re-hash, append-only source-snapshot dedup/corrections/offline replay/storage evidence, atomic promotion/rollback, and success-only observations/enrichment |
 | `SyncPropertiesTest` / `SyncExecutionConfigurationTest` | orchestration defaults/bounds, single named queue-free worker, correlation propagation, immediate interruption, and bounded Spring context shutdown |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V15, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/enrichment/refresh/observability evidence and success gates, and canonical/immutability triggers |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V16, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/source-snapshot/enrichment/refresh/observability evidence and success gates, and canonical/immutability triggers |
 | `PipelineStatusServiceTest` / `OperatorStatusControllerTest` | success/partial/stale/backlog/import/source-outage policy, fail-closed readiness, loopback access, no-store responses, correlation IDs, and payload/log redaction |
 | `PipelineStatusRepositoryIntegrationTest` | restart-stable persisted attempts/successes, source and raw-snapshot deltas, parser/import evidence, and terminal run/job immutability |
 | `EnrichmentPipelineTest` / `EnrichmentPropertiesTest` / `EnrichmentSchedulerTest` | exact five-stage order, deterministic hashes/version sets, complete stage wiring, redacted failure classification, bounded queue-free settings, deterministic schedule idempotency, overlap handling, and fixed safe logs |
@@ -324,7 +329,7 @@ fixture and asset-upgrade contract.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V12 it
+`src/main/resources/db/migration/` is the only schema authority. Through V16 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias
@@ -333,7 +338,10 @@ source plus WGS84 resolution geometry, append-only attempt evidence, separate
 cache records, mutable selected-resolution pointers, the viewport GiST plus
 reverse-FK indexes, and durable eAukcija sync runs, bounded
 error/root/child/quarantine evidence, category membership, success-only
-observations/enrichment work, freshness, and absence counters. Canonical WGS84
+observations/enrichment work, freshness, and absence counters; deterministic
+enrichment reprocessing; pipeline/refresh evidence; and immutable minimized
+listing+detail source snapshots with current-state and run-observation lineage.
+Canonical WGS84
 is derived by a normal-write trigger so
 backup restore does not re-run PROJ-dependent transforms. The dev, test,
 and prod profiles enable Flyway and set `spring.jpa.hibernate.ddl-auto=validate`.

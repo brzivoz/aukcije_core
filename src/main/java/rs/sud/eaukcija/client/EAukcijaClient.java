@@ -32,6 +32,7 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.HttpUrl;
 import okhttp3.Interceptor;
@@ -56,6 +57,7 @@ import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryRequest;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryTree;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.DetailRequest;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.RejectedAuctionSummary;
+import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
 
 /** Bounded, rate-limited client for the undocumented eAukcija SPA backend. */
 @Component
@@ -144,7 +146,9 @@ public final class EAukcijaClient {
     public EAukcijaCallResult<CategoryTree> getCategories() {
         JavaType categoryNode = objectMapper.getTypeFactory().constructType(CategoryNode.class);
         JavaType categoryList = objectMapper.getTypeFactory().constructCollectionType(List.class, categoryNode);
-        return post(Endpoint.CATEGORIES, Map.of(), categoryList, this::validatedCategoryTree);
+        return post(Endpoint.CATEGORIES, Map.of(), categoryList,
+                (List<CategoryNode> categories, JsonNode sourceData) ->
+                        validatedCategoryTree(categories));
     }
 
     public EAukcijaCallResult<AuctionListData> getAuctionsByCategory(
@@ -157,7 +161,7 @@ public final class EAukcijaClient {
                 Endpoint.AUCTIONS_BY_CATEGORY,
                 new CategoryRequest(categoryId, pageSize, page),
                 objectMapper.getTypeFactory().constructType(AuctionListData.class),
-                this::validatedAuctionPage);
+                (AuctionListData data, JsonNode sourceData) -> validatedAuctionPage(data));
     }
 
     public EAukcijaCallResult<AuctionDetail> getImmovablePropertyDetails(long auctionId) {
@@ -177,7 +181,8 @@ public final class EAukcijaClient {
                 endpoint,
                 new DetailRequest(auctionId),
                 objectMapper.getTypeFactory().constructType(AuctionDetail.class),
-                (AuctionDetail detail) -> validatedDetail(detail, auctionId));
+                (AuctionDetail detail, JsonNode sourceData) ->
+                        validatedDetail(detail, auctionId));
     }
 
     OkHttpClient transportForTesting() {
@@ -244,8 +249,10 @@ public final class EAukcijaClient {
                         throw failure(EAukcijaErrorCode.INVALID_ENVELOPE, endpoint, status, attempt, parsed);
                     }
                     try {
-                        R validated = validator.validate(parsed.envelope().data());
-                        return EAukcijaCallResult.success(validated, attempt);
+                        R validated = validator.validate(
+                                parsed.envelope().data(), parsed.sourceData());
+                        return EAukcijaCallResult.success(
+                                validated, parsed.sourceData(), attempt);
                     } catch (ValidationFailure invalid) {
                         throw failure(invalid.code, endpoint, status, attempt, parsed);
                     }
@@ -335,12 +342,20 @@ public final class EAukcijaClient {
         BoundedInputStream bounded = new BoundedInputStream(
                 body.byteStream(), properties.getMaxResponseBytes(), digest);
         try (JsonParser parser = objectMapper.getFactory().createParser(bounded)) {
-            ApiResponse<T> envelope = (ApiResponse<T>) objectMapper.readValue(parser, envelopeType);
+            JsonNode sourceEnvelope = AuctionSourceCanonicalJson.readTree(parser);
             if (parser.nextToken() != null) {
                 throw new ValidationFailure(EAukcijaErrorCode.INVALID_JSON);
             }
+            if (sourceEnvelope == null || !sourceEnvelope.isObject()) {
+                throw new ValidationFailure(EAukcijaErrorCode.INVALID_ENVELOPE);
+            }
+            ApiResponse<T> envelope = (ApiResponse<T>) objectMapper
+                    .readerFor(envelopeType)
+                    .readValue(sourceEnvelope);
+            JsonNode sourceData = sourceEnvelope.get("Data");
             return new ParsedEnvelope<>(
                     envelope,
+                    sourceData == null ? objectMapper.nullNode() : sourceData,
                     bounded.count(),
                     HexFormat.of().formatHex(digest.digest()));
         } catch (ValidationFailure trailingJson) {
@@ -765,10 +780,14 @@ public final class EAukcijaClient {
 
     @FunctionalInterface
     private interface PayloadValidator<T, R> {
-        R validate(T payload);
+        R validate(T payload, JsonNode sourceData);
     }
 
-    private record ParsedEnvelope<T>(ApiResponse<T> envelope, long bodyBytes, String bodySha256) {
+    private record ParsedEnvelope<T>(
+            ApiResponse<T> envelope,
+            JsonNode sourceData,
+            long bodyBytes,
+            String bodySha256) {
     }
 
     private static final class ValidationFailure extends RuntimeException {

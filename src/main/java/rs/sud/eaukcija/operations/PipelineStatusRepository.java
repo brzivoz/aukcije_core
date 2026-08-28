@@ -179,6 +179,19 @@ public class PipelineStatusRepository {
 
     private PipelineStatus.SnapshotChanges snapshotChanges(UUID runId) {
         return jdbc.queryForObject("""
+                WITH current_observation AS (
+                    SELECT current.run_id,
+                           current.auction_id,
+                           COALESCE(
+                               current.source_snapshot_sha256,
+                               legacy_current.snapshot_sha256
+                           ) AS snapshot_sha256
+                      FROM sync_run_auction_observations current
+                      LEFT JOIN auction_enrichment_snapshot_observations legacy_current
+                        ON legacy_current.source_sync_run_id = current.run_id
+                       AND legacy_current.auction_id = current.auction_id
+                     WHERE current.run_id = ?
+                )
                 SELECT COUNT(*) FILTER (WHERE prior.snapshot_sha256 IS NULL) AS new_count,
                        COUNT(*) FILTER (
                            WHERE prior.snapshot_sha256 IS NOT NULL
@@ -187,20 +200,25 @@ public class PipelineStatusRepository {
                        COUNT(*) FILTER (
                            WHERE prior.snapshot_sha256 = current.snapshot_sha256
                        ) AS unchanged_count
-                  FROM auction_enrichment_snapshot_observations current
-                  JOIN sync_runs current_run ON current_run.id = current.source_sync_run_id
+                  FROM current_observation current
+                  JOIN sync_runs current_run ON current_run.id = current.run_id
                   LEFT JOIN LATERAL (
-                      SELECT previous.snapshot_sha256
-                        FROM auction_enrichment_snapshot_observations previous
+                      SELECT COALESCE(
+                                 previous.source_snapshot_sha256,
+                                 legacy_previous.snapshot_sha256
+                             ) AS snapshot_sha256
+                        FROM sync_run_auction_observations previous
                         JOIN sync_runs previous_run
-                          ON previous_run.id = previous.source_sync_run_id
+                          ON previous_run.id = previous.run_id
+                        LEFT JOIN auction_enrichment_snapshot_observations legacy_previous
+                          ON legacy_previous.source_sync_run_id = previous.run_id
+                         AND legacy_previous.auction_id = previous.auction_id
                        WHERE previous.auction_id = current.auction_id
                          AND (previous_run.started_at, previous_run.id)
                              < (current_run.started_at, current_run.id)
                        ORDER BY previous_run.started_at DESC, previous_run.id DESC
                        LIMIT 1
                   ) prior ON TRUE
-                 WHERE current.source_sync_run_id = ?
                 """, (result, row) -> new PipelineStatus.SnapshotChanges(
                 result.getLong("new_count"),
                 result.getLong("changed_count"),

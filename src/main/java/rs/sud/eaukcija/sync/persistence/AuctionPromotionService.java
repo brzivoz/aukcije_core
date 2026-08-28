@@ -96,6 +96,7 @@ public class AuctionPromotionService {
             prepareAuction(runId, taxonomySha256, observedAt, candidate);
         }
         runs.upsertAuctions(candidates);
+        runs.publishSourceSnapshots(runId, candidates);
 
         runs.replaceMemberships(runId, taxonomySha256, candidates);
         runs.insertSuccessObservations(runId, candidates);

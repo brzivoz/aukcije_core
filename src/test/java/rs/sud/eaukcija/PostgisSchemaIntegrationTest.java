@@ -90,7 +90,8 @@ class PostgisSchemaIntegrationTest {
                         "V12__eaukcija_listing_quarantine.sql",
                         "V13__deterministic_enrichment_reprocessing.sql",
                         "V14__pipeline_observability.sql",
-                        "V15__durable_refresh_workflow.sql")
+                        "V15__durable_refresh_workflow.sql",
+                        "V16__immutable_eaukcija_source_snapshots.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -112,11 +113,13 @@ class PostgisSchemaIntegrationTest {
                        'sync_run_detail_quarantines',
                        'sync_run_listing_quarantines', 'sync_run_errors',
                        'auction_source_category_memberships',
-                       'sync_run_auction_observations', 'sync_enrichment_queue'
+                       'sync_run_auction_observations', 'sync_enrichment_queue',
+                       'auction_source_snapshots'
                    )
                  ORDER BY table_name
                 """, String.class)).containsExactly(
                         "auction_source_category_memberships",
+                        "auction_source_snapshots",
                         "eaukcija_taxonomies",
                         "sync_enrichment_queue",
                         "sync_run_auction_observations",
@@ -175,7 +178,26 @@ class PostgisSchemaIntegrationTest {
                 """, String.class)).contains(
                         "listing_fingerprint", "details_fetched_at", "source_detail_category_id",
                         "sale_scope", "normalized_property_kind", "taxonomy_sha256",
-                        "last_successful_sync_run_id", "absence_count", "last_seen_at");
+                        "last_successful_sync_run_id", "absence_count", "last_seen_at",
+                        "current_source_snapshot_sha256");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'auction_source_snapshots'
+                 ORDER BY ordinal_position
+                """, String.class)).containsExactly(
+                        "auction_id", "content_sha256", "schema_version",
+                        "minimization_policy_version", "listing_endpoint", "detail_endpoint",
+                        "canonical_payload", "fetched_at", "listing_fetched_at",
+                        "detail_fetched_at", "source_start_at", "source_end_at",
+                        "source_publication_at", "ingest_run_id", "created_at");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name
+                  FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'sync_run_auction_observations'
+                """, String.class)).contains("source_snapshot_sha256");
         assertThat(jdbc.queryForList("""
                 SELECT indexname
                   FROM pg_indexes
@@ -183,14 +205,29 @@ class PostgisSchemaIntegrationTest {
                    AND tablename IN (
                        'sync_runs', 'sync_enrichment_queue',
                        'sync_run_detail_quarantines',
-                       'sync_run_listing_quarantines'
+                       'sync_run_listing_quarantines',
+                       'auction_source_snapshots'
                    )
                 """, String.class)).contains(
                         "uq_sync_runs_single_running",
                         "idx_sync_enrichment_queue_pending",
                         "idx_sync_detail_quarantines_auction",
                         "idx_sync_listing_quarantines_auction",
-                        "idx_sync_listing_quarantines_source_location");
+                        "idx_sync_listing_quarantines_source_location",
+                        "idx_auction_source_snapshots_run",
+                        "idx_auction_source_snapshots_hash",
+                        "idx_auction_source_snapshots_version");
+        assertThat(jdbc.queryForList("""
+                SELECT tgname FROM pg_trigger
+                 WHERE tgrelid IN (
+                       'auction_source_snapshots'::regclass,
+                       'sync_run_auction_observations'::regclass
+                 ) AND NOT tgisinternal
+                 ORDER BY tgname
+                """, String.class)).contains(
+                        "trg_auction_source_snapshots_immutable",
+                        "trg_auction_source_snapshots_running_run",
+                        "trg_sync_observations_require_source_snapshot");
         assertThat(jdbc.queryForObject("""
                 SELECT delete_rule = 'NO ACTION'
                   FROM information_schema.referential_constraints

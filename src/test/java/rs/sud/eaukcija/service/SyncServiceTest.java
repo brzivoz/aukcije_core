@@ -21,10 +21,14 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.dao.CannotAcquireLockException;
 
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionDetail;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionListData;
@@ -48,6 +53,9 @@ import rs.sud.eaukcija.client.EAukcijaClientProperties;
 import rs.sud.eaukcija.client.EAukcijaErrorCode;
 import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory;
+import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
+import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 import rs.sud.eaukcija.sync.ListingFingerprint;
 import rs.sud.eaukcija.sync.SyncProperties;
 import rs.sud.eaukcija.sync.persistence.AuctionDetailQuarantine;
@@ -68,6 +76,7 @@ import rs.sud.eaukcija.sync.persistence.SyncRunRootResult;
 import rs.sud.eaukcija.sync.persistence.SyncRunStage;
 import rs.sud.eaukcija.sync.persistence.SyncRunStatus;
 import rs.sud.eaukcija.sync.persistence.WorkerLockLease;
+import rs.sud.eaukcija.testsupport.Fixtures;
 
 class SyncServiceTest {
 
@@ -81,6 +90,7 @@ class SyncServiceTest {
     private AuctionRepository auctions;
     private AuctionPromotionService promotion;
     private WorkerLockLease workerLease;
+    private AuctionSourceSnapshotFactory sourceSnapshotFactory;
     private SyncService service;
 
     @BeforeEach
@@ -95,6 +105,8 @@ class SyncServiceTest {
         auctions = mock(AuctionRepository.class);
         promotion = mock(AuctionPromotionService.class);
         workerLease = mock(WorkerLockLease.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        sourceSnapshotFactory = new AuctionSourceSnapshotFactory(objectMapper);
         when(runs.tryAcquireWorkerLock()).thenReturn(Optional.of(workerLease));
         when(runs.claim(any())).thenReturn(new SyncRunClaimResult(RUN_ID, false));
         when(runs.isRunning(RUN_ID)).thenReturn(true);
@@ -112,7 +124,8 @@ class SyncServiceTest {
                 auctions,
                 promotion,
                 direct,
-                new ObjectMapper(),
+                objectMapper,
+                sourceSnapshotFactory,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -175,6 +188,74 @@ class SyncServiceTest {
         assertThat(finalProgress.detailsRequired()).isEqualTo(3);
         assertThat(finalProgress.detailsSucceeded()).isEqualTo(3);
         verify(runs, never()).finishIncomplete(any(), any(), any());
+    }
+
+    @Test
+    void stagesExactSanitizedSourceFromRealJsonInsteadOfReconstructingDtos() throws Exception {
+        clientProperties.setPageSize(3_000);
+        ObjectMapper sourceMapper = new ObjectMapper();
+        ObjectNode listingEnvelope = (ObjectNode) AuctionSourceCanonicalJson.readTree(
+                Fixtures.read("eaukcija/auctions-by-category-page1.json"));
+        ObjectNode listingData = (ObjectNode) listingEnvelope.path("Data");
+        ArrayNode listingRows = (ArrayNode) listingData.path("Auctions");
+        listingRows.remove(2);
+        listingRows.remove(1);
+        listingData.put("TotalCount", 1);
+        AuctionListData page = sourceMapper.treeToValue(listingData, AuctionListData.class);
+        JsonNode detailData = AuctionSourceCanonicalJson.readTree(
+                Fixtures.read("eaukcija/immovable-property-detail.json")).path("Data");
+        AuctionDetail sourceDetail = sourceMapper.treeToValue(detailData, AuctionDetail.class);
+        when(client.getCategories()).thenReturn(call(taxonomy(7)));
+        when(client.getAuctionsByCategory(7, 3_000, 1))
+                .thenReturn(call(page, listingData));
+        when(client.getImmovablePropertyDetails(180466L))
+                .thenReturn(call(sourceDetail, detailData));
+
+        service.startManual(UUID.randomUUID());
+
+        ArgumentCaptor<List<AuctionPromotionCandidate>> candidates = ArgumentCaptor.forClass(List.class);
+        verify(promotion).promote(
+                eq(RUN_ID), any(), eq(NOW), candidates.capture(), eq(List.of()), eq(List.of()));
+        JsonNode canonical = candidates.getValue().get(0).sourceSnapshot().canonicalPayload();
+        assertThat(canonical.path("listing").path("StartingPrice")
+                .decimalValue().toPlainString()).isEqualTo("159600.00");
+        assertThat(canonical.path("detail").path("EstimatedPrice")
+                .decimalValue().toPlainString()).isEqualTo("228000.00");
+        assertThat(canonical.toString()).doesNotContain(
+                "Thumbnail", "Images", "redaction-sentinel", "UnmappedFutureField");
+    }
+
+    @Test
+    void transientSourceSnapshotReadFailureIsNotMisreportedAsInvalidLineage() {
+        when(client.getCategories()).thenReturn(call(taxonomy(7)));
+        when(client.getAuctionsByCategory(7, 2, 1))
+                .thenReturn(call(new AuctionListData(List.of(summary(1, "one")), 1)));
+        when(runs.currentSourceSnapshots(any()))
+                .thenThrow(new CannotAcquireLockException("redaction-sentinel"));
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(SyncService.class);
+        ListAppender<ILoggingEvent> events = new ListAppender<>();
+        events.start();
+        logger.addAppender(events);
+
+        try {
+            service.startManual(UUID.randomUUID());
+
+            ArgumentCaptor<SyncRunErrorEvidence> error =
+                    ArgumentCaptor.forClass(SyncRunErrorEvidence.class);
+            verify(runs).appendError(eq(RUN_ID), error.capture());
+            assertThat(error.getValue().errorCode()).isEqualTo("SOURCE_SNAPSHOT_READ_FAILED");
+            assertThat(error.getValue().stage()).isEqualTo(SyncRunStage.DETAILS);
+            assertThat(events.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains("runId=" + RUN_ID)
+                            && message.contains("code=SOURCE_SNAPSHOT_READ_FAILED"))
+                    .allMatch(message -> !message.contains("redaction-sentinel"));
+            verify(promotion, never()).promote(any(), any(), any(), any(), any(), any());
+        } finally {
+            logger.detachAppender(events);
+            events.stop();
+        }
     }
 
     @Test
@@ -588,6 +669,22 @@ class SyncServiceTest {
         Auction fresh = existing(
                 summaries.get(3), ListingFingerprint.sha256(summaries.get(3)), NOW.minusSeconds(60));
         when(auctions.findAllById(any())).thenReturn(List.of(changed, stale, fresh));
+        ObjectMapper mapper = new ObjectMapper();
+        var retained = sourceSnapshotFactory.create(
+                4L,
+                mapper.valueToTree(summaries.get(3)),
+                mapper.valueToTree(detail(4)),
+                SaleScope.IMMOVABLE,
+                NOW.minusSeconds(60),
+                NOW.minusSeconds(60));
+        when(runs.currentSourceSnapshots(any())).thenReturn(Map.of(
+                4L,
+                new CurrentAuctionSourceSnapshot(
+                        4L,
+                        retained.contentSha256(),
+                        retained.canonicalPayload(),
+                        retained.detailEndpoint(),
+                        retained.detailFetchedAt())));
         when(client.getImmovablePropertyDetails(1)).thenReturn(call(detail(1)));
         when(client.getImmovablePropertyDetails(2)).thenReturn(call(detail(2)));
         when(client.getImmovablePropertyDetails(3)).thenReturn(call(detail(3)));
@@ -739,12 +836,23 @@ class SyncServiceTest {
     }
 
     @Test
-    void persistenceDomainInvalidListingIsHeldBackWhileGoodRecordsStillPromote() {
+    void oversizedRejectedListingIsHeldBackWhileGoodRecordsStillPromote() {
         when(client.getCategories()).thenReturn(call(taxonomy(7)));
         AuctionSummary good = summary(1, "good");
         RejectedAuctionSummary rejected = rejectedSummary(2, "b");
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode sourceData = mapper.createObjectNode();
+        sourceData.put("TotalCount", 2);
+        ArrayNode sourceRows = sourceData.putArray("Auctions");
+        sourceRows.add(mapper.valueToTree(good));
+        sourceRows.addObject()
+                .put("Id", 2L)
+                .put("ShortDescription", "x".repeat(
+                        AuctionSourceSnapshotFactory.MAX_CANONICAL_BYTES));
         when(client.getAuctionsByCategory(7, 2, 1))
-                .thenReturn(call(new AuctionListData(List.of(good), 2, List.of(rejected))));
+                .thenReturn(call(
+                        new AuctionListData(List.of(good), 2, List.of(rejected)),
+                        sourceData));
         when(client.getImmovablePropertyDetails(1)).thenReturn(call(detail(1)));
 
         service.startManual(UUID.randomUUID());
@@ -1078,7 +1186,22 @@ class SyncServiceTest {
     }
 
     private static <T> EAukcijaCallResult<T> call(T value) {
-        return new EAukcijaCallResult<>(value, 0, 1);
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode sourceData;
+        if (value instanceof AuctionListData page) {
+            ObjectNode data = mapper.createObjectNode();
+            data.put("TotalCount", page.totalCount());
+            ArrayNode auctions = data.putArray("Auctions");
+            page.auctions().forEach(auction -> auctions.add(mapper.valueToTree(auction)));
+            sourceData = data;
+        } else {
+            sourceData = mapper.valueToTree(value);
+        }
+        return new EAukcijaCallResult<>(value, sourceData, 0, 1);
+    }
+
+    private static <T> EAukcijaCallResult<T> call(T value, JsonNode sourceData) {
+        return new EAukcijaCallResult<>(value, sourceData, 0, 1);
     }
 
     private static EAukcijaClientException clientFailure(

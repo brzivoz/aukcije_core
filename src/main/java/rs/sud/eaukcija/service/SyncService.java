@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.RejectedExecutionException;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +25,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionDetail;
@@ -38,6 +40,11 @@ import rs.sud.eaukcija.client.EAukcijaClientException;
 import rs.sud.eaukcija.client.EAukcijaClientProperties;
 import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshot;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory.MinimizedDetail;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory.MinimizedListing;
+import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 import rs.sud.eaukcija.sync.AuctionSyncMapper;
 import rs.sud.eaukcija.sync.ListingFingerprint;
 import rs.sud.eaukcija.sync.SyncFailure;
@@ -63,6 +70,7 @@ import rs.sud.eaukcija.sync.persistence.SyncRunErrorEvidence;
 import rs.sud.eaukcija.sync.persistence.SyncRunRepository;
 import rs.sud.eaukcija.sync.persistence.SyncRunRootResult;
 import rs.sud.eaukcija.sync.persistence.SyncRunStage;
+import rs.sud.eaukcija.sync.persistence.SyncRunStateException;
 import rs.sud.eaukcija.sync.persistence.SyncRunStatus;
 import rs.sud.eaukcija.sync.persistence.SyncRunView;
 import rs.sud.eaukcija.sync.persistence.SyncTriggerKind;
@@ -87,6 +95,7 @@ public class SyncService {
     private final AuctionPromotionService promotion;
     private final TaskExecutor executor;
     private final ObjectMapper objectMapper;
+    private final AuctionSourceSnapshotFactory sourceSnapshotFactory;
     private final Clock clock;
 
     @Autowired
@@ -98,9 +107,10 @@ public class SyncService {
             AuctionRepository auctions,
             AuctionPromotionService promotion,
             @Qualifier("syncRunExecutor") TaskExecutor executor,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            AuctionSourceSnapshotFactory sourceSnapshotFactory) {
         this(client, clientProperties, syncProperties, runs, auctions,
-                promotion, executor, objectMapper, Clock.systemUTC());
+                promotion, executor, objectMapper, sourceSnapshotFactory, Clock.systemUTC());
     }
 
     SyncService(
@@ -112,6 +122,7 @@ public class SyncService {
             AuctionPromotionService promotion,
             TaskExecutor executor,
             ObjectMapper objectMapper,
+            AuctionSourceSnapshotFactory sourceSnapshotFactory,
             Clock clock) {
         this.client = client;
         this.clientProperties = clientProperties;
@@ -121,6 +132,7 @@ public class SyncService {
         this.promotion = promotion;
         this.executor = executor;
         this.objectMapper = objectMapper;
+        this.sourceSnapshotFactory = sourceSnapshotFactory;
         this.clock = clock;
     }
 
@@ -283,6 +295,9 @@ public class SyncService {
         } catch (SyncFailure failure) {
             terminalize(runId, tracker, failure);
         } catch (RuntimeException unexpected) {
+            // Deliberately omit the throwable: source and driver exception text
+            // can contain response data. Persist only the fixed diagnostic code.
+            log.error("Unexpected eAukcija sync failure runId={} code=INTERNAL", runId);
             terminalize(runId, tracker, SyncFailure.contract(
                     SyncRunStage.PROMOTING, "INTERNAL", null, null, null));
         } finally {
@@ -376,6 +391,20 @@ public class SyncService {
 
         Map<Long, Auction> existing = new HashMap<>();
         auctions.findAllById(union.keySet()).forEach(auction -> existing.put(auction.getId(), auction));
+        Map<Long, CurrentAuctionSourceSnapshot> currentSourceSnapshots;
+        try {
+            currentSourceSnapshots = runs.currentSourceSnapshots(union.keySet());
+        } catch (SyncRunStateException invalidLineage) {
+            log.warn("Rejected stored source-snapshot lineage runId={} "
+                    + "code=SOURCE_SNAPSHOT_LINEAGE_INVALID", runId);
+            throw SyncFailure.contract(
+                    SyncRunStage.DETAILS, "SOURCE_SNAPSHOT_LINEAGE_INVALID", null, null, null);
+        } catch (DataAccessException readFailure) {
+            log.warn("Could not read source snapshots runId={} "
+                    + "code=SOURCE_SNAPSHOT_READ_FAILED", runId);
+            throw SyncFailure.contract(
+                    SyncRunStage.DETAILS, "SOURCE_SNAPSHOT_READ_FAILED", null, null, null);
+        }
         Instant staleBefore = observedAt.minus(syncProperties.getDetailStaleAfter());
         List<StagedAuction> ordered = union.values().stream()
                 .sorted(Comparator.comparingLong(staged -> staged.summary.id()))
@@ -393,8 +422,10 @@ public class SyncService {
         long required = 0;
         for (StagedAuction staged : ordered) {
             staged.existing = existing.get(staged.summary.id());
+            staged.currentSourceSnapshot = currentSourceSnapshots.get(staged.summary.id());
             staged.detailRequired = detailRequired(
                     staged.existing,
+                    staged.currentSourceSnapshot,
                     staged.fingerprint,
                     staleBefore,
                     staged.classification.saleScope());
@@ -427,6 +458,19 @@ public class SyncService {
                 };
                 tracker.retries(detail.retries());
                 staged.detail = detail.data();
+                try {
+                    staged.minimizedDetail = sourceSnapshotFactory.minimizeDetail(
+                            staged.summary.id(), detail.sourceData());
+                } catch (IllegalArgumentException invalidSourceDetail) {
+                    log.warn("Rejected eAukcija source detail runId={} auctionId={} "
+                            + "code=SOURCE_SNAPSHOT_INVALID", runId, staged.summary.id());
+                    throw SyncFailure.contract(
+                            SyncRunStage.DETAILS,
+                            "SOURCE_SNAPSHOT_INVALID",
+                            null,
+                            null,
+                            staged.summary.id());
+                }
                 staged.detailRefreshed = true;
                 staged.detailFetchedAt = Instant.now(clock);
                 tracker.detailSucceeded();
@@ -478,6 +522,31 @@ public class SyncService {
                     staged.detail,
                     staged.fingerprint,
                     staged.detailFetchedAt == null ? observedAt : staged.detailFetchedAt);
+            AuctionSourceSnapshot sourceSnapshot;
+            try {
+                sourceSnapshot = staged.detailRefreshed
+                        ? sourceSnapshotFactory.create(
+                                staged.summary.id(),
+                                staged.minimizedListing,
+                                staged.minimizedDetail,
+                                staged.classification.saleScope(),
+                                staged.listingFetchedAt,
+                                staged.detailFetchedAt)
+                        : sourceSnapshotFactory.combineWithCurrentDetail(
+                                staged.summary.id(),
+                                staged.minimizedListing,
+                                staged.currentSourceSnapshot,
+                                staged.listingFetchedAt);
+            } catch (IllegalArgumentException invalidSnapshot) {
+                log.warn("Rejected eAukcija source snapshot runId={} auctionId={} "
+                        + "code=SOURCE_SNAPSHOT_INVALID", runId, staged.summary.id());
+                throw SyncFailure.contract(
+                        SyncRunStage.DETAILS,
+                        "SOURCE_SNAPSHOT_INVALID",
+                        null,
+                        null,
+                        staged.summary.id());
+            }
             candidates.add(new AuctionPromotionCandidate(
                     current,
                     staged.fingerprint,
@@ -487,7 +556,8 @@ public class SyncService {
                     staged.classification.propertyKind(),
                     memberships(staged, taxonomyIndex),
                     staged.detailRefreshed,
-                    staged.enrichmentReason));
+                    staged.enrichmentReason,
+                    sourceSnapshot));
         }
 
         tracker.unknownKinds(unknownKinds);
@@ -560,7 +630,21 @@ public class SyncService {
                     throw SyncFailure.client(SyncRunStage.LISTINGS, rootId, page, null, failure);
                 }
                 tracker.retries(response.retries());
+                Instant listingFetchedAt = Instant.now(clock);
                 AuctionListData data = response.data();
+                Map<Long, MinimizedListing> sourceListings;
+                try {
+                    sourceListings = sourceListings(response.sourceData());
+                } catch (IllegalArgumentException invalidSourcePage) {
+                    log.warn("Rejected eAukcija source listing page runId={} rootId={} page={} "
+                            + "code=SOURCE_LISTING_INVALID", runId, rootId, page);
+                    throw SyncFailure.contract(
+                            SyncRunStage.LISTINGS,
+                            "SOURCE_LISTING_INVALID",
+                            rootId,
+                            page,
+                            null);
+                }
                 if (!root.initialized()) {
                     root.initialize(data.totalCount(), clientProperties.getPageSize());
                     if (root.pagesExpected > syncProperties.getMaxPagesPerRoot()) {
@@ -612,11 +696,28 @@ public class SyncService {
                         continue;
                     }
                     String fingerprint = ListingFingerprint.sha256(summary);
+                    MinimizedListing minimizedListing = sourceListings.get(summary.id());
+                    if (minimizedListing == null) {
+                        log.warn("Missing eAukcija source listing runId={} rootId={} page={} "
+                                + "auctionId={} code=SOURCE_LISTING_INVALID",
+                                runId, rootId, page, summary.id());
+                        throw SyncFailure.contract(
+                                SyncRunStage.LISTINGS,
+                                "SOURCE_LISTING_INVALID",
+                                rootId,
+                                page,
+                                summary.id());
+                    }
                     StagedAuction present = union.get(summary.id());
                     if (present == null) {
-                        present = new StagedAuction(summary, fingerprint);
+                        present = new StagedAuction(
+                                summary,
+                                fingerprint,
+                                minimizedListing,
+                                listingFetchedAt);
                         union.put(summary.id(), present);
-                    } else if (!present.fingerprint.equals(fingerprint)) {
+                    } else if (!present.fingerprint.equals(fingerprint)
+                            || !present.minimizedListing.equals(minimizedListing)) {
                         throw SyncFailure.contract(
                                 SyncRunStage.LISTINGS, "CONFLICTING_DUPLICATE", rootId, page, summary.id());
                     }
@@ -873,15 +974,50 @@ public class SyncService {
 
     private static boolean detailRequired(
             Auction existing,
+            CurrentAuctionSourceSnapshot currentSourceSnapshot,
             String fingerprint,
             Instant staleBefore,
             SaleScope targetScope) {
         return existing == null
+                || currentSourceSnapshot == null
                 || !existing.isDetailsFetched()
                 || existing.getDetailsFetchedAt() == null
                 || !fingerprint.equals(existing.getListingFingerprint())
                 || existing.getDetailsFetchedAt().isBefore(staleBefore)
                 || existing.getSaleScope() != targetScope;
+    }
+
+    private Map<Long, MinimizedListing> sourceListings(JsonNode sourceData) {
+        if (sourceData == null || !sourceData.isObject()
+                || !sourceData.path("Auctions").isArray()) {
+            throw new IllegalArgumentException("listing source Data is incomplete");
+        }
+        Map<Long, MinimizedListing> indexed = new LinkedHashMap<>();
+        for (JsonNode candidate : sourceData.path("Auctions")) {
+            if (candidate == null || !candidate.isObject()) {
+                continue;
+            }
+            JsonNode id = candidate.get("Id");
+            if (id == null || !id.isIntegralNumber() || !id.canConvertToLong()
+                    || id.longValue() < 1) {
+                continue;
+            }
+            long auctionId = id.longValue();
+            MinimizedListing minimized;
+            try {
+                minimized = sourceSnapshotFactory.minimizeListing(auctionId, candidate);
+            } catch (IllegalArgumentException rejectedSourceRow) {
+                // Invalid rows already represented by rejectedAuctions are
+                // quarantined below. A valid summary with no retained source
+                // row still fails closed through the missing-row check.
+                continue;
+            }
+            MinimizedListing previous = indexed.putIfAbsent(auctionId, minimized);
+            if (previous != null && !previous.equals(minimized)) {
+                throw new IllegalArgumentException("conflicting source listing rows");
+            }
+        }
+        return Map.copyOf(indexed);
     }
 
     private static boolean quarantinableDetailFailure(EAukcijaClientException failure) {
@@ -948,20 +1084,30 @@ public class SyncService {
     private static final class StagedAuction {
         private final AuctionSummary summary;
         private final String fingerprint;
+        private final MinimizedListing minimizedListing;
+        private final Instant listingFetchedAt;
         private final Set<Integer> contributingRoots = new LinkedHashSet<>();
         private final Set<Integer> contributingChildren = new LinkedHashSet<>();
         private TaxonomyClassifier.Classification classification;
         private Auction existing;
+        private CurrentAuctionSourceSnapshot currentSourceSnapshot;
         private AuctionDetail detail;
+        private MinimizedDetail minimizedDetail;
         private Instant detailFetchedAt;
         private boolean detailRefreshed;
         private boolean detailRequired;
         private boolean quarantined;
         private EnrichmentReason enrichmentReason;
 
-        private StagedAuction(AuctionSummary summary, String fingerprint) {
+        private StagedAuction(
+                AuctionSummary summary,
+                String fingerprint,
+                MinimizedListing minimizedListing,
+                Instant listingFetchedAt) {
             this.summary = summary;
             this.fingerprint = fingerprint;
+            this.minimizedListing = minimizedListing;
+            this.listingFetchedAt = listingFetchedAt;
         }
     }
 

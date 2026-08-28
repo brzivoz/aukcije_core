@@ -38,6 +38,8 @@ import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionDetail;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionListData;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.AuctionSummary;
 import rs.sud.eaukcija.client.EAukcijaApiTypes.CategoryTree;
+import rs.sud.eaukcija.snapshot.AuctionSourceSnapshotFactory;
+import rs.sud.eaukcija.sync.persistence.SaleScope;
 import rs.sud.eaukcija.testsupport.Fixtures;
 
 class EAukcijaClientTest {
@@ -81,6 +83,13 @@ class EAukcijaClientTest {
         assertThat(first.startingPrice()).isEqualByComparingTo(new BigDecimal("159600.00"));
         assertThat(first.currentPrice()).isNull();
         assertThat(first.maxOfferedPrice()).isNull();
+        assertThat(result.sourceData().path("Auctions").get(0).path("Id").isIntegralNumber())
+                .isTrue();
+        assertThat(result.sourceData().path("Auctions").get(0)
+                .path("StartingPrice").decimalValue().toPlainString())
+                .isEqualTo("159600.00");
+        assertThat(result.sourceData().path("Auctions").get(0).path("UnmappedFutureField").textValue())
+                .isEqualTo("must be ignored, not fatal");
 
         RecordedRequest request = server.takeRequest(1, TimeUnit.SECONDS);
         assertThat(request).isNotNull();
@@ -94,15 +103,57 @@ class EAukcijaClientTest {
     }
 
     @Test
-    void parsesDetailsWithoutMaterializingUnknownBase64ImageFields() {
+    void parsesDetailsAndCarriesTheExactPreDtoDataForLaterMinimization() {
         server.enqueue(jsonFixture("eaukcija/immovable-property-detail.json"));
 
-        AuctionDetail detail = client().getImmovablePropertyDetails(180466L).data();
+        EAukcijaCallResult<AuctionDetail> result =
+                client().getImmovablePropertyDetails(180466L);
+        AuctionDetail detail = result.data();
 
         assertThat(detail.id()).isEqualTo(180466L);
         assertThat(detail.estimatedPrice()).isEqualByComparingTo("228000.00");
         assertThat(detail.category().id()).isEqualTo(47);
         assertThat(detail.place().cadastral()).isEqualTo("Димитровград");
+        assertThat(result.sourceData().path("Images").get(0).textValue())
+                .contains("detail-redaction-sentinel");
+        assertThat(result.sourceData().path("EstimatedPrice").decimalValue().toPlainString())
+                .isEqualTo("228000.00");
+    }
+
+    @Test
+    void exactMoneyFlowsFromHttpThroughDtoAndCanonicalSnapshotWithoutDoubleRounding() {
+        String exactMoney = "12345678901234567.89";
+        server.enqueue(json(Fixtures.read("eaukcija/auctions-by-category-page1.json")
+                .replace("159600.00", exactMoney)));
+        server.enqueue(json(Fixtures.read("eaukcija/immovable-property-detail.json")
+                .replace("159600.00", exactMoney)));
+        EAukcijaClient client = client();
+
+        EAukcijaCallResult<AuctionListData> listing =
+                client.getAuctionsByCategory(7, 3_000, 1);
+        EAukcijaCallResult<AuctionDetail> detail =
+                client.getImmovablePropertyDetails(180466L);
+        var snapshot = new AuctionSourceSnapshotFactory(new ObjectMapper()).create(
+                180466L,
+                listing.sourceData().path("Auctions").get(0),
+                detail.sourceData(),
+                SaleScope.IMMOVABLE,
+                Instant.parse("2026-08-25T08:00:00Z"),
+                Instant.parse("2026-08-25T08:00:01Z"));
+
+        assertThat(listing.data().auctions().get(0).startingPrice().toPlainString())
+                .isEqualTo(exactMoney);
+        assertThat(detail.data().startingPrice().toPlainString()).isEqualTo(exactMoney);
+        assertThat(snapshot.canonicalPayload().path("listing")
+                .path("StartingPrice").decimalValue().toPlainString())
+                .isEqualTo(exactMoney);
+        assertThat(snapshot.canonicalPayload().path("detail")
+                .path("StartingPrice").decimalValue().toPlainString())
+                .isEqualTo(exactMoney);
+        assertThat(snapshot.canonicalPayload().toString())
+                .contains("\"StartingPrice\":" + exactMoney)
+                .doesNotContain(
+                        "Thumbnail", "Images", "redaction-sentinel", "UnmappedFutureField");
     }
 
     @Test

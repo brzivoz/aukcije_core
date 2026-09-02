@@ -79,14 +79,14 @@ public class RefreshRepository {
         }
 
         UUID workflowId = UUID.randomUUID();
+        OffsetDateTime now = databaseTime(clock.instant());
         try {
             jdbc.update("""
                     INSERT INTO refresh_runs (
                         id, idempotency_key_sha256, trigger_kind, status, stage,
                         started_at, heartbeat_at
-                    ) VALUES (?, ?, ?, 'RUNNING', 'DOWNLOAD_LISTINGS',
-                              CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    """, workflowId, hash, triggerKind.name());
+                    ) VALUES (?, ?, ?, 'RUNNING', 'DOWNLOAD_LISTINGS', ?, ?)
+                    """, workflowId, hash, triggerKind.name(), now, now);
             return new RefreshClaim(workflowId, false, false);
         } catch (DuplicateKeyException overlap) {
             Optional<RefreshRunView> concurrentReplay = findByIdempotencyHash(hash);
@@ -104,22 +104,24 @@ public class RefreshRepository {
 
     /** Atomically terminalizes the active workflow once its heartbeat lease expires. */
     public boolean recoverStaleActive(Duration runningStaleAfter) {
+        OffsetDateTime now = databaseTime(clock.instant());
         return jdbc.update("""
                 UPDATE refresh_runs
                    SET status = 'FAILED', failure_code = 'REFRESH_STALE_RECLAIMED',
-                       heartbeat_at = CURRENT_TIMESTAMP, finished_at = CURRENT_TIMESTAMP
+                       heartbeat_at = ?, finished_at = GREATEST(?, started_at)
                  WHERE status = 'RUNNING' AND heartbeat_at <= ?
-                """, staleBoundary(runningStaleAfter)) == 1;
+                """, now, now, staleBoundary(runningStaleAfter)) == 1;
     }
 
     /** Reconciles one retained status read without changing a live workflow. */
     public boolean recoverIfStale(UUID workflowId, Duration runningStaleAfter) {
+        OffsetDateTime now = databaseTime(clock.instant());
         return jdbc.update("""
                 UPDATE refresh_runs
                    SET status = 'FAILED', failure_code = 'REFRESH_STALE_RECLAIMED',
-                       heartbeat_at = CURRENT_TIMESTAMP, finished_at = CURRENT_TIMESTAMP
+                       heartbeat_at = ?, finished_at = GREATEST(?, started_at)
                  WHERE id = ? AND status = 'RUNNING' AND heartbeat_at <= ?
-                """, workflowId, staleBoundary(runningStaleAfter)) == 1;
+                """, now, now, workflowId, staleBoundary(runningStaleAfter)) == 1;
     }
 
     public Optional<RefreshRunView> find(UUID workflowId) {
@@ -143,9 +145,9 @@ public class RefreshRepository {
     public void linkSourceRun(UUID workflowId, UUID sourceRunId) {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
-                   SET source_sync_run_id = ?, heartbeat_at = CURRENT_TIMESTAMP
+                   SET source_sync_run_id = ?, heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """, sourceRunId, workflowId), workflowId);
+                """, sourceRunId, databaseTime(clock.instant()), workflowId), workflowId);
     }
 
     public void updateSourceProgress(UUID workflowId, RefreshStage stage, SyncRunView run) {
@@ -156,30 +158,31 @@ public class RefreshRepository {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
                    SET stage = ?, listings_processed = ?, listings_total = ?,
-                       details_processed = ?, details_total = ?, heartbeat_at = CURRENT_TIMESTAMP
+                       details_processed = ?, details_total = ?, heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
                 """,
                 stage.name(), listingProcessed, listingTotal,
-                detailProcessed, run.detailsRequired(), workflowId), workflowId);
+                detailProcessed, run.detailsRequired(),
+                databaseTime(clock.instant()), workflowId), workflowId);
     }
 
     public void pinEnrichmentVersions(UUID workflowId, EnrichmentVersions versions) {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
                    SET stage = 'PROCESS_LOCATIONS', parser_version = ?, resolver_version = ?,
-                       dataset_version = ?, heartbeat_at = CURRENT_TIMESTAMP
+                       dataset_version = ?, heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
                 """,
                 versions.parserVersion(), versions.resolverVersion(), versions.datasetVersion(),
-                workflowId), workflowId);
+                databaseTime(clock.instant()), workflowId), workflowId);
     }
 
     public void linkEnrichmentRun(UUID workflowId, UUID enrichmentRunId) {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
-                   SET enrichment_run_id = ?, heartbeat_at = CURRENT_TIMESTAMP
+                   SET enrichment_run_id = ?, heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """, enrichmentRunId, workflowId), workflowId);
+                """, enrichmentRunId, databaseTime(clock.instant()), workflowId), workflowId);
     }
 
     public void updateEnrichmentProgress(UUID workflowId, EnrichmentRunView run) {
@@ -187,42 +190,46 @@ public class RefreshRepository {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
                    SET stage = 'PROCESS_LOCATIONS', locations_processed = ?,
-                       locations_total = ?, heartbeat_at = CURRENT_TIMESTAMP
+                       locations_total = ?, heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """, Math.min(total, run.attemptedCount()), total, workflowId), workflowId);
+                """, Math.min(total, run.attemptedCount()), total,
+                databaseTime(clock.instant()), workflowId), workflowId);
     }
 
     public void markPreparingMap(UUID workflowId) {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
-                   SET stage = 'PREPARE_MAP', heartbeat_at = CURRENT_TIMESTAMP
+                   SET stage = 'PREPARE_MAP', heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """, workflowId), workflowId);
+                """, databaseTime(clock.instant()), workflowId), workflowId);
     }
 
     public void complete(UUID workflowId, MapDataStatus status) {
+        OffsetDateTime now = databaseTime(clock.instant());
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs
                    SET status = 'SUCCEEDED', stage = 'COMPLETED',
                        map_resolution_run_id = ?, mapped_count = ?, population_count = ?,
                        precision_counts = CAST(? AS jsonb), map_data_version = ?,
-                       map_ready_at = ?, heartbeat_at = CURRENT_TIMESTAMP,
-                       finished_at = CURRENT_TIMESTAMP
+                       map_ready_at = ?, heartbeat_at = ?,
+                       finished_at = GREATEST(?, started_at)
                  WHERE id = ? AND status = 'RUNNING'
                 """,
                 status.successfulResolutionRunId(),
                 status.mappedAuctionCount(), status.populationCount(),
                 json(status.precisionSummary()), status.dataVersion(),
-                databaseTime(status.lastSuccessfulSync()), workflowId), workflowId);
+                databaseTime(status.lastSuccessfulSync()), now, now,
+                workflowId), workflowId);
     }
 
     public boolean fail(UUID workflowId, String failureCode) {
+        OffsetDateTime now = databaseTime(clock.instant());
         return jdbc.update("""
                 UPDATE refresh_runs
                    SET status = 'FAILED', failure_code = ?,
-                       heartbeat_at = CURRENT_TIMESTAMP, finished_at = CURRENT_TIMESTAMP
+                       heartbeat_at = ?, finished_at = GREATEST(?, started_at)
                  WHERE id = ? AND status = 'RUNNING'
-                """, safeCode(failureCode), workflowId) == 1;
+                """, safeCode(failureCode), now, now, workflowId) == 1;
     }
 
     public boolean sourceIsFullyEnriched(UUID sourceRunId, EnrichmentVersions versions) {

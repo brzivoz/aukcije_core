@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -13,6 +14,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+
+import javax.sql.DataSource;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -73,6 +76,9 @@ class SyncPersistenceIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private DataSource dataSource;
+
     @BeforeEach
     void cleanBefore() {
         truncateSyncState();
@@ -81,6 +87,56 @@ class SyncPersistenceIntegrationTest {
     @AfterEach
     void cleanAfter() {
         truncateSyncState();
+    }
+
+    /**
+     * Issue #43. The application host and the database host do not share a clock.
+     * Every timestamp on a run row must come from one clock, so an hour of skew
+     * cannot violate {@code ck_sync_run_time} when the run terminalizes.
+     */
+    @Test
+    void terminalizationSurvivesADatabaseClockThatTrailsTheApplicationClock() {
+        Duration skew = Duration.ofHours(1);
+        SyncRunRepository skewed = skewedRuns(skew);
+
+        SyncRunClaimResult claimed = skewed.claim(claim("clock-skew-terminal"));
+        skewed.finishIncomplete(
+                claimed.runId(), SyncRunStatus.FAILED, SyncRunProgress.claimed());
+
+        SyncRunView terminal = skewed.find(claimed.runId()).orElseThrow();
+        assertThat(terminal.status()).isEqualTo(SyncRunStatus.FAILED);
+        assertThat(terminal.startedAt())
+                .as("started_at comes from the skewed application clock")
+                .isAfter(Instant.now().plus(skew).minus(Duration.ofMinutes(5)));
+        assertThat(terminal.finishedAt())
+                .as("ck_sync_run_time requires finished_at >= started_at")
+                .isNotNull()
+                .isAfterOrEqualTo(terminal.startedAt());
+    }
+
+    /**
+     * Issue #43. The heartbeat lease compares a stored {@code heartbeat_at} with a
+     * boundary the application computes, so both must come from the same clock or a
+     * live run is reclaimed immediately and a dead one is never reclaimed at all.
+     */
+    @Test
+    void heartbeatLeaseComparesAStoredHeartbeatAgainstTheSameClockThatWroteIt() {
+        SyncRunRepository skewed = skewedRuns(Duration.ofHours(1));
+
+        SyncRunClaimResult claimed = skewed.claim(claim("clock-skew-lease"));
+        skewed.updateProgress(claimed.runId(), SyncRunProgress.claimed());
+
+        assertThat(skewed.isStale(claimed.runId(), Duration.ofMinutes(10)))
+                .as("a heartbeat just written by the application clock is not stale")
+                .isFalse();
+        assertThat(skewed.isStale(claimed.runId(), Duration.ZERO))
+                .as("an elapsed lease is still detected")
+                .isTrue();
+    }
+
+    private SyncRunRepository skewedRuns(Duration skew) {
+        return new SyncRunRepository(
+                dataSource, objectMapper, Clock.offset(Clock.systemUTC(), skew));
     }
 
     @Test

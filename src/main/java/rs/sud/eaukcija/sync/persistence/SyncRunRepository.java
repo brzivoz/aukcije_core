@@ -434,9 +434,10 @@ public class SyncRunRepository {
                    SET error_count = run.error_count + 1,
                        unresolved_error_count = run.unresolved_error_count + ?,
                        retry_count = run.retry_count + ?,
-                       heartbeat_at = CURRENT_TIMESTAMP
+                       heartbeat_at = ?
                  WHERE run.id = ? AND run.status = 'RUNNING'
-                """, resolved ? 0 : 1, evidence.attemptNumber() - 1, runId);
+                """, resolved ? 0 : 1, evidence.attemptNumber() - 1,
+                databaseTime(Instant.now(clock)), runId);
         if (updated != 1) {
             throw new SyncRunStateException("sync run is no longer RUNNING: " + runId);
         }
@@ -1134,11 +1135,12 @@ public class SyncRunRepository {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void markSucceeded(UUID runId) {
+        OffsetDateTime now = databaseTime(Instant.now(clock));
         int changed = jdbc.update("""
                 UPDATE sync_runs
                    SET status = 'SUCCEEDED', stage = 'COMPLETED',
-                       heartbeat_at = CURRENT_TIMESTAMP,
-                       finished_at = CURRENT_TIMESTAMP
+                       heartbeat_at = ?,
+                       finished_at = GREATEST(?, started_at)
                  WHERE id = ?
                    AND status = 'RUNNING'
                    AND category_tree_sha256 IS NOT NULL
@@ -1157,7 +1159,7 @@ public class SyncRunRepository {
                          FROM sync_run_listing_quarantines quarantine
                         WHERE quarantine.run_id = sync_runs.id
                    )
-                """, runId);
+                """, now, now, runId);
         if (changed != 1) {
             throw new SyncRunStateException("run does not satisfy success completeness gates: " + runId);
         }
@@ -1274,10 +1276,11 @@ public class SyncRunRepository {
             SyncRunProgress progress,
             boolean terminal,
             SyncRunStatus terminalStatus) {
+        OffsetDateTime now = databaseTime(Instant.now(clock));
         return jdbc.update("""
                 UPDATE sync_runs
-                   SET status = ?, stage = ?, heartbeat_at = CURRENT_TIMESTAMP,
-                       finished_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,
+                   SET status = ?, stage = ?, heartbeat_at = ?,
+                       finished_at = CASE WHEN ? THEN GREATEST(?, started_at) ELSE NULL END,
                        category_tree_sha256 = ?, category_tree_observed_at = ?,
                        pages_expected = ?, pages_completed = ?,
                        listing_rows_observed = ?, listing_rows_quarantined = ?,
@@ -1290,7 +1293,9 @@ public class SyncRunRepository {
                 """,
                 terminal ? terminalStatus.name() : SyncRunStatus.RUNNING.name(),
                 progress.stage().name(),
+                now,
                 terminal,
+                now,
                 progress.categoryTreeSha256(),
                 databaseTime(progress.categoryTreeObservedAt()),
                 progress.pagesExpected(),

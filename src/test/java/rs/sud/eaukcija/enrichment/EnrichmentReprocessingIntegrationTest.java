@@ -7,6 +7,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -76,6 +78,9 @@ class EnrichmentReprocessingIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private AuctionRepository auctionRepository;
+
     @BeforeEach
     void cleanBefore() {
         clean();
@@ -84,6 +89,32 @@ class EnrichmentReprocessingIntegrationTest {
     @AfterEach
     void cleanAfter() {
         clean();
+    }
+
+    /**
+     * Issue #43. {@code ck_enrichment_run_time} requires {@code finished_at >=
+     * started_at}, so the run row cannot mix an application-clock start with a
+     * database-clock finish.
+     */
+    @Test
+    void enrichmentTerminalizationSurvivesADatabaseClockThatTrailsTheApplication() {
+        Duration skew = Duration.ofHours(1);
+        EnrichmentRunRepository skewed = new EnrichmentRunRepository(
+                jdbc, auctionRepository, objectMapper,
+                Clock.offset(Clock.systemUTC(), skew));
+
+        EnrichmentRunClaim claimed = skewed.claim(
+                "clock-skew-enrichment", EnrichmentTriggerKind.MANUAL, V1,
+                EnrichmentSelector.none(), 10);
+        skewed.finish(claimed.runId(), EnrichmentRunStatus.SUCCEEDED);
+
+        EnrichmentRunView terminal = skewed.find(claimed.runId()).orElseThrow();
+        assertThat(terminal.status()).isEqualTo(EnrichmentRunStatus.SUCCEEDED);
+        assertThat(terminal.startedAt())
+                .isAfter(Instant.now().plus(skew).minus(Duration.ofMinutes(5)));
+        assertThat(terminal.finishedAt())
+                .isNotNull()
+                .isAfterOrEqualTo(terminal.startedAt());
     }
 
     @Test

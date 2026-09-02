@@ -316,9 +316,9 @@ public class EnrichmentRunRepository {
     public void setCandidateCount(UUID runId, long candidateCount) {
         int changed = jdbc.update("""
                 UPDATE enrichment_runs
-                   SET candidate_count = ?, heartbeat_at = CURRENT_TIMESTAMP
+                   SET candidate_count = ?, heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """, candidateCount, runId);
+                """, candidateCount, databaseTime(Instant.now(clock)), runId);
         requireOne(changed, "enrichment run is not RUNNING");
     }
 
@@ -468,9 +468,9 @@ public class EnrichmentRunRepository {
                 UPDATE enrichment_runs
                    SET attempted_count = attempted_count + 1,
                        %s = %s + 1,
-                       heartbeat_at = CURRENT_TIMESTAMP
+                       heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """.formatted(counter, counter), runId);
+                """.formatted(counter, counter), databaseTime(Instant.now(clock)), runId);
         requireOne(runChanged, "enrichment run is not RUNNING");
     }
 
@@ -479,47 +479,51 @@ public class EnrichmentRunRepository {
         if (status == EnrichmentRunStatus.RUNNING || status == EnrichmentRunStatus.INTERRUPTED) {
             throw new IllegalArgumentException("invalid normal terminal run status");
         }
+        OffsetDateTime now = databaseTime(Instant.now(clock));
         int changed = jdbc.update("""
                 UPDATE enrichment_runs
-                   SET status = ?, heartbeat_at = CURRENT_TIMESTAMP, finished_at = CURRENT_TIMESTAMP
+                   SET status = ?, heartbeat_at = ?,
+                       finished_at = GREATEST(?, started_at)
                  WHERE id = ? AND status = 'RUNNING'
-                """, status.name(), runId);
+                """, status.name(), now, now, runId);
         requireOne(changed, "enrichment run is not RUNNING");
     }
 
     @Transactional
     public void fail(UUID runId, int maxInterruptions) {
         validateMaxInterruptions(maxInterruptions);
+        OffsetDateTime now = databaseTime(Instant.now(clock));
         jdbc.update("""
                 UPDATE enrichment_run_items
                    SET status = 'INTERRUPTED',
-                       finished_at = GREATEST(CURRENT_TIMESTAMP, started_at),
+                       finished_at = GREATEST(?, started_at),
                        last_stage = COALESCE(last_stage, 'PARSE'),
                        output_sha256 = NULL,
                        error_class = 'PROCESS_INTERRUPTED',
                        error_message = 'PROCESS_INTERRUPTED'
                  WHERE run_id = ? AND status = 'RUNNING'
-                """, runId);
+                """, now, runId);
         jdbc.update("""
                 UPDATE enrichment_state
                    SET interruption_count = interruption_count + 1,
                        status = CASE WHEN interruption_count + 1 >= ?
                                      THEN 'ATTEMPT_LIMIT_REACHED' ELSE 'PENDING' END,
                        completed_at = CASE WHEN interruption_count + 1 >= ?
-                                           THEN CURRENT_TIMESTAMP ELSE NULL END,
+                                           THEN ? ELSE NULL END,
                        last_stage = NULL, output_sha256 = NULL,
                        error_class = CASE WHEN interruption_count + 1 >= ?
                                           THEN 'ATTEMPT_LIMIT_REACHED' ELSE NULL END,
                        error_message = CASE WHEN interruption_count + 1 >= ?
                                             THEN 'INTERRUPTION_LIMIT_REACHED' ELSE NULL END
                  WHERE last_enrichment_run_id = ? AND status = 'RUNNING'
-                """, maxInterruptions, maxInterruptions, maxInterruptions, maxInterruptions, runId);
+                """, maxInterruptions, maxInterruptions, now,
+                maxInterruptions, maxInterruptions, runId);
         int changed = jdbc.update("""
                 UPDATE enrichment_runs
-                   SET status = 'FAILED', heartbeat_at = CURRENT_TIMESTAMP,
-                       finished_at = CURRENT_TIMESTAMP
+                   SET status = 'FAILED', heartbeat_at = ?,
+                       finished_at = GREATEST(?, started_at)
                  WHERE id = ? AND status = 'RUNNING'
-                """, runId);
+                """, now, now, runId);
         requireOne(changed, "enrichment run is not RUNNING");
     }
 
@@ -543,6 +547,7 @@ public class EnrichmentRunRepository {
 
     private List<UUID> recoverInterruptedRuns(int maxInterruptions, Instant staleBefore) {
         validateMaxInterruptions(maxInterruptions);
+        OffsetDateTime now = databaseTime(Instant.now(clock));
         List<UUID> running = staleBefore == null
                 ? jdbc.queryForList("""
                         SELECT id FROM enrichment_runs WHERE status = 'RUNNING' FOR UPDATE
@@ -556,34 +561,34 @@ public class EnrichmentRunRepository {
             jdbc.update("""
                     UPDATE enrichment_run_items
                        SET status = 'INTERRUPTED',
-                           finished_at = GREATEST(CURRENT_TIMESTAMP, started_at),
+                           finished_at = GREATEST(?, started_at),
                            last_stage = COALESCE(last_stage, 'PARSE'),
                            output_sha256 = NULL,
                            error_class = 'PROCESS_INTERRUPTED',
                            error_message = 'PROCESS_INTERRUPTED'
                      WHERE run_id = ? AND status = 'RUNNING'
-                    """, runId);
+                    """, now, runId);
             jdbc.update("""
                     UPDATE enrichment_state
                        SET interruption_count = interruption_count + 1,
                            status = CASE WHEN interruption_count + 1 >= ?
                                          THEN 'ATTEMPT_LIMIT_REACHED' ELSE 'PENDING' END,
                            completed_at = CASE WHEN interruption_count + 1 >= ?
-                                               THEN CURRENT_TIMESTAMP ELSE NULL END,
+                                               THEN ? ELSE NULL END,
                            last_stage = NULL, output_sha256 = NULL,
                            error_class = CASE WHEN interruption_count + 1 >= ?
                                               THEN 'ATTEMPT_LIMIT_REACHED' ELSE NULL END,
                            error_message = CASE WHEN interruption_count + 1 >= ?
                                                 THEN 'INTERRUPTION_LIMIT_REACHED' ELSE NULL END
                      WHERE last_enrichment_run_id = ? AND status = 'RUNNING'
-                    """, maxInterruptions, maxInterruptions,
+                    """, maxInterruptions, maxInterruptions, now,
                     maxInterruptions, maxInterruptions, runId);
             jdbc.update("""
                     UPDATE enrichment_runs
-                       SET status = 'INTERRUPTED', heartbeat_at = CURRENT_TIMESTAMP,
-                           finished_at = CURRENT_TIMESTAMP
+                       SET status = 'INTERRUPTED', heartbeat_at = ?,
+                           finished_at = GREATEST(?, started_at)
                      WHERE id = ? AND status = 'RUNNING'
-                    """, runId);
+                    """, now, now, runId);
         }
         return List.copyOf(running);
     }
@@ -593,9 +598,10 @@ public class EnrichmentRunRepository {
         jdbc.execute("SELECT pg_advisory_xact_lock(" + CLAIM_LOCK_ID + ")");
         jdbc.update("""
                 UPDATE enrichment_control
-                   SET paused = ?, changed_at = CURRENT_TIMESTAMP, change_code = ?
+                   SET paused = ?, changed_at = ?, change_code = ?
                  WHERE singleton
-                """, paused, paused ? "OPERATOR_PAUSE" : "OPERATOR_RESUME");
+                """, paused, databaseTime(Instant.now(clock)),
+                paused ? "OPERATOR_PAUSE" : "OPERATOR_RESUME");
         return paused;
     }
 

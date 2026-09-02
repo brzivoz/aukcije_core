@@ -305,6 +305,13 @@ tasks.register('matchStructuredKo', JavaExec) {
     mainClass = 'rs.sud.eaukcija.komatching.StructuredKoMatchCli'
 }
 
+tasks.register('matchExtractedKo', JavaExec) {
+    group = 'application'
+    description = 'Refresh structured KO results and match current extracted property-reference KO names'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.komatching.ExtractedKoMatchCli'
+}
+
 tasks.register('resolveCoarseLocations', JavaExec) {
     group = 'application'
     description = 'Resolve every auction to the best honest KO, settlement, municipality, or NONE tier'

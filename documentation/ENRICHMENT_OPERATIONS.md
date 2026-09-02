@@ -58,7 +58,9 @@ Every selected auction runs in its own transaction, in this exact order:
 
 1. `PARSE` — persist the structured `Place` reference first, then every
    normalized reference found in `Description` and `ShortDescription`;
-2. `KO_MATCHING` — use the checksum-validated active local KO dictionary;
+2. `KO_MATCHING` — refresh structured #37 matching, then match and explicitly
+   reconcile every current extracted #19 KO against the same checksum-validated
+   local dictionary;
 3. `PARCEL_PATH` — consume only already validated, private local parcel
    evidence;
 4. `ADDRESS_FALLBACK` — run the available local resolution ladder without an
@@ -114,6 +116,15 @@ the same parser, or a new parser version, creates a new run and atomically
 advances the current pointer while retaining earlier run JSON/memberships.
 Existing `user_reviewed` references are carried forward and never updated by
 the parser.
+
+Issue #33 then writes immutable per-reference match results and a replaceable
+current pointer. Exact structured/text disagreements are `AMBIGUOUS` with
+`STRUCTURED_CONFLICT`; neither code reaches `property_references.ko_code`.
+Identical results are reused and each production enrichment run observes the
+exact immutable result fingerprint it consumed. See
+[extracted KO matching operations](EXTRACTED_KO_MATCH_OPERATIONS.md) for the
+decision ladder, reconciliation matrix, provenance, population command, and
+operator queries.
 
 The immutable run JSON includes both raw parser output and the exact selected
 row values, including reviewed corrections.

@@ -6,7 +6,10 @@ dictionary. It also consumes `place_name` and `municipality`: all three raw
 fields are retained and fingerprinted, municipality is the only automatic
 duplicate-name disambiguator, and place/settlement agreement is retained in
 candidate evidence for review. Description text is deliberately out of scope;
-#33 owns extracted-text disagreement and must not silently replace this result.
+#33 now matches extracted text separately, snapshots this result for
+reconciliation, and turns an exact structured/text disagreement into unresolved
+`AMBIGUOUS` evidence instead of silently replacing either side. See
+[extracted KO matching operations](EXTRACTED_KO_MATCH_OPERATIONS.md).
 
 ## Match contract
 
@@ -123,12 +126,16 @@ ORDER BY finished_at DESC;
 
 ## Idempotency and refreshes
 
-The SHA-256 input fingerprint length-prefixes the auction id and exact raw
+The SHA-256 input fingerprint length-prefixes the structured subject identity,
+auction id, and exact raw
 `cadastral`, `place_name`, and `municipality` values together with the
 normalizer contract, full alias dataset/hash, municipality-alias hash,
 dictionary version, and official snapshot hash. An identical current
 fingerprint is counted from the retained
-row without invoking the matcher or changing `resolved_at`. A changed source
+row without invoking the matcher or changing `resolved_at`. The shared matcher
+implementation is `shared-ko-name-match-v3`; #33 calls the same implementation
+and the same `SerbianNameNormalizer`, with its own per-reference fingerprint and
+reconciliation layer. A changed source
 field or version input recomputes and conditionally upserts only that auction.
 
 To reproduce the retained full-population measurement without touching a

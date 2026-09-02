@@ -5,7 +5,7 @@ import java.nio.file.Path;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
-/** Runtime inputs and bounded review-candidate settings for issue #37. */
+/** Shared active dictionary input for issue #37 and issue #33 matchers. */
 @Component
 @ConfigurationProperties(prefix = "ko.structured-match")
 public class StructuredKoMatchProperties {

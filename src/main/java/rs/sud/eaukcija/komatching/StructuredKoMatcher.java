@@ -15,10 +15,10 @@ import java.util.stream.Collectors;
 
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
 
-/** Pure, deterministic matcher for the structured eAukcija place fields. */
+/** Pure, deterministic matcher shared by structured and extracted KO names. */
 final class StructuredKoMatcher {
 
-    static final String MATCHER_VERSION = "structured-ko-match-v2";
+    static final String MATCHER_VERSION = "shared-ko-name-match-v3";
     static final int DEFAULT_FUZZY_CANDIDATE_LIMIT = 5;
     static final int MIN_FUZZY_SIMILARITY_BASIS_POINTS = 7_000;
 
@@ -38,7 +38,45 @@ final class StructuredKoMatcher {
         NONE
     }
 
-    record Input(long auctionId, String cadastral, String placeName, String municipality) {
+    record Input(
+            long auctionId,
+            String cadastral,
+            String placeName,
+            String municipality,
+            String subjectIdentity,
+            String sourceLabel) {
+
+        Input(long auctionId, String cadastral, String placeName, String municipality) {
+            this(
+                    auctionId,
+                    cadastral,
+                    placeName,
+                    municipality,
+                    "auction:" + auctionId,
+                    "structured Place.Cadastral");
+        }
+
+        static Input extracted(
+                long auctionId,
+                String referenceId,
+                String rawKo,
+                String placeName,
+                String municipality) {
+            return new Input(
+                    auctionId,
+                    rawKo,
+                    placeName,
+                    municipality,
+                    "property-reference:" + referenceId,
+                    "PropertyReference.rawKo");
+        }
+
+        Input {
+            if (auctionId <= 0 || subjectIdentity == null || subjectIdentity.isBlank()
+                    || sourceLabel == null || sourceLabel.isBlank()) {
+                throw new IllegalArgumentException("complete KO match subject identity is required");
+            }
+        }
     }
 
     record CandidateMunicipality(String code, String nameCyrillic, String nameLatin) {
@@ -105,12 +143,13 @@ final class StructuredKoMatcher {
         String fingerprint = fingerprint(input, dictionary);
         if (input.cadastral() == null || input.cadastral().isBlank()) {
             return unresolved(input, fingerprint, Status.INVALID, Method.NONE,
-                    "MISSING_CADASTRAL: structured Place.Cadastral is null or blank", List.of());
+                    "MISSING_KO_NAME: " + input.sourceLabel() + " is null or blank", List.of());
         }
         String normalizedCadastral = normalizeQuery(input.cadastral());
         if (normalizedCadastral == null) {
             return unresolved(input, fingerprint, Status.INVALID, Method.NONE,
-                    "MALFORMED_CADASTRAL: structured Place.Cadastral has no usable letters or digits", List.of());
+                    "MALFORMED_KO_NAME: " + input.sourceLabel()
+                            + " has no usable letters or digits", List.of());
         }
 
         KoDictionarySnapshot.KoEntry exactCode = dictionary.entriesByCode().get(input.cadastral().trim());
@@ -119,7 +158,7 @@ final class StructuredKoMatcher {
                     1, exactCode, null, null, List.of(), input,
                     municipalityContext(input.municipality()), null, null);
             return matched(input, fingerprint, Method.EXACT_CODE,
-                    "EXACT_CODE: Place.Cadastral exactly equals an official KO code", candidate);
+                    "EXACT_CODE: " + input.sourceLabel() + " exactly equals an official KO code", candidate);
         }
 
         List<KoDictionarySnapshot.IndexCandidate> exact = dictionary.normalizedIndex().get(normalizedCadastral);
@@ -176,7 +215,8 @@ final class StructuredKoMatcher {
         List<Candidate> fuzzy = fuzzyCandidates(normalizedCadastral, input);
         if (fuzzy.isEmpty()) {
             return unresolved(input, fingerprint, Status.NOT_FOUND, Method.NONE,
-                    "NOT_FOUND: normalized Place.Cadastral is absent from the exact index and no fuzzy candidate "
+                    "NOT_FOUND: normalized " + input.sourceLabel()
+                            + " is absent from the exact index and no fuzzy candidate "
                             + "meets the 70% review-similarity floor",
                     List.of());
         }
@@ -194,6 +234,7 @@ final class StructuredKoMatcher {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             add(digest, MATCHER_VERSION);
+            add(digest, input.subjectIdentity());
             add(digest, Long.toString(input.auctionId()));
             add(digest, input.cadastral());
             add(digest, input.placeName());

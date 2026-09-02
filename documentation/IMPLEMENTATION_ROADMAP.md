@@ -296,7 +296,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 7 | #10, #22 | Snapshot replay/hash evidence; validated full GPKG import with atomic promotion and rollback |
 | 8 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
 | 9 | **#19 ✅** | Held-out parser thresholds met with versioned deterministic replacement, retained source/run evidence, and reviewed-correction preservation |
-| 10 | #33, #21 | Zero exact-match false positives on extracted names; selected parcel/fallback contract |
+| 10 | **#33 ✅**, #21 | Zero exact-match false positives on extracted names; selected parcel/fallback contract |
 | 11 | #23, **#29 coordinator ✅** | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
 | 12 | #30 | Persisted freshness/backlog/precision status |
 | 13 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
@@ -304,9 +304,11 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 
 #29's coordinator, V13 ledger, controls, recovery proof, and current-stage cold
 measurement landed early on 2026-08-25. The #19 extracted-reference parser and
-V17 evidence ledger landed on 2026-09-02. Wave 11 remains open because #21/#23
-still own the private-import and higher-precision resolver implementations that
-plug into those stage/version boundaries.
+V17 evidence ledger landed on 2026-09-02. #33 now supplies immutable V18
+per-reference KO matching and structured/text conflict evidence with zero
+held-out exact-match false positives. Wave 10 remains open on #21; #21/#23
+still own the parcel and higher-precision resolver implementations that plug
+into those stage/version boundaries.
 
 ## Definition of done for every issue
 

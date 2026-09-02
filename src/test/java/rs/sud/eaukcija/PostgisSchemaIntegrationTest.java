@@ -92,7 +92,8 @@ class PostgisSchemaIntegrationTest {
                         "V14__pipeline_observability.sql",
                         "V15__durable_refresh_workflow.sql",
                         "V16__immutable_eaukcija_source_snapshots.sql",
-                        "V17__versioned_property_reference_extraction.sql")
+                        "V17__versioned_property_reference_extraction.sql",
+                        "V18__extracted_ko_matching.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
@@ -451,6 +452,70 @@ class PostgisSchemaIntegrationTest {
                         "idx_structured_ko_matches_ko_code",
                         "idx_structured_ko_matches_dictionary",
                         "idx_structured_ko_matches_candidates");
+    }
+
+    @Test
+    void flywayOwnsImmutableExtractedKoResultsCurrentPointersAndRunEvidence() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+
+        assertThat(jdbc.queryForList("""
+                SELECT table_name FROM information_schema.tables
+                 WHERE table_schema = 'public'
+                   AND table_name IN (
+                       'property_reference_ko_match_results',
+                       'current_property_reference_ko_matches',
+                       'extracted_ko_match_runs',
+                       'extracted_ko_match_run_results',
+                       'property_reference_ko_match_observations'
+                   ) ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "current_property_reference_ko_matches",
+                        "extracted_ko_match_run_results",
+                        "extracted_ko_match_runs",
+                        "property_reference_ko_match_observations",
+                        "property_reference_ko_match_results");
+        assertThat(jdbc.queryForList("""
+                SELECT indexname FROM pg_indexes
+                 WHERE schemaname = 'public'
+                   AND tablename = 'property_reference_ko_match_results'
+                """, String.class)).contains(
+                        "idx_property_reference_ko_results_status",
+                        "idx_property_reference_ko_results_code",
+                        "idx_property_reference_ko_results_dictionary",
+                        "idx_property_reference_ko_results_candidates",
+                        "idx_property_reference_ko_results_reconciliation");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'property_reference_ko_match_results'
+                   AND column_name IN ('ko_provenance')
+                """, String.class)).containsExactly("ko_provenance");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = 'extracted_ko_match_runs'
+                   AND column_name IN (
+                       'text_extracted_count', 'structured_fallback_count',
+                       'unresolved_ko_provenance_count', 'text_extracted_matched_count',
+                       'structured_fallback_matched_count',
+                       'reconciliation_by_ko_provenance'
+                   ) ORDER BY column_name
+                """, String.class)).containsExactly(
+                        "reconciliation_by_ko_provenance",
+                        "structured_fallback_count",
+                        "structured_fallback_matched_count",
+                        "text_extracted_count",
+                        "text_extracted_matched_count",
+                        "unresolved_ko_provenance_count");
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*) FROM pg_trigger
+                 WHERE tgname IN (
+                     'trg_property_reference_ko_results_immutable',
+                     'trg_extracted_ko_match_runs_immutable',
+                     'trg_extracted_ko_match_run_results_immutable',
+                     'trg_property_reference_ko_observations_immutable'
+                 ) AND NOT tgisinternal
+                """, Long.class)).isEqualTo(4);
     }
 
     @Test

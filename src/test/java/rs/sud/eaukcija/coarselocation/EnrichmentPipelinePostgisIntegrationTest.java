@@ -154,6 +154,71 @@ class EnrichmentPipelinePostgisIntegrationTest {
     }
 
     @Test
+    void productionKoStageMatchesCurrentTextReferencesAndObservesTheirImmutableResultsOnce() {
+        insertAuction(29_004L, "ГРАД", "Насеље Б", "Општина Б-град");
+        EnrichmentWorkItem base = itemWithDescription(
+                29_004L,
+                "ГРАД",
+                "Насеље Б",
+                "Општина Б-град",
+                "КО Grad; парцела број 1572",
+                "snapshot-text-ko");
+        UUID runId = UUID.randomUUID();
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        jdbc.update("""
+                INSERT INTO enrichment_runs (
+                    id, idempotency_key_sha256, trigger_kind, status,
+                    started_at, heartbeat_at, parser_version, resolver_version,
+                    dataset_version, max_items, candidate_count
+                ) VALUES (?, ?, 'MANUAL', 'RUNNING', ?, ?, ?, ?, ?, 1, 1)
+                """,
+                runId,
+                EnrichmentHashing.sha256("issue-33-observation", runId.toString()),
+                now,
+                now,
+                pipeline.activeVersions().parserVersion(),
+                pipeline.activeVersions().resolverVersion(),
+                pipeline.activeVersions().datasetVersion());
+        jdbc.update("""
+                INSERT INTO enrichment_run_items (
+                    run_id, ordinal, auction_id, work_key_sha256,
+                    attempt_number, status, started_at
+                ) VALUES (?, 1, ?, ?, 1, 'RUNNING', ?)
+                """, runId, base.auctionId(), base.workKeySha256(), now);
+        EnrichmentWorkItem observed = base.forRun(runId);
+
+        EnrichmentItemResult first = pipeline.process(observed);
+        EnrichmentItemResult replay = pipeline.process(observed);
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM property_reference_ko_match_results result
+                 WHERE result.auction_id = 29004
+                """, Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT count(*)
+                  FROM property_reference_ko_match_observations
+                 WHERE enrichment_run_id = ? AND auction_id = 29004
+                """, Long.class, runId)).isEqualTo(2);
+        assertThat(jdbc.queryForList("""
+                SELECT result.status
+                  FROM current_property_reference_ko_matches current_match
+                  JOIN property_reference_ko_match_results result
+                    ON result.reference_id = current_match.reference_id
+                   AND result.input_fingerprint = current_match.input_fingerprint
+                 WHERE result.auction_id = 29004
+                 ORDER BY result.reference_id
+                """, String.class)).containsOnly("MATCHED");
+        assertThat(jdbc.queryForList("""
+                SELECT ko_code FROM property_references
+                 WHERE auction_id = 29004 AND reference_type <> 'STRUCTURED_LOCATION'
+                 ORDER BY id
+                """, String.class)).containsExactly("300002", "300002");
+        verifyNoInteractions(sourceClient);
+    }
+
+    @Test
     void verifiedParcelEvidenceWinsWithoutBeingDowngradedByTheFallbackStage() {
         insertAuction(29_002L, "ГРАД", "Насеље Б", "Општина Б-град");
         EnrichmentWorkItem initial = item(
@@ -294,6 +359,58 @@ class EnrichmentPipelinePostgisIntegrationTest {
         jdbc.update("""
                 UPDATE auctions SET current_enrichment_snapshot_sha256 = ? WHERE id = ?
                 """, snapshot, auctionId);
+        return new EnrichmentWorkItem(
+                auctionId,
+                SOURCE_RUN,
+                snapshot,
+                dependency,
+                EnrichmentHashing.sha256("work", Long.toString(auctionId), snapshot, dependency),
+                input);
+    }
+
+    private EnrichmentWorkItem itemWithDescription(
+            long auctionId,
+            String cadastral,
+            String place,
+            String municipality,
+            String description,
+            String salt) {
+        String dependency = EnrichmentHashing.sha256("dependency", salt);
+        ObjectNode source = sourcePayload(auctionId, cadastral, place, municipality, salt);
+        ((ObjectNode) source.path("detail")).put("Description", description);
+        String sourceSha256 = sourceSha256(source);
+        jdbc.update("""
+                INSERT INTO auction_source_snapshots (
+                    auction_id, content_sha256, schema_version, minimization_policy_version,
+                    listing_endpoint, detail_endpoint, canonical_payload,
+                    fetched_at, listing_fetched_at, detail_fetched_at,
+                    source_start_at, source_end_at, ingest_run_id
+                ) VALUES (?, ?, 'eaukcija-source-snapshot-v1', 'eaukcija-minimization-v1',
+                          '/api/auction/search', ?, ?::jsonb,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                """, auctionId, sourceSha256, "/api/auction/" + auctionId,
+                AuctionSourceCanonicalJson.write(source), SOURCE_RUN);
+        ObjectNode input = objectMapper.createObjectNode()
+                .put("schemaVersion", EnrichmentInputSnapshot.SCHEMA_VERSION)
+                .put("sourceSnapshotSha256", sourceSha256)
+                .put("auctionId", auctionId)
+                .put("cadastral", cadastral)
+                .put("placeName", place)
+                .put("municipality", municipality)
+                .put("description", description)
+                .putNull("shortDescription");
+        String snapshot = EnrichmentHashing.sha256(json(input));
+        jdbc.update("""
+                INSERT INTO auction_enrichment_input_snapshots (
+                    auction_id, snapshot_sha256, canonical_input
+                ) VALUES (?, ?, ?::jsonb)
+                """, auctionId, snapshot, json(input));
+        jdbc.update("""
+                UPDATE auctions SET current_source_snapshot_sha256 = ?,
+                                    current_enrichment_snapshot_sha256 = ?
+                 WHERE id = ?
+                """, sourceSha256, snapshot, auctionId);
         return new EnrichmentWorkItem(
                 auctionId,
                 SOURCE_RUN,

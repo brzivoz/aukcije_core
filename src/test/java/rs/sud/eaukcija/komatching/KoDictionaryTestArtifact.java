@@ -92,7 +92,15 @@ public final class KoDictionaryTestArtifact {
                 dictionaryRow(
                         version, "400002", "Поље", "Polje",
                         "M5", "ОПШТИНА В", "OPŠTINA V",
-                        "S7", "Насеље Г", "Naselje G", List.of(), List.of()));
+                        "S7", "Насеље Г", "Naselje G", List.of(), List.of()),
+                dictionaryRow(
+                        version, "500001", "Сјеница", "Sjenica",
+                        "M6", "Сјеница", "Sjenica",
+                        "S8", "Сјеница", "Sjenica", List.of(), List.of()),
+                dictionaryRow(
+                        version, "500002", "Урсуле", "Ursule",
+                        "M6", "Сјеница", "Sjenica",
+                        "S9", "Урсуле", "Ursule", List.of(), List.of()));
         writeNdjson(directory.resolve("ko-dictionary.ndjson"), entries, objectMapper);
 
         List<Map<String, Object>> index = List.of(
@@ -105,7 +113,9 @@ public final class KoDictionaryTestArtifact {
                         indexCandidate("300002", "M2", true, List.of()))),
                 indexRow(version, "POLJE", List.of(
                         indexCandidate("400001", "M4", true, List.of()),
-                        indexCandidate("400002", "M5", true, List.of()))));
+                        indexCandidate("400002", "M5", true, List.of()))),
+                indexRow(version, "SJENICA", List.of(indexCandidate("500001", "M6", true, List.of()))),
+                indexRow(version, "URSULE", List.of(indexCandidate("500002", "M6", true, List.of()))));
         writeNdjson(directory.resolve("normalized-index.ndjson"), index, objectMapper);
 
         Files.write(directory.resolve("alias-overrides.json"), aliasBytes);

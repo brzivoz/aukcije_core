@@ -21,16 +21,18 @@ import rs.sud.eaukcija.enrichment.EnrichmentStageResult;
 import rs.sud.eaukcija.enrichment.EnrichmentVersionPin;
 import rs.sud.eaukcija.enrichment.EnrichmentWorkItem;
 
-/** Per-auction adapter for the deterministic #37 matcher. */
+/** Per-auction adapter for the deterministic #37 structured and #33 extracted matchers. */
 @Component
 public class StructuredKoEnrichmentStage implements EnrichmentStage {
 
-    private static final String IMPLEMENTATION_VERSION = StructuredKoMatcher.MATCHER_VERSION;
+    private static final String IMPLEMENTATION_VERSION = StructuredKoMatcher.MATCHER_VERSION
+            + "+" + ExtractedKoMatcher.MATCHER_VERSION;
 
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
     private final KoDictionarySnapshotLoader dictionaryLoader;
     private final StructuredKoMatchProperties properties;
+    private final ExtractedKoMatchService extractedMatches;
     private volatile CachedDictionary cached;
     private final ThreadLocal<KoDictionarySnapshot> pinnedDictionary = new ThreadLocal<>();
 
@@ -38,11 +40,13 @@ public class StructuredKoEnrichmentStage implements EnrichmentStage {
             JdbcTemplate jdbc,
             ObjectMapper objectMapper,
             KoDictionarySnapshotLoader dictionaryLoader,
-            StructuredKoMatchProperties properties) {
+            StructuredKoMatchProperties properties,
+            ExtractedKoMatchService extractedMatches) {
         this.jdbc = jdbc;
         this.objectMapper = objectMapper;
         this.dictionaryLoader = dictionaryLoader;
         this.properties = properties;
+        this.extractedMatches = extractedMatches;
     }
 
     @Override
@@ -89,19 +93,32 @@ public class StructuredKoEnrichmentStage implements EnrichmentStage {
                     text(input, "municipality"));
             String fingerprint = StructuredKoMatcher.fingerprint(matchInput, dictionary);
             Existing existing = findExisting(item.auctionId(), fingerprint);
+            String status;
+            String method;
+            String matchedKoCode;
             if (existing != null) {
-                return result(fingerprint, existing.status(), existing.method(), existing.matchedKoCode());
+                status = existing.status();
+                method = existing.method();
+                matchedKoCode = existing.matchedKoCode();
+            } else {
+                StructuredKoMatcher.Match match = new StructuredKoMatcher(
+                        dictionary, StructuredKoMatcher.DEFAULT_FUZZY_CANDIDATE_LIMIT).match(matchInput);
+                persist(matchInput, match, dictionary);
+                status = match.status().name();
+                method = match.method().name();
+                matchedKoCode = match.matchedKoCode();
             }
-            StructuredKoMatcher.Match match = new StructuredKoMatcher(
-                    dictionary, StructuredKoMatcher.DEFAULT_FUZZY_CANDIDATE_LIMIT).match(matchInput);
-            persist(matchInput, match, dictionary);
+            ExtractedKoMatchService.AuctionResult extracted = extractedMatches.processAuction(item, dictionary);
             return result(
-                    match.inputFingerprint(),
-                    match.status().name(),
-                    match.method().name(),
-                    match.matchedKoCode());
+                    fingerprint,
+                    status,
+                    method,
+                    matchedKoCode,
+                    extracted);
         } catch (KoStructuredMatchException artifactFailure) {
             throw EnrichmentStageException.permanent(safeCode(artifactFailure.code()), artifactFailure);
+        } catch (KoExtractedMatchException matchFailure) {
+            throw EnrichmentStageException.permanent(safeCode(matchFailure.code()), matchFailure);
         } catch (DataAccessException persistenceFailure) {
             throw EnrichmentStageException.retryable("KO_MATCH_PERSISTENCE_FAILED", persistenceFailure);
         }
@@ -111,9 +128,16 @@ public class StructuredKoEnrichmentStage implements EnrichmentStage {
             String fingerprint,
             String status,
             String method,
-            String matchedKoCode) {
+            String matchedKoCode,
+            ExtractedKoMatchService.AuctionResult extracted) {
         return EnrichmentStageResult.continuing(EnrichmentHashing.sha256(
-                IMPLEMENTATION_VERSION, fingerprint, status, method, matchedKoCode));
+                IMPLEMENTATION_VERSION,
+                fingerprint,
+                status,
+                method,
+                matchedKoCode,
+                Integer.toString(extracted.referenceCount()),
+                extracted.evidenceSha256()));
     }
 
     private Existing findExisting(long auctionId, String fingerprint) {

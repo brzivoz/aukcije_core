@@ -203,6 +203,9 @@ class RefreshEndToEndBrowserTest extends PostgisBrowserFixture {
             data.put("AuctionNumber", "Н40-001");
             data.put("StartDate", "2026-08-25T08:00:00Z");
             data.put("EndDate", "2026-09-10T12:00:00Z");
+            data.put("ShortDescription", "парц. бр. 1572, КО ГРАД");
+            data.put("Description",
+                    "Непокретност у КО ГРАД, катастарска парцела број 1572.");
             ObjectNode place = (ObjectNode) data.get("Place");
             place.put("Name", "Насеље Б");
             place.put("Municipality", "Општина Б-град");

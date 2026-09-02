@@ -295,7 +295,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 6 | #12, #17 | Taxonomy contract tests; complete/partial sync-run tests plus source acceptable-use note |
 | 7 | #10, #22 | Snapshot replay/hash evidence; validated full GPKG import with atomic promotion and rollback |
 | 8 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
-| 9 | #19 | Held-out parser thresholds met, or a reviewed threshold revision citing #32 |
+| 9 | **#19 ✅** | Held-out parser thresholds met with versioned deterministic replacement, retained source/run evidence, and reviewed-correction preservation |
 | 10 | #33, #21 | Zero exact-match false positives on extracted names; selected parcel/fallback contract |
 | 11 | #23, **#29 coordinator ✅** | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
 | 12 | #30 | Persisted freshness/backlog/precision status |
@@ -303,9 +303,10 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 14 | #31 | Fresh-machine private release, backup/restore, and dependency/secret scan evidence |
 
 #29's coordinator, V13 ledger, controls, recovery proof, and current-stage cold
-measurement landed early on 2026-08-25. Wave 11 remains open because #19/#21/#23
-still own the full extracted-reference, private-import, and higher-precision
-resolver implementations that plug into those stage/version boundaries.
+measurement landed early on 2026-08-25. The #19 extracted-reference parser and
+V17 evidence ledger landed on 2026-09-02. Wave 11 remains open because #21/#23
+still own the private-import and higher-precision resolver implementations that
+plug into those stage/version boundaries.
 
 ## Definition of done for every issue
 

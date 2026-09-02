@@ -1196,7 +1196,7 @@ public class SyncRunRepository {
         List<Published> published = candidates.stream()
                 .map(candidate -> new Published(
                         candidate.auction().getId(),
-                        EnrichmentInputSnapshot.from(candidate.auction(), objectMapper)))
+                        EnrichmentInputSnapshot.from(candidate.sourceSnapshot(), objectMapper)))
                 .toList();
 
         multiRowUpdate("""

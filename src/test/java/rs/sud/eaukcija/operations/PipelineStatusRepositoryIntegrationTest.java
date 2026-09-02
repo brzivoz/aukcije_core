@@ -35,8 +35,8 @@ class PipelineStatusRepositoryIntegrationTest {
         }
 
         assertThat(firstRead).isEqualTo(reread);
-        assertThat(reread.database().schemaVersion()).isEqualTo("16");
-        assertThat(reread.database().expectedSchemaVersion()).isEqualTo("16");
+        assertThat(reread.database().schemaVersion()).isEqualTo("17");
+        assertThat(reread.database().expectedSchemaVersion()).isEqualTo("17");
         assertThat(reread.database().migrationsCurrent()).isTrue();
         assertThat(reread.lastSyncAttempt().status()).isEqualTo("PARTIAL");
         assertThat(reread.lastSyncAttempt().sourceDelta()).isNull();
@@ -69,7 +69,7 @@ class PipelineStatusRepositoryIntegrationTest {
         PersistedEvidence evidence = new PipelineStatusRepository(
                 database.jdbc(), flywayWithPendingTestMigration).read();
 
-        assertThat(evidence.database().schemaVersion()).isEqualTo("16");
+        assertThat(evidence.database().schemaVersion()).isEqualTo("17");
         assertThat(evidence.database().expectedSchemaVersion()).isEqualTo("900");
         assertThat(evidence.database().migrationsCurrent()).isFalse();
     }

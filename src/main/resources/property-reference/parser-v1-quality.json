@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "property-reference-parser-quality-v1",
+  "parserVersion": "property-reference-v1",
+  "corpusVersion": "2026-09-02.2",
+  "metricsSha256": "8468d6efe54cc3623c3eb3d161d583737e653a68ac854a924e82d5f4b90d3473",
+  "heldOutPrecision": 0.97297,
+  "heldOutRecall": 0.97297,
+  "heldOutNegativeFalsePositives": 0
+}

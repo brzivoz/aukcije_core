@@ -104,6 +104,13 @@ no source-client dependency. The golden PostgreSQL regression reads
 `canonical_payload::text` back from the table and replays both DTOs with live
 network unavailable.
 
+Successful promotion also derives the immutable
+`enrichment-location-input-v2` projection from this exact snapshot. That
+projection carries the source hash, structured `Place`, `Description`, and
+`ShortDescription` fields required by issue #19. Reprocessing therefore traces
+every normalized property reference back to the retained canonical source
+without refetching eAukcija.
+
 ## Retention, export, and redaction
 
 - **Retention:** keep source snapshots and observations indefinitely with the

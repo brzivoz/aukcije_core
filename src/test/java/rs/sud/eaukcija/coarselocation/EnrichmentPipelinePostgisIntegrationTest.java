@@ -3,12 +3,16 @@ package rs.sud.eaukcija.coarselocation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,6 +33,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import rs.sud.eaukcija.client.EAukcijaClient;
 import rs.sud.eaukcija.enrichment.EnrichmentHashing;
+import rs.sud.eaukcija.enrichment.EnrichmentInputSnapshot;
 import rs.sud.eaukcija.enrichment.EnrichmentItemResult;
 import rs.sud.eaukcija.enrichment.EnrichmentPipeline;
 import rs.sud.eaukcija.enrichment.EnrichmentRunClaim;
@@ -39,6 +44,7 @@ import rs.sud.eaukcija.enrichment.EnrichmentStateStatus;
 import rs.sud.eaukcija.enrichment.EnrichmentVersions;
 import rs.sud.eaukcija.enrichment.EnrichmentWorkItem;
 import rs.sud.eaukcija.komatching.KoDictionaryTestArtifact;
+import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
 import rs.sud.eaukcija.testsupport.PostgisTestContainer;
 
 /** Real-PostGIS proof that all five production stages are local and idempotent. */
@@ -100,6 +106,13 @@ class EnrichmentPipelinePostgisIntegrationTest {
                        change_code = 'TEST_RESET'
                  WHERE singleton
                 """);
+        jdbc.update("""
+                INSERT INTO sync_runs (
+                    id, idempotency_key_sha256, trigger_kind, status, stage,
+                    started_at, heartbeat_at, configured_roots, page_size
+                ) VALUES (?, ?, 'MANUAL', 'RUNNING', 'PROMOTING',
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '[7]'::jsonb, 3000)
+                """, SOURCE_RUN, EnrichmentHashing.sha256("direct-pipeline-source-run"));
     }
 
     @Test
@@ -114,7 +127,7 @@ class EnrichmentPipelinePostgisIntegrationTest {
         EnrichmentItemResult replay = pipeline.process(item);
 
         assertThat(versions).isEqualTo(pipeline.activeVersions());
-        assertThat(versions.parserVersion()).isEqualTo("coarse-structured-place-v1");
+        assertThat(versions.parserVersion()).isEqualTo("property-reference-v1");
         assertThat(first.status()).isEqualTo(EnrichmentStateStatus.SUCCEEDED);
         assertThat(replay).isEqualTo(first);
         assertThat(derivedRows(29_001L)).isEqualTo(rowsAfterFirst);
@@ -240,15 +253,47 @@ class EnrichmentPipelinePostgisIntegrationTest {
             String salt) {
         String snapshot = EnrichmentHashing.sha256(salt);
         String dependency = EnrichmentHashing.sha256("dependency", salt);
+        ObjectNode source = sourcePayload(auctionId, cadastral, place, municipality, salt);
+        String sourceSha256 = sourceSha256(source);
+        jdbc.update("""
+                INSERT INTO auction_source_snapshots (
+                    auction_id, content_sha256, schema_version, minimization_policy_version,
+                    listing_endpoint, detail_endpoint, canonical_payload,
+                    fetched_at, listing_fetched_at, detail_fetched_at,
+                    source_start_at, source_end_at, ingest_run_id
+                ) VALUES (?, ?, 'eaukcija-source-snapshot-v1', 'eaukcija-minimization-v1',
+                          '/api/auction/search', ?, ?::jsonb,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                          CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?)
+                ON CONFLICT (auction_id, content_sha256) DO NOTHING
+                """, auctionId, sourceSha256, "/api/auction/" + auctionId,
+                AuctionSourceCanonicalJson.write(source), SOURCE_RUN);
+        jdbc.update("""
+                UPDATE auctions SET current_source_snapshot_sha256 = ? WHERE id = ?
+                """, sourceSha256, auctionId);
         ObjectNode input = objectMapper.createObjectNode()
+                .put("schemaVersion", EnrichmentInputSnapshot.SCHEMA_VERSION)
+                .put("sourceSnapshotSha256", sourceSha256)
                 .put("auctionId", auctionId)
                 .put("cadastral", cadastral)
-                .put("placeName", place);
+                .put("placeName", place)
+                .put("description", "Synthetic fixture " + salt)
+                .putNull("shortDescription");
         if (municipality == null) {
             input.putNull("municipality");
         } else {
             input.put("municipality", municipality);
         }
+        snapshot = EnrichmentHashing.sha256(json(input));
+        jdbc.update("""
+                INSERT INTO auction_enrichment_input_snapshots (
+                    auction_id, snapshot_sha256, canonical_input
+                ) VALUES (?, ?, ?::jsonb)
+                ON CONFLICT (auction_id, snapshot_sha256) DO NOTHING
+                """, auctionId, snapshot, json(input));
+        jdbc.update("""
+                UPDATE auctions SET current_enrichment_snapshot_sha256 = ? WHERE id = ?
+                """, snapshot, auctionId);
         return new EnrichmentWorkItem(
                 auctionId,
                 SOURCE_RUN,
@@ -256,6 +301,50 @@ class EnrichmentPipelinePostgisIntegrationTest {
                 dependency,
                 EnrichmentHashing.sha256("work", Long.toString(auctionId), snapshot, dependency),
                 input);
+    }
+
+    private ObjectNode sourcePayload(
+            long auctionId,
+            String cadastral,
+            String place,
+            String municipality,
+            String salt) {
+        ObjectNode source = objectMapper.createObjectNode();
+        source.putObject("listing").putNull("ShortDescription");
+        ObjectNode detail = source.putObject("detail");
+        detail.put("Description", "Synthetic fixture " + salt);
+        detail.putNull("ShortDescription");
+        ObjectNode structuredPlace = detail.putObject("Place");
+        putNullable(structuredPlace, "Cadastral", cadastral);
+        putNullable(structuredPlace, "Name", place);
+        putNullable(structuredPlace, "Municipality", municipality);
+        detail.put("AuctionId", auctionId);
+        return source;
+    }
+
+    private static void putNullable(ObjectNode node, String field, String value) {
+        if (value == null) {
+            node.putNull(field);
+        } else {
+            node.put(field, value);
+        }
+    }
+
+    private String json(ObjectNode value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    private static String sourceSha256(ObjectNode source) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(
+                    AuctionSourceCanonicalJson.write(source).getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private UUID installVerifiedParcel(UUID referenceId) {
@@ -307,6 +396,12 @@ class EnrichmentPipelinePostgisIntegrationTest {
         Instant acceptedAt = Instant.parse("2026-08-24T12:00:00Z");
         UUID sourceRunId = UUID.randomUUID();
         jdbc.update("""
+                UPDATE sync_runs
+                   SET status = 'FAILED', stage = 'PROMOTING',
+                       heartbeat_at = CURRENT_TIMESTAMP, finished_at = CURRENT_TIMESTAMP
+                 WHERE id = ?
+                """, SOURCE_RUN);
+        jdbc.update("""
                 INSERT INTO eaukcija_taxonomies (
                     tree_sha256, normalizer_version, canonical_tree, first_observed_at
                 ) VALUES (?, 'test-taxonomy-v1', '[{"value":7,"children":[]}]'::jsonb, ?)
@@ -332,6 +427,8 @@ class EnrichmentPipelinePostgisIntegrationTest {
 
         List<Object[]> auctionRows = new ArrayList<>(count);
         List<Object[]> observationRows = new ArrayList<>(count);
+        List<Object[]> sourceSnapshotRows = new ArrayList<>(count);
+        List<Object[]> sourceCurrentRows = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
             long auctionId = firstAuctionId + index;
             boolean failure = auctionId == failingAuctionId;
@@ -339,11 +436,23 @@ class EnrichmentPipelinePostgisIntegrationTest {
             String place = failure ? "Насеље А" : "Насеље Б";
             String municipality = failure ? "Општина А" : "Општина Б-град";
             String listingHash = EnrichmentHashing.sha256("listing", Long.toString(auctionId));
+            ObjectNode source = sourcePayload(
+                    auctionId, cadastral, place, municipality, "cold-" + auctionId);
+            String sourceSha256 = sourceSha256(source);
             auctionRows.add(new Object[]{
                     auctionId, "N" + auctionId, cadastral, place, municipality,
                     listingHash, sourceRunId
             });
-            observationRows.add(new Object[]{sourceRunId, auctionId, listingHash});
+            sourceSnapshotRows.add(new Object[]{
+                    auctionId, sourceSha256, AuctionSourceCanonicalJson.write(source),
+                    databaseTime(acceptedAt), databaseTime(acceptedAt),
+                    databaseTime(acceptedAt), databaseTime(acceptedAt),
+                    databaseTime(acceptedAt), sourceRunId
+            });
+            sourceCurrentRows.add(new Object[]{sourceSha256, auctionId});
+            observationRows.add(new Object[]{
+                    sourceRunId, auctionId, listingHash, sourceSha256
+            });
         }
         jdbc.batchUpdate("""
                 INSERT INTO auctions (
@@ -353,18 +462,24 @@ class EnrichmentPipelinePostgisIntegrationTest {
                 ) VALUES (?, ?, ?, ?, ?, FALSE, TRUE, ?, ?)
                 """, auctionRows);
         jdbc.batchUpdate("""
+                INSERT INTO auction_source_snapshots (
+                    auction_id, content_sha256, schema_version, minimization_policy_version,
+                    listing_endpoint, detail_endpoint, canonical_payload,
+                    fetched_at, listing_fetched_at, detail_fetched_at,
+                    source_start_at, source_end_at, ingest_run_id
+                ) VALUES (?, ?, 'eaukcija-source-snapshot-v1', 'eaukcija-minimization-v1',
+                          '/api/auction/search', '/api/auction/detail', ?::jsonb,
+                          ?, ?, ?, ?, ?, ?)
+                """, sourceSnapshotRows);
+        jdbc.batchUpdate("""
+                UPDATE auctions SET current_source_snapshot_sha256 = ? WHERE id = ?
+                """, sourceCurrentRows);
+        jdbc.batchUpdate("""
                 INSERT INTO sync_run_auction_observations (
                     run_id, auction_id, listing_fingerprint, detail_refreshed,
-                    enrichment_eligible, enrichment_reason
-                ) VALUES (?, ?, ?, TRUE, TRUE, 'NEW')
+                    enrichment_eligible, enrichment_reason, source_snapshot_sha256
+                ) VALUES (?, ?, ?, TRUE, TRUE, 'NEW', ?)
                 """, observationRows);
-        jdbc.update("""
-                UPDATE sync_runs
-                   SET status = 'SUCCEEDED', stage = 'COMPLETED',
-                       heartbeat_at = ?, finished_at = ?
-                 WHERE id = ?
-                """, databaseTime(acceptedAt.plusSeconds(1)),
-                databaseTime(acceptedAt.plusSeconds(1)), sourceRunId);
 
         List<Object[]> snapshotRows = new ArrayList<>(count);
         List<Object[]> snapshotObservationRows = new ArrayList<>(count);
@@ -375,12 +490,17 @@ class EnrichmentPipelinePostgisIntegrationTest {
             String cadastral = failure ? "ЧАЈЕТИНА" : "ГРАД";
             String place = failure ? "Насеље А" : "Насеље Б";
             String municipality = failure ? "Општина А" : "Општина Б-град";
+            String sourceSha256 = sourceSha256(sourcePayload(
+                    auctionId, cadastral, place, municipality, "cold-" + auctionId));
             ObjectNode canonical = objectMapper.createObjectNode()
-                    .put("schemaVersion", "enrichment-input-v1")
+                    .put("schemaVersion", EnrichmentInputSnapshot.SCHEMA_VERSION)
+                    .put("sourceSnapshotSha256", sourceSha256)
                     .put("auctionId", auctionId)
                     .put("cadastral", cadastral)
                     .put("placeName", place)
-                    .put("municipality", municipality);
+                    .put("municipality", municipality)
+                    .put("description", "Synthetic fixture cold-" + auctionId)
+                    .putNull("shortDescription");
             String canonicalJson;
             try {
                 canonicalJson = objectMapper.writeValueAsString(canonical);
@@ -399,6 +519,13 @@ class EnrichmentPipelinePostgisIntegrationTest {
                     auction_id, snapshot_sha256, canonical_input, created_at
                 ) VALUES (?, ?, ?::jsonb, ?)
                 """, snapshotRows);
+        jdbc.update("""
+                UPDATE sync_runs
+                   SET status = 'SUCCEEDED', stage = 'COMPLETED',
+                       heartbeat_at = ?, finished_at = ?
+                 WHERE id = ?
+                """, databaseTime(acceptedAt.plusSeconds(1)),
+                databaseTime(acceptedAt.plusSeconds(1)), sourceRunId);
         jdbc.batchUpdate("""
                 INSERT INTO auction_enrichment_snapshot_observations (
                     source_sync_run_id, auction_id, snapshot_sha256, observed_at

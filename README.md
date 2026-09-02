@@ -243,6 +243,16 @@ Its schema, evidence-minimization policy, two-pass review, held-out governance,
 and metric definitions are documented in
 `corpus/property-references/v1/README.md`.
 
+The frozen issue-#19 parser has a separate gate, also included in `check`:
+
+```bash
+./gradlew propertyReferenceParserCheck
+```
+
+It verifies the committed development/held-out metrics and the production
+quality-profile hash. Use `propertyReferenceParserDevelopmentCheck` while
+iterating without reading held-out labels.
+
 **Prerequisite: a running Docker daemon.** The integration tests start a real
 `postgis/postgis:18-3.6` container through Testcontainers — the same image
 EPIC-05 targets — rather than substituting H2. Without Docker the integration
@@ -254,13 +264,15 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | Suite | Covers |
 |---|---|
 | `PropertyReferenceCorpusCliTest` / `propertyReferenceCorpusCheck` | 60-auction/118-reference/20-description-negative purposive corpus; deterministic development/held-out split; exact artifact, snapshot, and source-field hashes; exact script tags and negative-template diversity; official KO authority; schema, typed-value, evidence-budget, personal-data, adjudication, and baseline-metric gates; focused artifact-hash, schema, personal-data, KO-authority, and committed-metric drift mutations |
+| `PropertyReferenceParserTest` / `propertyReferenceParserCheck` | structured-first multi-reference extraction from both description fields; raw/canonical Cyrillic/Latin and parcel evidence; offsets; KO conflicts; missing-structure status; folio/object-part/subparcel precision traps; duplicate suppression; hostile/control/oversized/reference-flood bounds; deterministic row/hash replay; frozen ≥95% precision, ≥88% recall, category floors, and zero negative-auction false positives |
+| `PropertyReferenceExtractionIntegrationTest` | real-PostgreSQL same-input idempotence, immutable extraction runs/memberships/observations, atomic current-set replacement on parser bumps, exact selected-row evidence, reviewed-correction preservation, and once-only per-run counts plus frozen corpus/metric identity |
 | `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, arbitrary-precision pre-DTO source `Data` with no `double` round-trip, bounded JSON/content types, invalid/null and persistence-incompatible text/money data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, immediate over-budget shared-pause refusal, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
 | `AuctionSourceSnapshotFactoryTest` | golden exact source replay including decimal scale, key-order/configuration-stable canonical SHA-256, versioned binary/image/token/unreviewed-field exclusion, allowed-detail changes, scalar schema-drift and malformed/null/ID/size/depth rejection, and a parser with no network client |
 | `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, one-pass per-page source indexing and immediate minimized staging, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, bounded listing/detail record quarantine including an unminimizable 64-KiB rejected row with continued promotion, aggregate/capped error evidence, duplicate/conflict/short-page/changed-total refusal, client/failure coordinates including snapshot-read classification, new/changed/stale refresh and legacy-source-snapshot bootstrap policy, checkpointed heartbeats, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on unresolved partial work |
 | `SyncControllerTest` | loopback-only idempotent `202`/`200` trigger semantics, `400`/`403`/`404`/`409`/`503` no-store problems, retained status/root/child/error/listing/detail-quarantine evidence, executor/ledger recovery coordinates, and fixed-code log redaction |
 | `SyncPersistenceIntegrationTest` / `WorkerLockLeaseTest` | real-PostGIS idempotent/concurrent claims, advisory locks and physical-session abort, stale recovery, immutable/crash-consistent root/child/quarantine evidence, exact captured-taxonomy completeness/subset gates with PostgreSQL timestamp-precision normalization, scoped absences and held-back IDs, set-based membership/observation/current-snapshot publication, exact fixed-point and exponent-normalized JSONB read-back plus reused-detail re-hash, append-only source-snapshot dedup/corrections/offline replay/storage evidence, atomic promotion/rollback, and success-only observations/enrichment |
 | `SyncPropertiesTest` / `SyncExecutionConfigurationTest` | orchestration defaults/bounds, single named queue-free worker, correlation propagation, immediate interruption, and bounded Spring context shutdown |
-| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V16, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/source-snapshot/enrichment/refresh/observability evidence and success gates, and canonical/immutability triggers |
+| `PostgisSchemaIntegrationTest` | Flyway migrating an empty database through V17, Hibernate `validate` of the mapped JPA schema, entity round-trip, and direct PostGIS/catalog checks for filter, KO-match, spatial/coarse-run provenance/indexes, durable sync/source-snapshot/enrichment/property-reference/refresh/observability evidence and success gates, and canonical/immutability triggers |
 | `PipelineStatusServiceTest` / `OperatorStatusControllerTest` | success/partial/stale/backlog/import/source-outage policy, fail-closed readiness, loopback access, no-store responses, correlation IDs, and payload/log redaction |
 | `PipelineStatusRepositoryIntegrationTest` | restart-stable persisted attempts/successes, source and raw-snapshot deltas, parser/import evidence, and terminal run/job immutability |
 | `EnrichmentPipelineTest` / `EnrichmentPropertiesTest` / `EnrichmentSchedulerTest` | exact five-stage order, deterministic hashes/version sets, complete stage wiring, redacted failure classification, bounded queue-free settings, deterministic schedule idempotency, overlap handling, and fixed safe logs |
@@ -341,7 +353,7 @@ fixture and asset-upgrade contract.
 
 ### Migrations
 
-`src/main/resources/db/migration/` is the only schema authority. Through V16 it
+`src/main/resources/db/migration/` is the only schema authority. Through V17 it
 owns the auction baseline plus immutable Address Registry snapshots, the atomic
 active/previous pointer, lookup/geometry indexes, centroids, and retained import
 evidence, plus current structured-KO results, reviewed municipality-alias
@@ -352,7 +364,9 @@ reverse-FK indexes, and durable eAukcija sync runs, bounded
 error/root/child/quarantine evidence, category membership, success-only
 observations/enrichment work, freshness, and absence counters; deterministic
 enrichment reprocessing; pipeline/refresh evidence; and immutable minimized
-listing+detail source snapshots with current-state and run-observation lineage.
+listing+detail source snapshots with current-state and run-observation lineage;
+plus versioned property-reference runs, memberships, current selection,
+source/input lineage, quality metrics, and reviewed-correction-safe replay.
 Canonical WGS84
 is derived by a normal-write trigger so
 backup restore does not re-run PROJ-dependent transforms. The dev, test,

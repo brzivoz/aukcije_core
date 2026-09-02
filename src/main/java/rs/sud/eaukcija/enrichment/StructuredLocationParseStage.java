@@ -10,12 +10,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.stereotype.Component;
 
 import rs.sud.eaukcija.addressregistry.SerbianNameNormalizer;
 
 /** Persists the structured Place reference already available in accepted sync input. */
-@Component
 public class StructuredLocationParseStage implements EnrichmentStage {
 
     public static final String PARSER_VERSION = "coarse-structured-place-v1";

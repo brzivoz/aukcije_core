@@ -163,6 +163,57 @@ tasks.register('propertyReferenceCorpusSourceCheck', JavaExec) {
             'reports/property-reference-corpus/source-baseline-metrics.json'))
 }
 
+def propertyReferenceParserMetrics = layout.buildDirectory.file(
+        'reports/property-reference-parser/metrics.json')
+
+tasks.register('propertyReferenceParserDevelopmentCheck', JavaExec) {
+    group = 'verification'
+    description = 'Evaluate the frozen parser on development labels without opening held-out labels'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.propertyreference.quality.PropertyReferenceQualityCli'
+    args = [
+            '--corpus-dir', file('corpus/property-references/v1').absolutePath,
+            '--report', layout.buildDirectory.file(
+                    'reports/property-reference-parser/development-metrics.json')
+                    .get().asFile.absolutePath,
+            '--development-only'
+    ]
+    inputs.files(fileTree('corpus/property-references/v1'))
+    outputs.file(layout.buildDirectory.file(
+            'reports/property-reference-parser/development-metrics.json'))
+}
+
+tasks.register('propertyReferenceParserCheck', JavaExec) {
+    group = 'verification'
+    description = 'Verify frozen issue-19 held-out thresholds and committed parser metrics'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.propertyreference.quality.PropertyReferenceQualityCli'
+    def committedMetrics = file('documentation/property-reference-parser-v1-metrics.json')
+    args = [
+            '--corpus-dir', file('corpus/property-references/v1').absolutePath,
+            '--report', propertyReferenceParserMetrics.get().asFile.absolutePath,
+            '--expected', committedMetrics.absolutePath
+    ]
+    inputs.file(committedMetrics)
+    inputs.files(fileTree('corpus/property-references/v1'))
+    inputs.file(file('src/main/resources/property-reference/parser-v1-quality.json'))
+    outputs.file(propertyReferenceParserMetrics)
+    // Run away from the repository root so classpath resource loading and all
+    // absolute CLI inputs stay continuously covered on every operating system.
+    def relocatedWorkingDirectory = layout.buildDirectory.dir(
+            'tmp/property-reference-parser-check-cwd')
+    workingDir relocatedWorkingDirectory
+    doFirst {
+        relocatedWorkingDirectory.get().asFile.mkdirs()
+    }
+}
+
+tasks.named('check') {
+    dependsOn 'propertyReferenceParserCheck'
+}
+
 tasks.register('playwrightInstall', JavaExec) {
     group = 'verification'
     description = 'Install the pinned Playwright Chromium build used by browserTest'

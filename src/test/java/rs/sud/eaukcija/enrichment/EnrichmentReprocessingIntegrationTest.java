@@ -584,6 +584,8 @@ class EnrichmentReprocessingIntegrationTest {
         assertThat(run.attemptedCount()).isEqualTo(601);
         assertThat(run.succeededCount()).isEqualTo(600);
         assertThat(run.permanentFailureCount()).isOne();
+        assertThat(run.propertyReferenceParseFailureCount())
+                .isEqualTo(failingStage == EnrichmentStageName.PARSE ? 1 : 0);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM enrichment_state WHERE status = 'SUCCEEDED'
                 """, Long.class)).isEqualTo(600);

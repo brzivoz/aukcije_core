@@ -75,7 +75,8 @@ class DatabaseLifecycleIntegrationTest {
                         "V13__deterministic_enrichment_reprocessing.sql",
                         "V14__pipeline_observability.sql",
                         "V15__durable_refresh_workflow.sql",
-                        "V16__immutable_eaukcija_source_snapshots.sql");
+                        "V16__immutable_eaukcija_source_snapshots.sql",
+                        "V17__versioned_property_reference_extraction.sql");
     }
 
     @Test

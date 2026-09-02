@@ -378,6 +378,10 @@ public class CoarseLocationResolutionService {
     }
 
     private UUID upsertStructuredReference(CoarseLocationResolver.Input input) {
+        UUID extractedReference = currentExtractedStructuredReference(input);
+        if (extractedReference != null) {
+            return extractedReference;
+        }
         UUID id = StructuredLocationParseStage.referenceId(input.auctionId());
         String normalizedKo = SerbianNameNormalizer.normalize(input.cadastral());
         String koCode = "MATCHED".equals(input.koStatus()) ? input.matchedKoCode() : null;
@@ -429,6 +433,38 @@ public class CoarseLocationResolutionService {
                 input.auctionId(),
                 CoarseLocationResolver.REFERENCE_PARSER_VERSION,
                 CoarseLocationResolver.REFERENCE_CANONICAL_KEY);
+    }
+
+    /**
+     * Reuses the current #19 structured reference when available. KO matching
+     * may attach its code, but extraction status and source evidence remain a
+     * parser concern and reviewed rows are never changed here.
+     */
+    private UUID currentExtractedStructuredReference(CoarseLocationResolver.Input input) {
+        List<UUID> current = jdbc.queryForList("""
+                SELECT reference.id
+                  FROM current_property_reference_extractions extraction
+                  JOIN property_reference_extraction_memberships membership
+                    ON membership.extraction_run_id = extraction.extraction_run_id
+                   AND membership.auction_id = extraction.auction_id
+                  JOIN property_references reference ON reference.id = membership.reference_id
+                 WHERE extraction.auction_id = ?
+                   AND reference.reference_type = 'STRUCTURED_LOCATION'
+                   AND reference.canonical_key = 'structured-place'
+                 ORDER BY membership.reference_order, reference.id
+                 LIMIT 1
+                """, UUID.class, input.auctionId());
+        if (current.isEmpty()) {
+            return null;
+        }
+        UUID referenceId = current.get(0);
+        String koCode = "MATCHED".equals(input.koStatus()) ? input.matchedKoCode() : null;
+        jdbc.update("""
+                UPDATE property_references
+                   SET ko_code = ?
+                 WHERE id = ? AND NOT user_reviewed
+                """, koCode, referenceId);
+        return referenceId;
     }
 
     private boolean attemptExists(

@@ -11,7 +11,19 @@ public record EnrichmentWorkItem(
         String snapshotSha256,
         String dependencySha256,
         String workKeySha256,
-        JsonNode canonicalInput) {
+        JsonNode canonicalInput,
+        UUID enrichmentRunId) {
+
+    public EnrichmentWorkItem(
+            long auctionId,
+            UUID sourceSyncRunId,
+            String snapshotSha256,
+            String dependencySha256,
+            String workKeySha256,
+            JsonNode canonicalInput) {
+        this(auctionId, sourceSyncRunId, snapshotSha256, dependencySha256,
+                workKeySha256, canonicalInput, null);
+    }
 
     public EnrichmentWorkItem {
         if (auctionId <= 0) {
@@ -31,5 +43,11 @@ public record EnrichmentWorkItem(
     @Override
     public JsonNode canonicalInput() {
         return canonicalInput.deepCopy();
+    }
+
+    public EnrichmentWorkItem forRun(UUID runId) {
+        return new EnrichmentWorkItem(
+                auctionId, sourceSyncRunId, snapshotSha256, dependencySha256,
+                workKeySha256, canonicalInput, Objects.requireNonNull(runId, "runId"));
     }
 }

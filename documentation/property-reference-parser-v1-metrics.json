@@ -1,0 +1,441 @@
+{
+  "schemaVersion" : "property-reference-parser-metrics-v1",
+  "parserVersion" : "property-reference-v1",
+  "corpusVersion" : "2026-09-02.2",
+  "evaluationSurface" : "MINIMIZED_DETAIL_DESCRIPTION_AND_SHORT_DESCRIPTION_EVIDENCE_PHRASES",
+  "thresholds" : {
+    "heldOutPrecision" : 0.95,
+    "heldOutRecall" : 0.88,
+    "heldOutNegativeFalsePositives" : 0,
+    "minimumCategoryReferences" : 5,
+    "agriculturalRecall" : 0.88,
+    "genericParcelRecall" : 0.75,
+    "defaultCategoryRecall" : 0.80
+  },
+  "development" : {
+    "auctions" : 45,
+    "expectedReferences" : 81,
+    "negativeAuctions" : 15,
+    "predictedReferences" : 81,
+    "truePositives" : 81,
+    "falsePositives" : 0,
+    "falseNegatives" : 0,
+    "precision" : 1.00000,
+    "recall" : 1.00000,
+    "falsePositivesOnNegativeAuctions" : 0,
+    "byType" : {
+      "ADDRESS" : {
+        "expectedReferences" : 9,
+        "predictedReferences" : 9,
+        "truePositives" : 9,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "CADASTRAL_MUNICIPALITY" : {
+        "expectedReferences" : 23,
+        "predictedReferences" : 23,
+        "truePositives" : 23,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "LAND_REGISTER" : {
+        "expectedReferences" : 17,
+        "predictedReferences" : 17,
+        "truePositives" : 17,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "PARCEL" : {
+        "expectedReferences" : 32,
+        "predictedReferences" : 32,
+        "truePositives" : 32,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      }
+    },
+    "byCategory" : {
+      "Грађевинско земљиште" : {
+        "expectedReferences" : 12,
+        "predictedReferences" : 12,
+        "truePositives" : 12,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Кућа" : {
+        "expectedReferences" : 3,
+        "predictedReferences" : 3,
+        "truePositives" : 3,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Непокретности" : {
+        "expectedReferences" : 13,
+        "predictedReferences" : 13,
+        "truePositives" : 13,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Објекат" : {
+        "expectedReferences" : 9,
+        "predictedReferences" : 9,
+        "truePositives" : 9,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Остало земљиште" : {
+        "expectedReferences" : 7,
+        "predictedReferences" : 7,
+        "truePositives" : 7,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Парцела" : {
+        "expectedReferences" : 15,
+        "predictedReferences" : 15,
+        "truePositives" : 15,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.75
+      },
+      "Пољопривредно земљиште" : {
+        "expectedReferences" : 15,
+        "predictedReferences" : 15,
+        "truePositives" : 15,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.88
+      },
+      "Стамбени објекат" : {
+        "expectedReferences" : 4,
+        "predictedReferences" : 4,
+        "truePositives" : 4,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Шумско земљиште" : {
+        "expectedReferences" : 3,
+        "predictedReferences" : 3,
+        "truePositives" : 3,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      }
+    }
+  },
+  "heldOut" : {
+    "auctions" : 15,
+    "expectedReferences" : 37,
+    "negativeAuctions" : 5,
+    "predictedReferences" : 37,
+    "truePositives" : 36,
+    "falsePositives" : 1,
+    "falseNegatives" : 1,
+    "precision" : 0.97297,
+    "recall" : 0.97297,
+    "falsePositivesOnNegativeAuctions" : 0,
+    "byType" : {
+      "ADDRESS" : {
+        "expectedReferences" : 8,
+        "predictedReferences" : 8,
+        "truePositives" : 8,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "CADASTRAL_MUNICIPALITY" : {
+        "expectedReferences" : 9,
+        "predictedReferences" : 9,
+        "truePositives" : 9,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "LAND_REGISTER" : {
+        "expectedReferences" : 4,
+        "predictedReferences" : 4,
+        "truePositives" : 4,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "PARCEL" : {
+        "expectedReferences" : 16,
+        "predictedReferences" : 16,
+        "truePositives" : 15,
+        "falsePositives" : 1,
+        "falseNegatives" : 1,
+        "precision" : 0.93750,
+        "recall" : 0.93750
+      }
+    },
+    "byCategory" : {
+      "Индустријски објекат" : {
+        "expectedReferences" : 6,
+        "predictedReferences" : 6,
+        "truePositives" : 6,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Кућа" : {
+        "expectedReferences" : 5,
+        "predictedReferences" : 5,
+        "truePositives" : 5,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Непокретности" : {
+        "expectedReferences" : 3,
+        "predictedReferences" : 2,
+        "truePositives" : 2,
+        "falsePositives" : 0,
+        "falseNegatives" : 1,
+        "precision" : 1.00000,
+        "recall" : 0.66667,
+        "recallFloor" : 0.80
+      },
+      "Парцела" : {
+        "expectedReferences" : 13,
+        "predictedReferences" : 13,
+        "truePositives" : 13,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.75
+      },
+      "Пољопривредно земљиште" : {
+        "expectedReferences" : 3,
+        "predictedReferences" : 3,
+        "truePositives" : 3,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.88
+      },
+      "Стан" : {
+        "expectedReferences" : 3,
+        "predictedReferences" : 3,
+        "truePositives" : 3,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Шумско земљиште" : {
+        "expectedReferences" : 4,
+        "predictedReferences" : 5,
+        "truePositives" : 4,
+        "falsePositives" : 1,
+        "falseNegatives" : 0,
+        "precision" : 0.80000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      }
+    }
+  },
+  "overall" : {
+    "auctions" : 60,
+    "expectedReferences" : 118,
+    "negativeAuctions" : 20,
+    "predictedReferences" : 118,
+    "truePositives" : 117,
+    "falsePositives" : 1,
+    "falseNegatives" : 1,
+    "precision" : 0.99153,
+    "recall" : 0.99153,
+    "falsePositivesOnNegativeAuctions" : 0,
+    "byType" : {
+      "ADDRESS" : {
+        "expectedReferences" : 17,
+        "predictedReferences" : 17,
+        "truePositives" : 17,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "CADASTRAL_MUNICIPALITY" : {
+        "expectedReferences" : 32,
+        "predictedReferences" : 32,
+        "truePositives" : 32,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "LAND_REGISTER" : {
+        "expectedReferences" : 21,
+        "predictedReferences" : 21,
+        "truePositives" : 21,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000
+      },
+      "PARCEL" : {
+        "expectedReferences" : 48,
+        "predictedReferences" : 48,
+        "truePositives" : 47,
+        "falsePositives" : 1,
+        "falseNegatives" : 1,
+        "precision" : 0.97917,
+        "recall" : 0.97917
+      }
+    },
+    "byCategory" : {
+      "Грађевинско земљиште" : {
+        "expectedReferences" : 12,
+        "predictedReferences" : 12,
+        "truePositives" : 12,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Индустријски објекат" : {
+        "expectedReferences" : 6,
+        "predictedReferences" : 6,
+        "truePositives" : 6,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Кућа" : {
+        "expectedReferences" : 8,
+        "predictedReferences" : 8,
+        "truePositives" : 8,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Непокретности" : {
+        "expectedReferences" : 16,
+        "predictedReferences" : 15,
+        "truePositives" : 15,
+        "falsePositives" : 0,
+        "falseNegatives" : 1,
+        "precision" : 1.00000,
+        "recall" : 0.93750,
+        "recallFloor" : 0.80
+      },
+      "Објекат" : {
+        "expectedReferences" : 9,
+        "predictedReferences" : 9,
+        "truePositives" : 9,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Остало земљиште" : {
+        "expectedReferences" : 7,
+        "predictedReferences" : 7,
+        "truePositives" : 7,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Парцела" : {
+        "expectedReferences" : 28,
+        "predictedReferences" : 28,
+        "truePositives" : 28,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.75
+      },
+      "Пољопривредно земљиште" : {
+        "expectedReferences" : 18,
+        "predictedReferences" : 18,
+        "truePositives" : 18,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.88
+      },
+      "Стамбени објекат" : {
+        "expectedReferences" : 4,
+        "predictedReferences" : 4,
+        "truePositives" : 4,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Стан" : {
+        "expectedReferences" : 3,
+        "predictedReferences" : 3,
+        "truePositives" : 3,
+        "falsePositives" : 0,
+        "falseNegatives" : 0,
+        "precision" : 1.00000,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      },
+      "Шумско земљиште" : {
+        "expectedReferences" : 7,
+        "predictedReferences" : 8,
+        "truePositives" : 7,
+        "falsePositives" : 1,
+        "falseNegatives" : 0,
+        "precision" : 0.87500,
+        "recall" : 1.00000,
+        "recallFloor" : 0.80
+      }
+    }
+  }
+}

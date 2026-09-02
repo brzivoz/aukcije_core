@@ -18,7 +18,7 @@ accepted state, and no stage calls eAukcija, RGZ, or an online geocoder.
 | Acceptance contract | Evidence |
 |---|---|
 | Persist canonical state | V13 `enrichment_state` stores source run, immutable snapshot SHA-256, parser/resolver/dataset versions, parcel dependency hash, canonical work-key SHA-256, state, total starts, separate retryable-failure/interruption counts, times, last stage, output hash, and bounded error codes. Schema constraints and catalog tests cover all columns/indexes. |
-| Pure, identical replay with zero source calls | `EnrichmentPipelinePostgisIntegrationTest` runs all five production stages twice over real PostGIS, compares derived rows and output hashes, observes no new attempts, and verifies zero interactions with the mocked `EAukcijaClient`. `EnrichmentReprocessingIntegrationTest` separately proves an unchanged normal run has zero candidates/attempts and leaves the entire state serialization identical. Canonical input contains only auction ID plus cadastral/place/municipality, so price and sync-bookkeeping ticks do not invent work. |
+| Pure, identical replay with zero source calls | `EnrichmentPipelinePostgisIntegrationTest` runs all five production stages twice over real PostGIS, compares derived rows and output hashes, observes no new attempts, and verifies zero interactions with the mocked `EAukcijaClient`. `EnrichmentReprocessingIntegrationTest` separately proves an unchanged normal run has zero candidates/attempts and leaves the entire state serialization identical. The current v2 canonical input contains the source-snapshot hash, auction ID, cadastral/place/municipality, `Description`, and `ShortDescription`; price, status, and sync-bookkeeping ticks do not invent work. |
 | One schedule and reused lock | `EnrichmentScheduler` is the sole enrichment `@Scheduled` method and ships hourly at minute 15 in `Europe/Belgrade`. It submits to `syncRunExecutor`; `EnrichmentService` acquires `SyncRunRepository.tryAcquireWorkerLock()`. Concurrent PostgreSQL claims have one winner, and a held #17 worker lock excludes enrichment. Sync contention produces retained `SKIPPED` evidence and an INFO diagnostic, not a failed run/error log. |
 | Changed/retryable-only discovery | Candidate discovery compares immutable snapshot, parser/resolver/dataset set, and per-auction parcel dependency against the retained work key. Tests independently bump each version, exclude an already-current auction, retry only retryable state, stop exactly at the configured cap, and preserve the original retryable backlog age across a later unchanged sync. Immutable dictionary/centroid artifacts are pinned once per run; a pre-execution pointer change refuses the stale claim, while a mid-run publication is selected by the next work-key comparison without mixing artifact versions. |
 | Successful-sync gate | Successful #17 promotion publishes snapshot, observation, current pointer, and legacy queue in one transaction. A V13 trigger rejects an enrichment observation for a still-running sync. Snapshot/observation immutability, 1,005-row chunking, and rollback remain covered by the sync persistence suite. |
@@ -90,11 +90,11 @@ contract.
 
 ## Dependency boundary
 
-Issues #19, #21, and #23 still own the full extracted-reference parser, the
-user-initiated private parcel importer, and the higher-precision address/parcel
-resolver. This implementation does not duplicate or weaken those contracts. It
-coordinates the currently shipped structured-place/#37/#38 stages and consumes
-already validated parcel evidence; later dependency versions plug into the
-same stage interfaces and automatically invalidate exactly the relevant work
-keys. The complete operating procedure and deferred-queue trigger are in
+Issue #19 now owns the production extracted-reference parser and reuses these
+stage/version boundaries. Issues #21 and #23 still own the user-initiated
+private parcel importer and higher-precision address/parcel resolver. The
+pipeline coordinates #19/#37/#38 and consumes already validated parcel
+evidence; later dependency versions plug into the same stage interfaces and
+automatically invalidate exactly the relevant work keys. The complete
+operating procedure and deferred-queue trigger are in
 [deterministic enrichment operations](ENRICHMENT_OPERATIONS.md).

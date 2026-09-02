@@ -91,12 +91,55 @@ class PostgisSchemaIntegrationTest {
                         "V13__deterministic_enrichment_reprocessing.sql",
                         "V14__pipeline_observability.sql",
                         "V15__durable_refresh_workflow.sql",
-                        "V16__immutable_eaukcija_source_snapshots.sql")
+                        "V16__immutable_eaukcija_source_snapshots.sql",
+                        "V17__versioned_property_reference_extraction.sql")
                 .allSatisfy(script -> assertThat(script).endsWith(".sql"));
 
         Integer failures = jdbc.queryForObject(
                 "SELECT count(*) FROM flyway_schema_history WHERE NOT success", Integer.class);
         assertThat(failures).isZero();
+    }
+
+    @Test
+    void flywayOwnsVersionedPropertyReferenceExtractionEvidenceAndCurrentSelection() {
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        assertThat(jdbc.queryForList("""
+                SELECT table_name FROM information_schema.tables
+                 WHERE table_schema = 'public'
+                   AND table_name IN (
+                       'property_reference_extraction_runs',
+                       'property_reference_extraction_memberships',
+                       'property_reference_extraction_observations',
+                       'current_property_reference_extractions'
+                   ) ORDER BY table_name
+                """, String.class)).containsExactly(
+                        "current_property_reference_extractions",
+                        "property_reference_extraction_memberships",
+                        "property_reference_extraction_observations",
+                        "property_reference_extraction_runs");
+        assertThat(jdbc.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'enrichment_runs'
+                """, String.class)).contains(
+                        "property_reference_extraction_success_count",
+                        "property_reference_parse_failure_count",
+                        "property_reference_count", "text_reference_count",
+                        "no_structured_reference_count", "ko_conflict_count",
+                        "property_reference_quality_corpus_version",
+                        "property_reference_quality_metrics_sha256");
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*) FROM pg_trigger
+                 WHERE tgname IN (
+                     'trg_property_reference_extraction_runs_immutable',
+                     'trg_property_reference_extraction_memberships_immutable',
+                     'trg_property_reference_extraction_observations_immutable'
+                 ) AND NOT tgisinternal
+                """, Long.class)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("""
+                SELECT COUNT(*)
+                  FROM pg_constraint
+                 WHERE conname = 'uq_property_reference_order'
+                """, Long.class)).isZero();
     }
 
     @Test

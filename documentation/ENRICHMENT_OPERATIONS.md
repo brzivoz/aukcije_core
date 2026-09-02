@@ -16,9 +16,10 @@ publish an enrichment input. It writes:
 
 - an immutable minimized JSON snapshot in
   `auction_enrichment_input_snapshots`, keyed by auction ID and SHA-256; input
-  contains only auction identity plus `cadastral`, `placeName`, and
-  `municipality`, the three fields consumed by the shipped stages. Price,
-  status, description, and sync-bookkeeping changes do not invent work;
+  is `enrichment-location-input-v2` and contains the exact source-snapshot
+  SHA-256, auction identity, structured `Place` fields, `Description`, and
+  `ShortDescription` consumed by the shipped stages. Price, status, and
+  sync-bookkeeping changes do not invent work;
 - an immutable success-gated observation linking that snapshot to its source
   sync run; and
 - `auctions.current_enrichment_snapshot_sha256`, which is protected by a
@@ -27,8 +28,10 @@ publish an enrichment input. It writes:
 A database trigger independently rejects snapshot observations whose source
 sync run is not `SUCCEEDED`. `PARTIAL`, `FAILED`, and still-running sync runs
 therefore cannot create enrichment work even through accidental direct SQL.
-Pre-V13 auctions are bootstrapped only when they already carry a successful
-sync observation.
+Source-backed pre-v2 auctions are upgraded from their retained issue-#10
+snapshot. Historical pre-issue-#10 inputs remain discoverable for compatible
+replay and are not silently dropped; the versioned parser fails those auctions
+in isolation until a source-backed v2 input exists.
 
 The canonical work key is a length-prefixed SHA-256 of:
 
@@ -53,8 +56,8 @@ selected.
 
 Every selected auction runs in its own transaction, in this exact order:
 
-1. `PARSE` — persist the deterministic structured `Place` reference available
-   in the accepted snapshot;
+1. `PARSE` — persist the structured `Place` reference first, then every
+   normalized reference found in `Description` and `ShortDescription`;
 2. `KO_MATCHING` — use the checksum-validated active local KO dictionary;
 3. `PARCEL_PATH` — consume only already validated, private local parcel
    evidence;
@@ -64,15 +67,90 @@ Every selected auction runs in its own transaction, in this exact order:
    resolved, not-found, or ambiguous.
 
 The current fallback includes the shipped #38 KO/settlement/municipality/`NONE`
-resolver. The higher-precision #19/#21/#23 implementations plug into the same
-persisted boundaries when those dependency issues land; their parser,
-resolver, dataset, or parcel-evidence changes alter the work key and select
-only affected auctions. A coarse result can never replace a retained address
-or verified parcel result.
+resolver. Issue #19 now supplies the versioned extracted-reference parser;
+#21/#23 plug private parcel and higher-precision resolution into the same
+persisted boundaries. Parser, resolver, dataset, or parcel-evidence changes
+alter the work key and select only affected auctions. A coarse result can never
+replace a retained address or verified parcel result.
 
 All stages read local snapshots or artifacts. The private parcel stage does not
 perform the user-initiated RGZ import and the application has no RGZ network
 client in this path.
+
+## Property-reference extraction
+
+The production parser version is `property-reference-v1`. It is bounded to
+32,768 characters per field, 65,536 characters across the accepted input, and
+256 references per auction. It treats markup as inert text and rejects unsafe
+control characters. Extraction order is stable: structured `Place`, then
+`detail.Description`, then `detail.ShortDescription`, with source-field names,
+UTF-16 offsets, and raw evidence retained for every text match.
+
+Each row keeps the original and normalized KO names, original and canonical
+parcel number as text, land-register or address components, parser version,
+extraction status, source/input hashes, and a canonical key. Cyrillic/Latin,
+slash, whitespace, and punctuation variants normalize without replacing the
+raw evidence. Multiple references are emitted and identical canonical keys are
+deduplicated. Folio, area, object-part, and subparcel contexts are not promoted
+to parcel identities.
+
+`Place.Cadastral` is the default KO context. A disagreeing free-text KO or
+multiple distinct text KOs set `NEEDS_REVIEW`; no KO code is guessed.
+`NO_STRUCTURED_REFERENCE` means only that the `Place` structure was absent.
+It is independent of geospatial not-found/ambiguity and does not prevent valid
+free-text references from being `EXTRACTED`. The #38 resolver reuses the
+current structured reference and may attach a uniquely matched KO code, but it
+does not rewrite extraction evidence/status or a reviewed row.
+
+V17 retains one immutable `property_reference_extraction_runs` row per auction,
+input hash, and parser version; immutable memberships snapshot the selected
+set, and `current_property_reference_extractions` is the only replaceable
+pointer. `property_reference_extraction_memberships.reference_order` is the
+authoritative order for that run. The older `property_references.reference_order`
+column is only a non-authoritative first-seen value retained for compatibility;
+V17 removes its per-auction/parser uniqueness constraint. Running the same
+input/version reuses the same run, rows, and result hash. A changed input with
+the same parser, or a new parser version, creates a new run and atomically
+advances the current pointer while retaining earlier run JSON/memberships.
+Existing `user_reviewed` references are carried forward and never updated by
+the parser.
+
+The immutable run JSON includes both raw parser output and the exact selected
+row values, including reviewed corrections.
+
+Inspect a current set without exposing descriptions:
+
+```sql
+SELECT run.auction_id, run.parser_version, run.result_sha256,
+       run.generated_reference_count, run.selected_reference_count,
+       run.text_reference_count, run.no_structured_count, run.ko_conflict_count,
+       member.reference_order, reference.reference_type,
+       reference.normalized_ko, reference.ko_code,
+       reference.canonical_parcel_number, reference.land_register_number,
+       reference.extraction_status, reference.canonical_key,
+       reference.user_reviewed
+FROM current_property_reference_extractions current_set
+JOIN property_reference_extraction_runs run ON run.id = current_set.extraction_run_id
+JOIN property_reference_extraction_memberships member
+  ON member.extraction_run_id = run.id
+JOIN property_references reference ON reference.id = member.reference_id
+ORDER BY run.auction_id, member.reference_order;
+```
+
+The issue-#18 corpus gate is included in `check` and can be run directly:
+
+```bash
+./gradlew propertyReferenceParserDevelopmentCheck
+./gradlew propertyReferenceParserCheck
+```
+
+The first command prints development-only errors and leaves held-out labels
+sealed. The second evaluates the frozen parser, requires at least 95% held-out
+precision, 88% held-out recall, zero false positives on annotated negatives,
+and category recall floors when a category has at least five references. It
+also byte-compares the committed metrics report and verifies the SHA-256 and
+aggregate values in the production quality profile. Every extraction and
+enrichment run records that corpus/profile identity.
 
 ## Enable and schedule
 
@@ -143,8 +221,11 @@ curl --fail-with-body \
 ```
 
 The retained response contains versions, selector, bounded counters, item
-auction IDs, work hashes, attempts, stages, outcomes, and fixed error codes. It
-does not contain canonical input JSON or source payloads.
+auction IDs, work hashes, attempts, stages, outcomes, fixed error codes,
+property-extraction success/failure counts, property/text-reference counts,
+missing-structure/conflict counts, and the frozen corpus/metrics identity. It
+does not contain canonical input JSON, source payloads, descriptions, or raw
+reference evidence.
 
 Run states are:
 
@@ -198,7 +279,12 @@ WHERE status IN ('PENDING', 'RUNNING', 'RETRYABLE_FAILURE');
 SELECT id, trigger_kind, status, started_at, finished_at,
        candidate_count, attempted_count, succeeded_count,
        retryable_failure_count, permanent_failure_count,
-       attempt_limit_count
+       attempt_limit_count, property_reference_extraction_success_count,
+       property_reference_parse_failure_count,
+       property_reference_count, text_reference_count,
+       no_structured_reference_count, ko_conflict_count,
+       property_reference_quality_corpus_version,
+       property_reference_quality_metrics_sha256
 FROM enrichment_runs
 ORDER BY started_at DESC
 LIMIT 20;

@@ -2,90 +2,95 @@ package rs.sud.eaukcija.enrichment;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
-import rs.sud.eaukcija.model.Auction;
+import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
+import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 
 class EnrichmentInputSnapshotTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
 
     @Test
-    void hashesOnlyTheLocationFieldsConsumedByThePipeline() {
-        Auction auction = auction(new BigDecimal("100.00"));
-        EnrichmentInputSnapshot first = EnrichmentInputSnapshot.from(auction, objectMapper);
+    void derivesAllParserFieldsAndLineageFromTheImmutableSourceSnapshot() {
+        CurrentAuctionSourceSnapshot source = source(
+                "парцела број 1572", "само кратко", "ГРАД", "Насеље Б", "Општина Б-град");
 
-        auction.setStartingPrice(new BigDecimal("999999.99"));
-        auction.setCurrentPrice(new BigDecimal("123456.78"));
-        auction.setMaxOfferedPrice(new BigDecimal("120000.00"));
-        auction.setBidStep(new BigDecimal("1000"));
-        auction.setStatus("SOLD");
-        auction.setDescription("completely different description");
-        auction.setListingFingerprint("f".repeat(64));
-        auction.setLastSuccessfulSyncRunId(UUID.randomUUID());
-        auction.setAbsenceCount(99);
-        auction.setLastSeenAt(Instant.parse("2026-08-24T20:00:00Z"));
-        auction.setDetailsFetchedAt(Instant.parse("2026-08-24T20:00:01Z"));
-        EnrichmentInputSnapshot sameInput = EnrichmentInputSnapshot.from(auction, objectMapper);
+        EnrichmentInputSnapshot first = EnrichmentInputSnapshot.from(source, objectMapper);
+        EnrichmentInputSnapshot replay = EnrichmentInputSnapshot.from(source, objectMapper);
 
-        assertThat(sameInput).isEqualTo(first);
-        assertThat(first.canonicalInput().fieldNames())
-                .toIterable()
-                .containsExactly("schemaVersion", "auctionId", "placeName", "municipality", "cadastral");
-        assertThat(first.canonicalInput().has("startingPrice")).isFalse();
-        assertThat(first.canonicalInput().has("currentPrice")).isFalse();
-        assertThat(first.canonicalInput().has("status")).isFalse();
-        assertThat(first.canonicalInput().has("description")).isFalse();
-        assertThat(first.canonicalInput().has("listingFingerprint")).isFalse();
-        assertThat(first.canonicalInput().has("lastSuccessfulSyncRunId")).isFalse();
-        assertThat(first.canonicalInput().has("absenceCount")).isFalse();
-        assertThat(first.canonicalInput().has("lastSeenAt")).isFalse();
-        assertThat(first.canonicalInput().has("detailsFetchedAt")).isFalse();
+        assertThat(replay).isEqualTo(first);
+        assertThat(first.canonicalInput().fieldNames()).toIterable().containsExactly(
+                "schemaVersion", "sourceSnapshotSha256", "auctionId", "placeName",
+                "municipality", "cadastral", "description", "shortDescription");
+        assertThat(first.canonicalInput().path("schemaVersion").asText())
+                .isEqualTo("enrichment-location-input-v2");
+        assertThat(first.canonicalInput().path("sourceSnapshotSha256").asText())
+                .isEqualTo(source.contentSha256());
+        assertThat(first.canonicalInput().path("description").asText())
+                .isEqualTo("парцела број 1572");
+        assertThat(first.canonicalInput().path("shortDescription").asText())
+                .isEqualTo("само кратко");
 
         ((ObjectNode) first.canonicalInput()).put("cadastral", "mutated by caller");
         assertThat(first.canonicalInput().path("cadastral").asText()).isEqualTo("ГРАД");
     }
 
     @Test
-    void relevantInputChangeProducesANewHashWithoutMutatingThePriorSnapshot() {
-        Auction auction = auction(new BigDecimal("100"));
-        EnrichmentInputSnapshot original = EnrichmentInputSnapshot.from(auction, objectMapper);
+    void descriptionShortDescriptionAndStructuredChangesProduceNewInputs() {
+        EnrichmentInputSnapshot original = EnrichmentInputSnapshot.from(
+                source("опис", "кратко", "ГРАД", "Насеље", "Општина"), objectMapper);
 
-        auction.setCadastral("Нови КО");
-        EnrichmentInputSnapshot changed = EnrichmentInputSnapshot.from(auction, objectMapper);
-
-        assertThat(changed.sha256()).isNotEqualTo(original.sha256());
-        assertThat(original.canonicalInput().path("cadastral").asText()).isEqualTo("ГРАД");
-        assertThat(changed.canonicalInput().path("cadastral").asText()).isEqualTo("Нови КО");
-
-        auction.setCadastral("ГРАД");
-        auction.setPlaceName("Ново насеље");
-        assertThat(EnrichmentInputSnapshot.from(auction, objectMapper).sha256())
-                .isNotEqualTo(original.sha256());
-
-        auction.setPlaceName("Насеље Б");
-        auction.setMunicipality("Нова општина");
-        assertThat(EnrichmentInputSnapshot.from(auction, objectMapper).sha256())
-                .isNotEqualTo(original.sha256());
+        assertThat(EnrichmentInputSnapshot.from(
+                source("други опис", "кратко", "ГРАД", "Насеље", "Општина"), objectMapper)
+                .sha256()).isNotEqualTo(original.sha256());
+        assertThat(EnrichmentInputSnapshot.from(
+                source("опис", "друго кратко", "ГРАД", "Насеље", "Општина"), objectMapper)
+                .sha256()).isNotEqualTo(original.sha256());
+        assertThat(EnrichmentInputSnapshot.from(
+                source("опис", "кратко", "НОВИ КО", "Насеље", "Општина"), objectMapper)
+                .sha256()).isNotEqualTo(original.sha256());
     }
 
-    private static Auction auction(BigDecimal price) {
-        Auction auction = new Auction();
-        auction.setId(29L);
-        auction.setAuctionNumber("N29");
-        auction.setStartingPrice(price);
-        auction.setCadastral("ГРАД");
-        auction.setPlaceName("Насеље Б");
-        auction.setMunicipality("Општина Б-град");
-        auction.setDescription("парцела 1572");
-        auction.setFirstSale(false);
-        auction.setDetailsFetched(true);
-        return auction;
+    private CurrentAuctionSourceSnapshot source(
+            String description,
+            String shortDescription,
+            String cadastral,
+            String placeName,
+            String municipality) {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode listing = root.putObject("listing");
+        listing.put("Id", 29);
+        listing.put("ShortDescription", "listing fallback");
+        ObjectNode detail = root.putObject("detail");
+        detail.put("Id", 29);
+        detail.put("Description", description);
+        detail.put("ShortDescription", shortDescription);
+        ObjectNode place = detail.putObject("Place");
+        place.put("Cadastral", cadastral);
+        place.put("Name", placeName);
+        place.put("Municipality", municipality);
+        String hash = sha256(root);
+        return new CurrentAuctionSourceSnapshot(
+                29, hash, root, "GetImmovablePropertyDetails",
+                Instant.parse("2026-09-02T10:00:00Z"));
+    }
+
+    private static String sha256(ObjectNode value) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                    .digest(AuctionSourceCanonicalJson.write(value)
+                            .getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 }

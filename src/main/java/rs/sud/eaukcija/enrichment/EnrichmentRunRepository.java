@@ -24,8 +24,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
+import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 
 /** PostgreSQL authority for deterministic work discovery and retained run state. */
 @Repository
@@ -170,47 +170,78 @@ public class EnrichmentRunRepository {
                 result.getString("error_message")), runId);
     }
 
-    /** Backfills only pre-V13 rows already accepted by a successful #17 run. */
+    /**
+     * Publishes the current parser-input projection for retained successful
+     * source snapshots. Immutable v1 projections stay addressable; the auction
+     * pointer advances to v2 without rewriting their historical observations.
+     */
     @Transactional
     public int bootstrapMissingInputSnapshots() {
         Set<Long> missing = new HashSet<>(jdbc.queryForList("""
                 SELECT auction.id
                   FROM auctions auction
-                  JOIN sync_runs run ON run.id = auction.last_successful_sync_run_id
+                 JOIN sync_runs run ON run.id = auction.last_successful_sync_run_id
                   JOIN sync_run_auction_observations observation
                     ON observation.run_id = run.id AND observation.auction_id = auction.id
-                 WHERE auction.current_enrichment_snapshot_sha256 IS NULL
-                   AND run.status = 'SUCCEEDED'
-                """, Long.class));
+                  LEFT JOIN auction_enrichment_input_snapshots input
+                    ON input.auction_id = auction.id
+                   AND input.snapshot_sha256 = auction.current_enrichment_snapshot_sha256
+                 WHERE run.status = 'SUCCEEDED'
+                   AND (
+                       auction.current_enrichment_snapshot_sha256 IS NULL
+                       OR (
+                           auction.current_source_snapshot_sha256 IS NOT NULL
+                           AND (
+                               input.canonical_input ->> 'schemaVersion' IS DISTINCT FROM ?
+                               OR input.canonical_input ->> 'sourceSnapshotSha256'
+                                  IS DISTINCT FROM btrim(auction.current_source_snapshot_sha256)
+                           )
+                       )
+                   )
+                """, Long.class, EnrichmentInputSnapshot.SCHEMA_VERSION));
         if (missing.isEmpty()) {
             return 0;
         }
         int count = 0;
-        for (Auction auction : auctions.findAllById(missing)) {
-            UUID sourceRunId = auction.getLastSuccessfulSyncRunId();
-            if (sourceRunId == null) {
+        for (Long auctionId : missing.stream().sorted().toList()) {
+            CurrentAuctionSourceSnapshot source = currentSourceSnapshot(auctionId);
+            if (source == null) {
                 continue;
             }
-            EnrichmentInputSnapshot snapshot = EnrichmentInputSnapshot.from(auction, objectMapper);
+            EnrichmentInputSnapshot snapshot = EnrichmentInputSnapshot.from(source, objectMapper);
             jdbc.update("""
                     INSERT INTO auction_enrichment_input_snapshots (
                         auction_id, snapshot_sha256, canonical_input
                     ) VALUES (?, ?, CAST(? AS jsonb))
                     ON CONFLICT (auction_id, snapshot_sha256) DO NOTHING
-                    """, auction.getId(), snapshot.sha256(), json(snapshot.canonicalInput()));
-            jdbc.update("""
-                    INSERT INTO auction_enrichment_snapshot_observations (
-                        source_sync_run_id, auction_id, snapshot_sha256
-                    ) VALUES (?, ?, ?)
-                    ON CONFLICT (source_sync_run_id, auction_id) DO NOTHING
-                    """, sourceRunId, auction.getId(), snapshot.sha256());
+                    """, auctionId, snapshot.sha256(), json(snapshot.canonicalInput()));
             int changed = jdbc.update("""
                     UPDATE auctions SET current_enrichment_snapshot_sha256 = ?
-                     WHERE id = ? AND current_enrichment_snapshot_sha256 IS NULL
-                    """, snapshot.sha256(), auction.getId());
+                     WHERE id = ? AND current_enrichment_snapshot_sha256 IS DISTINCT FROM ?
+                    """, snapshot.sha256(), auctionId, snapshot.sha256());
             count += changed;
         }
         return count;
+    }
+
+    private CurrentAuctionSourceSnapshot currentSourceSnapshot(long auctionId) {
+        return jdbc.query("""
+                SELECT source.auction_id, source.content_sha256,
+                       source.canonical_payload::text, source.detail_endpoint,
+                       source.detail_fetched_at
+                  FROM auctions auction
+                  JOIN auction_source_snapshots source
+                    ON source.auction_id = auction.id
+                   AND source.content_sha256 = auction.current_source_snapshot_sha256
+                 WHERE auction.id = ?
+                """, result -> result.next()
+                ? new CurrentAuctionSourceSnapshot(
+                        result.getLong("auction_id"),
+                        result.getString("content_sha256").trim(),
+                        parseJson(result.getString("canonical_payload")),
+                        result.getString("detail_endpoint"),
+                        instant(result, "detail_fetched_at"))
+                : null, auctionId);
     }
 
     public List<EnrichmentCandidate> discoverCandidates(
@@ -305,9 +336,16 @@ public class EnrichmentRunRepository {
                    AND snapshot.snapshot_sha256 = auction.current_enrichment_snapshot_sha256
                  WHERE auction.current_enrichment_snapshot_sha256 IS NULL
                     OR observation.auction_id IS NULL
-                    OR observation.snapshot_sha256 IS DISTINCT FROM
-                       auction.current_enrichment_snapshot_sha256
                     OR snapshot.auction_id IS NULL
+                    OR (
+                        auction.current_source_snapshot_sha256 IS NOT NULL
+                        AND (
+                            snapshot.canonical_input ->> 'schemaVersion'
+                               IS DISTINCT FROM 'enrichment-location-input-v2'
+                            OR snapshot.canonical_input ->> 'sourceSnapshotSha256'
+                               IS DISTINCT FROM btrim(auction.current_source_snapshot_sha256)
+                        )
+                    )
                 """, Long.class);
         return count == null ? 0 : count;
     }
@@ -464,13 +502,20 @@ public class EnrichmentRunRepository {
             case ATTEMPT_LIMIT_REACHED -> "attempt_limit_count";
             default -> throw new IllegalArgumentException("unsupported completion status " + status);
         };
+        int propertyReferenceFailure = lastStage == EnrichmentStageName.PARSE
+                && (status == EnrichmentStateStatus.RETRYABLE_FAILURE
+                    || status == EnrichmentStateStatus.PERMANENT_FAILURE
+                    || status == EnrichmentStateStatus.ATTEMPT_LIMIT_REACHED) ? 1 : 0;
         int runChanged = jdbc.update("""
                 UPDATE enrichment_runs
                    SET attempted_count = attempted_count + 1,
                        %s = %s + 1,
+                       property_reference_parse_failure_count =
+                           property_reference_parse_failure_count + ?,
                        heartbeat_at = ?
                  WHERE id = ? AND status = 'RUNNING'
-                """.formatted(counter, counter), databaseTime(Instant.now(clock)), runId);
+                """.formatted(counter, counter), propertyReferenceFailure,
+                databaseTime(Instant.now(clock)), runId);
         requireOne(runChanged, "enrichment run is not RUNNING");
     }
 
@@ -679,7 +724,12 @@ public class EnrichmentRunRepository {
                    AND snapshot.snapshot_sha256 = auction.current_enrichment_snapshot_sha256
                   LEFT JOIN parcel_dependencies dependency ON dependency.auction_id = auction.id
                   LEFT JOIN enrichment_state state ON state.auction_id = auction.id
-                 WHERE observation.snapshot_sha256 = auction.current_enrichment_snapshot_sha256
+                 WHERE (
+                         auction.current_source_snapshot_sha256 IS NULL
+                         AND snapshot.canonical_input ->> 'sourceSnapshotSha256' IS NULL
+                       )
+                    OR snapshot.canonical_input ->> 'sourceSnapshotSha256'
+                       = btrim(auction.current_source_snapshot_sha256)
                  ORDER BY observation.observed_at, auction.id
                 """, (result, row) -> new CandidateRow(
                 result.getLong("auction_id"),
@@ -724,7 +774,13 @@ public class EnrichmentRunRepository {
                        selector_type, selector_value, max_items,
                        candidate_count, attempted_count, succeeded_count,
                        retryable_failure_count, terminal_not_found_count,
-                       ambiguous_count, permanent_failure_count, attempt_limit_count
+                       ambiguous_count, permanent_failure_count, attempt_limit_count,
+                       property_reference_extraction_success_count,
+                       property_reference_parse_failure_count,
+                       property_reference_count, text_reference_count,
+                       no_structured_reference_count, ko_conflict_count,
+                       property_reference_quality_corpus_version,
+                       property_reference_quality_metrics_sha256
                   FROM enrichment_runs
                 """;
     }
@@ -752,7 +808,23 @@ public class EnrichmentRunRepository {
                 result.getLong("terminal_not_found_count"),
                 result.getLong("ambiguous_count"),
                 result.getLong("permanent_failure_count"),
-                result.getLong("attempt_limit_count"));
+                result.getLong("attempt_limit_count"),
+                result.getLong("property_reference_extraction_success_count"),
+                result.getLong("property_reference_parse_failure_count"),
+                result.getLong("property_reference_count"),
+                result.getLong("text_reference_count"),
+                result.getLong("no_structured_reference_count"),
+                result.getLong("ko_conflict_count"),
+                result.getString("property_reference_quality_corpus_version"),
+                trimToNull(result.getString("property_reference_quality_metrics_sha256")));
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private JsonNode parseJson(String value) {

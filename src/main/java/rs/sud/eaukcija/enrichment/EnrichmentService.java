@@ -273,7 +273,7 @@ public class EnrichmentService {
             EnrichmentItemAttempt attempt = repository.startItem(
                     runId, ordinal, candidate, run.versions());
             try {
-                EnrichmentItemResult result = processor.process(candidate.item());
+                EnrichmentItemResult result = processor.process(candidate.item().forRun(runId));
                 repository.completeItem(
                         runId,
                         candidate.item().auctionId(),

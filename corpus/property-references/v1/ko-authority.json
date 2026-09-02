@@ -1,0 +1,188 @@
+{
+  "schemaVersion": "property-reference-ko-authority-v1",
+  "dictionaryVersion": "2026-08-22-ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3-aliases-72455511d935ccf10cdb4a5e829bb498460b40abc4adf1ae5e9a2e496fda9c04",
+  "sourceGpkgSha256": "ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3",
+  "sourceDictionarySha256": "53bb40dad9a7ac83df1a7e18128557e71ba9311ae25d4a18495e884aaa7dd5e3",
+  "entries": [
+    {
+      "koCode": "704890",
+      "officialNameCyrillic": "БОЉЕВАЦ",
+      "officialNameLatin": "BOLJEVAC"
+    },
+    {
+      "koCode": "704903",
+      "officialNameCyrillic": "ВАЛАКОЊЕ",
+      "officialNameLatin": "VALAKONJE"
+    },
+    {
+      "koCode": "708585",
+      "officialNameCyrillic": "ВЕЛИКА ПЛАНА I",
+      "officialNameLatin": "VELIKA PLANA I"
+    },
+    {
+      "koCode": "709697",
+      "officialNameCyrillic": "ДЕКУТИНЦЕ",
+      "officialNameLatin": "DEKUTINCE"
+    },
+    {
+      "koCode": "710326",
+      "officialNameCyrillic": "ВЛАСОТИНЦЕ-ВАРОШ",
+      "officialNameLatin": "VLASOTINCE-VAROŠ"
+    },
+    {
+      "koCode": "711241",
+      "officialNameCyrillic": "ВРАЊЕ I",
+      "officialNameLatin": "VRANJE I"
+    },
+    {
+      "koCode": "713279",
+      "officialNameCyrillic": "СРЕЗОЈЕВЦИ",
+      "officialNameLatin": "SREZOJEVCI"
+    },
+    {
+      "koCode": "715514",
+      "officialNameCyrillic": "РАСТОВНИЦА",
+      "officialNameLatin": "RASTOVNICA"
+    },
+    {
+      "koCode": "715760",
+      "officialNameCyrillic": "ГОРЊА БЕЛА РЕКА",
+      "officialNameLatin": "GORNJA BELA REKA"
+    },
+    {
+      "koCode": "715816",
+      "officialNameCyrillic": "ЗАГРАЂЕ",
+      "officialNameLatin": "ZAGRAĐE"
+    },
+    {
+      "koCode": "716081",
+      "officialNameCyrillic": "ЈАКОВО",
+      "officialNameLatin": "JAKOVO"
+    },
+    {
+      "koCode": "720151",
+      "officialNameCyrillic": "БОГОШТИЦА",
+      "officialNameLatin": "BOGOŠTICA"
+    },
+    {
+      "koCode": "724637",
+      "officialNameCyrillic": "БРЕСТОВАЦ",
+      "officialNameLatin": "BRESTOVAC"
+    },
+    {
+      "koCode": "724645",
+      "officialNameCyrillic": "БРЗА",
+      "officialNameLatin": "BRZA"
+    },
+    {
+      "koCode": "724823",
+      "officialNameCyrillic": "ГОРЊЕ КРАЈИНЦЕ",
+      "officialNameLatin": "GORNJE KRAJINCE"
+    },
+    {
+      "koCode": "725463",
+      "officialNameCyrillic": "НАВАЛИН",
+      "officialNameLatin": "NAVALIN"
+    },
+    {
+      "koCode": "726516",
+      "officialNameCyrillic": "ГОРЊА КРАВАРИЦА",
+      "officialNameLatin": "GORNJA KRAVARICA"
+    },
+    {
+      "koCode": "726648",
+      "officialNameCyrillic": "ЗЕОКЕ",
+      "officialNameLatin": "ZEOKE"
+    },
+    {
+      "koCode": "728144",
+      "officialNameCyrillic": "ОСЕЧЕНИЦА",
+      "officialNameLatin": "OSEČENICA"
+    },
+    {
+      "koCode": "729795",
+      "officialNameCyrillic": "НИШ \"БУБАЊ\"",
+      "officialNameLatin": "NIŠ \"BUBANJ\""
+    },
+    {
+      "koCode": "731021",
+      "officialNameCyrillic": "МУР",
+      "officialNameLatin": "MUR"
+    },
+    {
+      "koCode": "736660",
+      "officialNameCyrillic": "СЕПЦИ",
+      "officialNameLatin": "SEPCI"
+    },
+    {
+      "koCode": "737780",
+      "officialNameCyrillic": "РЕКОВАЦ",
+      "officialNameLatin": "REKOVAC"
+    },
+    {
+      "koCode": "739251",
+      "officialNameCyrillic": "БАГАЧИЋЕ",
+      "officialNameLatin": "BAGAČIĆE"
+    },
+    {
+      "koCode": "739324",
+      "officialNameCyrillic": "ВАПА",
+      "officialNameLatin": "VAPA"
+    },
+    {
+      "koCode": "741531",
+      "officialNameCyrillic": "ВЕЛИКА ДРЕНОВА",
+      "officialNameLatin": "VELIKA DRENOVA"
+    },
+    {
+      "koCode": "801941",
+      "officialNameCyrillic": "НОВИ КНЕЖЕВАЦ",
+      "officialNameLatin": "NOVI KNEŽEVAC"
+    },
+    {
+      "koCode": "802336",
+      "officialNameCyrillic": "БАНАТСКО НОВО СЕЛО",
+      "officialNameLatin": "BANATSKO NOVO SELO"
+    },
+    {
+      "koCode": "802379",
+      "officialNameCyrillic": "ДОЛОВО",
+      "officialNameLatin": "DOLOVO"
+    },
+    {
+      "koCode": "804142",
+      "officialNameCyrillic": "КУЗМИН",
+      "officialNameLatin": "KUZMIN"
+    },
+    {
+      "koCode": "804169",
+      "officialNameCyrillic": "ЛАЋАРАК",
+      "officialNameLatin": "LAĆARAK"
+    },
+    {
+      "koCode": "804665",
+      "officialNameCyrillic": "ЛОК",
+      "officialNameLatin": "LOK"
+    },
+    {
+      "koCode": "805343",
+      "officialNameCyrillic": "НОВИ СЛАНКАМЕН",
+      "officialNameLatin": "NOVI SLANKAMEN"
+    },
+    {
+      "koCode": "805483",
+      "officialNameCyrillic": "ВОЈКА",
+      "officialNameLatin": "VOJKA"
+    },
+    {
+      "koCode": "805777",
+      "officialNameCyrillic": "ЗРЕЊАНИН III",
+      "officialNameLatin": "ZRENJANIN III"
+    },
+    {
+      "koCode": "805840",
+      "officialNameCyrillic": "МАРТОНОШ",
+      "officialNameLatin": "MARTONOŠ"
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "property-reference-corpus-v1",
+  "corpusVersion": "2026-09-02.2",
+  "annotationScope": "Only minimized exact phrases from detail.Description are annotated and scored. detail.Place.Cadastral is contextual source metadata and is verified only by the private source check; it is not evidence in this description-text extraction corpus. All 589 records in the captured sampling frame have a nonempty structured cadastral value, so NO_DESCRIPTION_REFERENCE must not be interpreted as absence of structured source data.",
+  "source": {
+    "name": "eAukcija root-7 immutable sanitized snapshots",
+    "capturedAt": "2026-08-21T17:20:52Z",
+    "population": 589,
+    "captureSha256": "f1266c66dfe0168d239fc5f4ea318c160b9ed991170c650ba431b4fbfa7332ee",
+    "snapshotSchemaVersion": "eaukcija-listing-detail-v1",
+    "minimizationPolicyVersion": "public-auction-fields-v1",
+    "selectionQueryFile": "selection.sql",
+    "selectionMethod": "PURPOSIVE_COVERAGE_SAMPLE",
+    "samplingFrame": "All 589 immutable IMMOVABLE snapshots in the exact root-7 capture fetched at 2026-08-21T17:20:52Z under eaukcija-listing-detail-v1 and public-auction-fields-v1.",
+    "limitations": "The frozen IDs were deliberately selected for extraction-pattern and negative-text coverage. This is not random or prevalence-weighted sampling, and its metrics must not be generalized to the full source population."
+  },
+  "review": {
+    "annotationPass": {
+      "reviewId": "issue-18-annotation-pass-1",
+      "reviewer": "OpenAI Codex",
+      "reviewedAt": "2026-09-02"
+    },
+    "adjudicationPass": {
+      "reviewId": "issue-18-adjudication-pass-2",
+      "reviewer": "OpenAI Codex",
+      "reviewedAt": "2026-09-02"
+    },
+    "adjudicationsFile": "adjudications.json",
+    "limitations": "The two passes used distinct review IDs and separate evidence-by-evidence decisions, but both were performed by the same automated OpenAI Codex agent. They are not independent human annotation or inter-annotator agreement evidence."
+  },
+  "split": {
+    "developmentFile": "development.json",
+    "heldOutFile": "held-out.json",
+    "heldOutFrozenAt": "2026-09-02",
+    "heldOutPolicy": "The 15-auction held-out file was frozen before the baseline was evaluated. Parser examples and assertions may use development.json only; held-out labels may be read only by aggregate evaluation commands. Changes require a new corpusVersion and two-pass review."
+  },
+  "supportedPatterns": [
+    "PARCEL_ABBREVIATED",
+    "PARCEL_LABELED",
+    "PARCEL_LATIN_ABBREVIATED",
+    "PARCEL_ENUMERATION",
+    "PARCEL_MALFORMED_LABEL",
+    "KO_ABBREVIATED",
+    "KO_LABELED",
+    "KO_LATIN",
+    "KO_LATIN_ABBREVIATED",
+    "LAND_REGISTER_ABBREVIATED",
+    "LAND_REGISTER_LABELED",
+    "ADDRESS_LABELED",
+    "ADDRESS_STREET_HOUSE",
+    "ADDRESS_STREET_ONLY"
+  ],
+  "baseline": {
+    "version": "issue-32-regex-baseline-v1",
+    "metricsFile": "baseline-metrics.json"
+  },
+  "koAuthority": {
+    "file": "ko-authority.json",
+    "dictionaryVersion": "2026-08-22-ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3-aliases-72455511d935ccf10cdb4a5e829bb498460b40abc4adf1ae5e9a2e496fda9c04",
+    "sourceGpkgSha256": "ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3",
+    "sourceDictionarySha256": "53bb40dad9a7ac83df1a7e18128557e71ba9311ae25d4a18495e884aaa7dd5e3"
+  },
+  "artifacts": [
+    {"path": "development.json", "sha256": "0c1ea1be331cdfa12d176a4fbea1260ebc55902cd577f732cbf0f10a3ebf5b86"},
+    {"path": "held-out.json", "sha256": "947cf34ec90f32b22e5dfb3387e44ad0af75ed03f71d3174846ed34fa67f0a72"},
+    {"path": "adjudications.json", "sha256": "b1f049fab2165cc5e5cec296826c1ff2eea793b6b8707395997c34d0c5e2aa0b"},
+    {"path": "selection.sql", "sha256": "3916464e0dd42bbe0364cae375bd645bd5c01bc8ab33022e087d60466c9ab540"},
+    {"path": "corpus.schema.json", "sha256": "854577b4d7ecaa6b6102c6551ac404d0721186d897857c8b388afbee62f8d416"},
+    {"path": "ko-authority.json", "sha256": "6ab63607c37bd6af30745f6a5d719205651c717d82e30d8f36b43176b6740fb5"},
+    {"path": "baseline-metrics.json", "sha256": "4b6c801ce0be8e31fce5af39f018898a522f946aa2a137efaacdf8e20e03d827"}
+  ],
+  "licensingAndProvenanceNote": "The source is the public Serbian Ministry of Justice eAukcija portal. No standalone redistribution or automation licence was located in the reviewed source note dated 2026-08-24, so this corpus does not redistribute snapshots or whole descriptions. It retains only short factual phrases necessary to identify a parcel, cadastral municipality, land-register number, address, or a reviewed negative. Images, thumbnails, bidder state, executor names, debtor/creditor names, JMBG values, contact details, prices, and unrelated prose are excluded. Every auction remains traceable by a SHA-256 of the exact #10 sanitized snapshot and hashes of the reviewed source fields. Stop redistribution and re-review this corpus if the source owner objects or publishes incompatible terms."
+}

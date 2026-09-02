@@ -35,6 +35,7 @@ sourceSets {
 configurations {
     browserTestImplementation.extendsFrom testImplementation
     browserTestRuntimeOnly.extendsFrom testRuntimeOnly
+    propertyReferenceCorpusRuntime
 }
 
 dependencies {
@@ -49,6 +50,22 @@ dependencies {
     implementation "org.flywaydb:flyway-database-postgresql:${flywayVersion}"
     implementation 'org.hibernate.orm:hibernate-spatial'
     implementation 'org.locationtech.jts:jts-core'
+    // The schema engine belongs to the offline corpus verifier, not the
+    // production Spring Boot runtime. compileOnly keeps its API available to
+    // the CLI source set; the dedicated and test configurations execute it.
+    compileOnly('com.networknt:json-schema-validator:2.0.4') {
+        // The corpus gate reads JSON only and has no date/time formats.
+        exclude group: 'com.fasterxml.jackson.dataformat', module: 'jackson-dataformat-yaml'
+        exclude group: 'com.ethlo.time', module: 'itu'
+    }
+    testImplementation('com.networknt:json-schema-validator:2.0.4') {
+        exclude group: 'com.fasterxml.jackson.dataformat', module: 'jackson-dataformat-yaml'
+        exclude group: 'com.ethlo.time', module: 'itu'
+    }
+    propertyReferenceCorpusRuntime('com.networknt:json-schema-validator:2.0.4') {
+        exclude group: 'com.fasterxml.jackson.dataformat', module: 'jackson-dataformat-yaml'
+        exclude group: 'com.ethlo.time', module: 'itu'
+    }
     // The official Address Registry is distributed as a GeoPackage (SQLite).
     // The importer reads it row-by-row; no GDAL installation is required.
     implementation 'org.xerial:sqlite-jdbc:3.50.3.0'
@@ -105,6 +122,45 @@ tasks.named('test') {
 
 tasks.named('check') {
     dependsOn tasks.named('basemapTest')
+    dependsOn 'propertyReferenceCorpusCheck'
+}
+
+def propertyReferenceCorpusReport = layout.buildDirectory.file(
+        'reports/property-reference-corpus/baseline-metrics.json')
+
+tasks.register('propertyReferenceCorpusCheck', JavaExec) {
+    group = 'verification'
+    description = 'Validate the reviewed property-reference corpus and reproduce its baseline metrics'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath + configurations.propertyReferenceCorpusRuntime
+    mainClass = 'rs.sud.eaukcija.propertyreference.corpus.PropertyReferenceCorpusCli'
+    args = [
+            '--corpus-dir', file('corpus/property-references/v1').absolutePath,
+            '--report', propertyReferenceCorpusReport.get().asFile.absolutePath,
+            '--verify-committed'
+    ]
+    inputs.files(fileTree('corpus/property-references/v1'))
+    outputs.file(propertyReferenceCorpusReport)
+}
+
+tasks.register('propertyReferenceCorpusSourceCheck', JavaExec) {
+    group = 'verification'
+    description = 'Privately verify corpus snapshot/field hashes against the ignored #32 source capture'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath + configurations.propertyReferenceCorpusRuntime
+    mainClass = 'rs.sud.eaukcija.propertyreference.corpus.PropertyReferenceCorpusCli'
+    args = [
+            '--corpus-dir', file('corpus/property-references/v1').absolutePath,
+            '--report', layout.buildDirectory.file(
+                    'reports/property-reference-corpus/source-baseline-metrics.json')
+                    .get().asFile.absolutePath,
+            '--verify-committed',
+            '--source-capture', file('spike/issue-32/out/corpus.json').absolutePath
+    ]
+    inputs.files(fileTree('corpus/property-references/v1'))
+    inputs.file(file('spike/issue-32/out/corpus.json'))
+    outputs.file(layout.buildDirectory.file(
+            'reports/property-reference-corpus/source-baseline-metrics.json'))
 }
 
 tasks.register('playwrightInstall', JavaExec) {

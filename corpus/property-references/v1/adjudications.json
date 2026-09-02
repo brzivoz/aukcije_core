@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "property-reference-corpus-v1",
+  "corpusVersion": "2026-09-02.2",
+  "adjudications": [
+    {
+      "id": "adj-179181-malformed-label",
+      "auctionId": 179181,
+      "disagreement": "Pass 1 treated the misspelled phrase Кат.прцела 331 as too malformed to label.",
+      "resolution": "Pass 2 retained parcel 331 as PARCEL_MALFORMED_LABEL because the intended label and value remain unambiguous; the case is kept in held-out evaluation."
+    },
+    {
+      "id": "adj-179368-ko-conflict",
+      "auctionId": 179368,
+      "disagreement": "The structured Place.Cadastral value is ИНЂИЈА while the parcel prose says К.О. Нови Сланкамен.",
+      "resolution": "The three parcel references retain the local prose KO НОВИ СЛАНКАМЕН and official code 805343. The conflict is explicit and no source is silently preferred outside the evidence it qualifies."
+    },
+    {
+      "id": "adj-180358-area-not-parcel",
+      "auctionId": 180358,
+      "disagreement": "The spike regex proposed 786 as a second parcel from the phrase површине парцеле 786 квм.",
+      "resolution": "Only parcel 229/21 is annotated. 786 is an area and remains unlabelled false-positive-trap evidence."
+    },
+    {
+      "id": "adj-181021-enumeration",
+      "auctionId": 181021,
+      "disagreement": "Pass 1 found only the first and last values in к.п. 1900, 1901, 1902 и 1903.",
+      "resolution": "Pass 2 annotated all four parcel values; the shared к.п. label scopes the complete enumeration."
+    },
+    {
+      "id": "adj-181325-subnumber",
+      "auctionId": 181325,
+      "disagreement": "The spike regex proposed подброј парцеле 60 as a second cadastral parcel.",
+      "resolution": "Only parcel 2479 is annotated. The explicit подброј value 60 is retained as a false-positive trap and is not promoted to parcel identity."
+    }
+  ]
+}

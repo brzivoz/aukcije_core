@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aukcije-core:schema:property-reference-corpus-v1",
+  "title": "Reviewed property-reference corpus",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "corpusVersion", "split", "auctions"],
+  "properties": {
+    "schemaVersion": {"const": "property-reference-corpus-v1"},
+    "corpusVersion": {"type": "string", "minLength": 1},
+    "split": {"enum": ["DEVELOPMENT", "HELD_OUT"]},
+    "auctions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/auction"}
+    }
+  },
+  "$defs": {
+    "auction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auctionId", "snapshotSha256", "split", "category", "caseStatus",
+        "patternTags", "sourceFieldHashes", "evidence", "expectedReferences",
+        "reviewStatus", "adjudicationIds"
+      ],
+      "properties": {
+        "auctionId": {"type": "integer", "minimum": 1},
+        "snapshotSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "split": {"enum": ["DEVELOPMENT", "HELD_OUT"]},
+        "category": {"type": "string", "minLength": 1},
+        "caseStatus": {"enum": ["REFERENCES_PRESENT", "NO_DESCRIPTION_REFERENCE"]},
+        "patternTags": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+        "sourceFieldHashes": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["descriptionSha256", "shortDescriptionSha256"],
+          "properties": {
+            "descriptionSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+            "shortDescriptionSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/evidence"}
+        },
+        "expectedReferences": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/reference"}
+        },
+        "reviewStatus": {"const": "ADJUDICATED"},
+        "adjudicationIds": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceField", "text"],
+      "properties": {
+        "sourceField": {"const": "detail.Description"},
+        "text": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annotationId", "type", "pattern", "evidenceIndex", "rawEvidence",
+        "koName", "koCode", "parcelNumber", "landRegisterNumber", "addressTokens"
+      ],
+      "properties": {
+        "annotationId": {"type": "string", "minLength": 1},
+        "type": {"enum": ["PARCEL", "CADASTRAL_MUNICIPALITY", "LAND_REGISTER", "ADDRESS"]},
+        "pattern": {"type": "string", "minLength": 1},
+        "evidenceIndex": {"type": "integer", "minimum": 0},
+        "rawEvidence": {"type": "string", "minLength": 1, "maxLength": 240},
+        "koName": {"type": "string", "minLength": 1},
+        "koCode": {"type": ["string", "null"], "pattern": "^[0-9]{6}$"},
+        "parcelNumber": {"type": ["string", "null"]},
+        "landRegisterNumber": {"type": ["string", "null"]},
+        "addressTokens": {"type": ["array", "null"], "items": {"type": "string", "minLength": 1}}
+      }
+    }
+  }
+}

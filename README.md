@@ -232,6 +232,17 @@ Run the complete repository verification, including the Python basemap
 contracts, with `./gradlew clean check`. Keeping `basemapTest` on `check` means
 ordinary Java `test` does not acquire a host-Python dependency.
 
+The reviewed property-reference corpus and frozen baseline also have a focused,
+database-free gate (included in `check`):
+
+```bash
+./gradlew propertyReferenceCorpusCheck
+```
+
+Its schema, evidence-minimization policy, two-pass review, held-out governance,
+and metric definitions are documented in
+`corpus/property-references/v1/README.md`.
+
 **Prerequisite: a running Docker daemon.** The integration tests start a real
 `postgis/postgis:18-3.6` container through Testcontainers — the same image
 EPIC-05 targets — rather than substituting H2. Without Docker the integration
@@ -242,6 +253,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 
 | Suite | Covers |
 |---|---|
+| `PropertyReferenceCorpusCliTest` / `propertyReferenceCorpusCheck` | 60-auction/118-reference/20-description-negative purposive corpus; deterministic development/held-out split; exact artifact, snapshot, and source-field hashes; exact script tags and negative-template diversity; official KO authority; schema, typed-value, evidence-budget, personal-data, adjudication, and baseline-metric gates; focused artifact-hash, schema, personal-data, KO-authority, and committed-metric drift mutations |
 | `EAukcijaClientTest` / `EAukcijaClientPropertiesTest` | exact listing/immovable/common request identity, strict envelopes and taxonomy hash, arbitrary-precision pre-DTO source `Data` with no `double` round-trip, bounded JSON/content types, invalid/null and persistence-incompatible text/money data, timeout/disconnect/status retry policy, full-jitter and both `Retry-After` forms, immediate over-budget shared-pause refusal, global rate/concurrency gates, shutdown cancellation, redaction, and fail-fast safe configuration bounds |
 | `AuctionSourceSnapshotFactoryTest` | golden exact source replay including decimal scale, key-order/configuration-stable canonical SHA-256, versioned binary/image/token/unreviewed-field exclusion, allowed-detail changes, scalar schema-drift and malformed/null/ID/size/depth rejection, and a parser with no network client |
 | `SyncServiceTest` / `SyncSchedulerTest` / `ListingFingerprintTest` | complete root/direct-child pagination, one-pass per-page source indexing and immediate minimized staging, child-subset evidence, root-only/new-child `UNKNOWN`, reviewed-child drift, root-7 immovable/root-8 common detail routing, stable-ID union and one detail call, bounded listing/detail record quarantine including an unminimizable 64-KiB rejected row with continued promotion, aggregate/capped error evidence, duplicate/conflict/short-page/changed-total refusal, client/failure coordinates including snapshot-read classification, new/changed/stale refresh and legacy-source-snapshot bootstrap policy, checkpointed heartbeats, deterministic summary fingerprints, startup/scheduler log redaction, deterministic scheduled idempotency, late recovered-task refusal, and no promotion on unresolved partial work |

@@ -1,0 +1,360 @@
+{
+  "schemaVersion" : "property-reference-corpus-v1",
+  "corpusVersion" : "2026-09-02.2",
+  "baselineVersion" : "issue-32-regex-baseline-v1",
+  "evaluationSurface" : "MINIMIZED_DETAIL_DESCRIPTION_EVIDENCE_PHRASES",
+  "development" : {
+    "auctions" : 45,
+    "expectedReferences" : 81,
+    "negativeAuctions" : 15,
+    "predictedReferences" : 85,
+    "truePositives" : 78,
+    "falsePositives" : 7,
+    "falseNegatives" : 3,
+    "precision" : 0.9176,
+    "recall" : 0.963,
+    "falsePositivesOnNegativeAuctions" : 2,
+    "byExpectedPattern" : {
+      "ADDRESS_LABELED" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "ADDRESS_STREET_HOUSE" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "ADDRESS_STREET_ONLY" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_ABBREVIATED" : {
+        "expected" : 2,
+        "truePositives" : 2,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LABELED" : {
+        "expected" : 16,
+        "truePositives" : 16,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LATIN_ABBREVIATED" : {
+        "expected" : 5,
+        "truePositives" : 5,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "LAND_REGISTER_ABBREVIATED" : {
+        "expected" : 5,
+        "truePositives" : 5,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "LAND_REGISTER_LABELED" : {
+        "expected" : 12,
+        "truePositives" : 12,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_ABBREVIATED" : {
+        "expected" : 16,
+        "truePositives" : 13,
+        "falseNegatives" : 3,
+        "recall" : 0.8125
+      },
+      "PARCEL_LABELED" : {
+        "expected" : 16,
+        "truePositives" : 16,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      }
+    },
+    "byDetector" : {
+      "ADDRESS_LABELED" : {
+        "predicted" : 9,
+        "truePositives" : 9,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "KO_LABELED" : {
+        "predicted" : 28,
+        "truePositives" : 23,
+        "falsePositives" : 5,
+        "precision" : 0.8214
+      },
+      "LAND_REGISTER_LABELED" : {
+        "predicted" : 17,
+        "truePositives" : 17,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "PARCEL_LABELED" : {
+        "predicted" : 25,
+        "truePositives" : 24,
+        "falsePositives" : 1,
+        "precision" : 0.96
+      },
+      "PARCEL_NUMBER_REVERSED" : {
+        "predicted" : 6,
+        "truePositives" : 5,
+        "falsePositives" : 1,
+        "precision" : 0.8333
+      }
+    }
+  },
+  "heldOut" : {
+    "auctions" : 15,
+    "expectedReferences" : 37,
+    "negativeAuctions" : 5,
+    "predictedReferences" : 31,
+    "truePositives" : 29,
+    "falsePositives" : 2,
+    "falseNegatives" : 8,
+    "precision" : 0.9355,
+    "recall" : 0.7838,
+    "falsePositivesOnNegativeAuctions" : 0,
+    "byExpectedPattern" : {
+      "ADDRESS_LABELED" : {
+        "expected" : 5,
+        "truePositives" : 5,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "ADDRESS_STREET_HOUSE" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_ABBREVIATED" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LABELED" : {
+        "expected" : 5,
+        "truePositives" : 5,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LATIN" : {
+        "expected" : 1,
+        "truePositives" : 1,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "LAND_REGISTER_ABBREVIATED" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "LAND_REGISTER_LABELED" : {
+        "expected" : 1,
+        "truePositives" : 1,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_ABBREVIATED" : {
+        "expected" : 7,
+        "truePositives" : 3,
+        "falseNegatives" : 4,
+        "recall" : 0.4286
+      },
+      "PARCEL_ENUMERATION" : {
+        "expected" : 4,
+        "truePositives" : 1,
+        "falseNegatives" : 3,
+        "recall" : 0.25
+      },
+      "PARCEL_LABELED" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_LATIN_ABBREVIATED" : {
+        "expected" : 1,
+        "truePositives" : 1,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_MALFORMED_LABEL" : {
+        "expected" : 1,
+        "truePositives" : 0,
+        "falseNegatives" : 1,
+        "recall" : 0.0
+      }
+    },
+    "byDetector" : {
+      "ADDRESS_LABELED" : {
+        "predicted" : 8,
+        "truePositives" : 8,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "KO_LABELED" : {
+        "predicted" : 11,
+        "truePositives" : 9,
+        "falsePositives" : 2,
+        "precision" : 0.8182
+      },
+      "LAND_REGISTER_LABELED" : {
+        "predicted" : 4,
+        "truePositives" : 4,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "PARCEL_LABELED" : {
+        "predicted" : 6,
+        "truePositives" : 6,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "PARCEL_NUMBER_REVERSED" : {
+        "predicted" : 2,
+        "truePositives" : 2,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      }
+    }
+  },
+  "overall" : {
+    "auctions" : 60,
+    "expectedReferences" : 118,
+    "negativeAuctions" : 20,
+    "predictedReferences" : 116,
+    "truePositives" : 107,
+    "falsePositives" : 9,
+    "falseNegatives" : 11,
+    "precision" : 0.9224,
+    "recall" : 0.9068,
+    "falsePositivesOnNegativeAuctions" : 2,
+    "byExpectedPattern" : {
+      "ADDRESS_LABELED" : {
+        "expected" : 8,
+        "truePositives" : 8,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "ADDRESS_STREET_HOUSE" : {
+        "expected" : 6,
+        "truePositives" : 6,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "ADDRESS_STREET_ONLY" : {
+        "expected" : 3,
+        "truePositives" : 3,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_ABBREVIATED" : {
+        "expected" : 5,
+        "truePositives" : 5,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LABELED" : {
+        "expected" : 21,
+        "truePositives" : 21,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LATIN" : {
+        "expected" : 1,
+        "truePositives" : 1,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "KO_LATIN_ABBREVIATED" : {
+        "expected" : 5,
+        "truePositives" : 5,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "LAND_REGISTER_ABBREVIATED" : {
+        "expected" : 8,
+        "truePositives" : 8,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "LAND_REGISTER_LABELED" : {
+        "expected" : 13,
+        "truePositives" : 13,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_ABBREVIATED" : {
+        "expected" : 23,
+        "truePositives" : 16,
+        "falseNegatives" : 7,
+        "recall" : 0.6957
+      },
+      "PARCEL_ENUMERATION" : {
+        "expected" : 4,
+        "truePositives" : 1,
+        "falseNegatives" : 3,
+        "recall" : 0.25
+      },
+      "PARCEL_LABELED" : {
+        "expected" : 19,
+        "truePositives" : 19,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_LATIN_ABBREVIATED" : {
+        "expected" : 1,
+        "truePositives" : 1,
+        "falseNegatives" : 0,
+        "recall" : 1.0
+      },
+      "PARCEL_MALFORMED_LABEL" : {
+        "expected" : 1,
+        "truePositives" : 0,
+        "falseNegatives" : 1,
+        "recall" : 0.0
+      }
+    },
+    "byDetector" : {
+      "ADDRESS_LABELED" : {
+        "predicted" : 17,
+        "truePositives" : 17,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "KO_LABELED" : {
+        "predicted" : 39,
+        "truePositives" : 32,
+        "falsePositives" : 7,
+        "precision" : 0.8205
+      },
+      "LAND_REGISTER_LABELED" : {
+        "predicted" : 21,
+        "truePositives" : 21,
+        "falsePositives" : 0,
+        "precision" : 1.0
+      },
+      "PARCEL_LABELED" : {
+        "predicted" : 31,
+        "truePositives" : 30,
+        "falsePositives" : 1,
+        "precision" : 0.9677
+      },
+      "PARCEL_NUMBER_REVERSED" : {
+        "predicted" : 8,
+        "truePositives" : 7,
+        "falsePositives" : 1,
+        "precision" : 0.875
+      }
+    }
+  }
+}

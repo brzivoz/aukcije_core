@@ -24,7 +24,8 @@ class LocationSelectionSqlTest {
                 LocationSelectionSql.precisionRank("attempt.location_precision") + " DESC NULLS LAST");
         assertThat(AuctionLocationRepository.BEST_SELECTION_ORDER).isEqualTo(order);
         assertThat(AuctionLocationRepository.queryFor("?"))
-                .contains(order, "pr.extraction_status")
+                .contains(order, "pr.extraction_status", "RGZ_WFS_PARCEL",
+                        "upstream_ko_match_input_fingerprint")
                 .doesNotContain("pr.extraction_status IN");
     }
 
@@ -41,5 +42,18 @@ class LocationSelectionSqlTest {
         assertThat(LocationSelectionSql.publishableSelection("EXTRACTED", "RESOLVED")).isTrue();
         assertThat(LocationSelectionSql.publishableSelection("EXTRACTED", "NONE")).isFalse();
         assertThat(LocationSelectionSql.publishableSelection("NEEDS_REVIEW", "RESOLVED")).isFalse();
+    }
+
+    @Test
+    void automaticParcelPublicationRequiresItsExactCurrentKoMatch() {
+        String predicate = LocationSelectionSql.currentParcelEligibilityPredicate("attempt");
+
+        assertThat(predicate)
+                .contains("attempt.resolver <> 'RGZ_WFS_PARCEL'")
+                .contains("attempt.upstream_ko_match_input_fingerprint = current_ko.input_fingerprint")
+                .contains("current_property_reference_extractions")
+                .contains("property_reference_extraction_memberships")
+                .contains("ko_result.status = 'MATCHED'")
+                .contains("ko_result.reconciliation_status <> 'STRUCTURED_ONLY'");
     }
 }

@@ -1,0 +1,223 @@
+{
+  "retention": "Only property-whitelisted service metadata and raw-body fingerprints are committed. Raw XML, raw GeoJSON, coordinates, bounding boxes, credentials, cookies, sessions and personal records are not committed.",
+  "historical_recheck_2026_09_03": {
+    "checked_at_utc": "2026-09-03T14:35:26Z",
+    "capabilities_read": false,
+    "schema_read_attempts": 2,
+    "schema_reads_succeeded": 0,
+    "reason": "GetCapabilities and both parcel and object DescribeFeatureType calls returned CONNECT_TIMEOUT from the project environment on 2026-09-03; no current bytes or hashes were obtained."
+  },
+  "current_recheck": {
+    "checked_at_utc": "2026-09-08T06:30:05Z",
+    "authentication": "none",
+    "capabilities_read": true,
+    "schema_read_attempts": 2,
+    "schema_reads_succeeded": 2,
+    "raw_bodies_committed": false,
+    "capabilities": {
+      "status": 200,
+      "media_type": "application/xml",
+      "raw_size_bytes": 96493,
+      "raw_sha256": "63d2e107b0073502c5363d53dd898beab9992246e10b48bf414a0007b2d575a5",
+      "update_sequence": "6441",
+      "fees": "",
+      "access_constraints": "",
+      "feature_type_inventory_unchanged": true,
+      "publisher_dataset_edition": null
+    },
+    "parcel_schema": {
+      "feature_type": "dkp:dkp_parcels_weekly_only_utm",
+      "status": 200,
+      "media_type": "application/gml+xml; version=3.2",
+      "raw_size_bytes": 3309,
+      "raw_sha256": "4de609f7f017295f2891d3e0219729e24f440dd7f89c4e8baa872bb3c06a4b48",
+      "identity_fields": {"cadmun_code": "xsd:int", "parcel_num": "xsd:string"},
+      "geometry_field": "geom",
+      "geometry_schema_type": "gml:GeometryPropertyType"
+    },
+    "object_schema": {
+      "feature_type": "dkp:objekat",
+      "status": 200,
+      "media_type": "application/gml+xml; version=3.2",
+      "raw_size_bytes": 3024,
+      "raw_sha256": "06d95eb06d4d4a5408e8156df22a43082101affaf3b2b5ca4a6d6e6df87f8658",
+      "declared_default_crs": "EPSG:32634",
+      "candidate_identity_fields": {
+        "objectid": "xsd:int",
+        "maticnibrojko": "xsd:int",
+        "brparcele": "xsd:string",
+        "brdelaparc": "xsd:int",
+        "deoparcele_id": "xsd:string"
+      },
+      "geometry_field": "wkb_geometry",
+      "geometry_schema_type": "gml:GeometryPropertyType",
+      "building_records_fetched": false
+    },
+    "parcel_lookup": {
+      "status": 200,
+      "cadmun_code": 743968,
+      "parcel_num": "4577/337",
+      "number_matched": 1,
+      "number_returned": 1,
+      "geometry_type": "MultiPolygon",
+      "area_square_metres": 410,
+      "response_crs": "EPSG:4326",
+      "raw_sha256": "ecc3a37d3eadac9b95254414e4e752c1780ca81f3d976f99eacf7465025881c8"
+    },
+    "authority_interpretation": "Availability and empty service constraints establish neither automation nor redistribution rights."
+  },
+  "retained_capabilities": {
+    "captured_at_utc": "2026-08-21T20:28:18Z",
+    "wfs_version": "2.0.0",
+    "update_sequence": "6441",
+    "authentication": "none",
+    "status": 200,
+    "media_type": "application/xml",
+    "raw_size_bytes": 96493,
+    "raw_sha256": "63d2e107b0073502c5363d53dd898beab9992246e10b48bf414a0007b2d575a5",
+    "raw_body_committed": false,
+    "fees": "",
+    "access_constraints": "",
+    "empty_metadata_interpretation": "Supports neither automated access nor redistribution; it is not a licence and does not override RGZ terms or tariff 215i.",
+    "json_get_feature_advertised": true,
+    "feature_types": [
+      {
+        "name": "dkp:katastarska_parcela",
+        "default_crs": "EPSG:32634",
+        "classification": "PARCEL_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:objekat",
+        "default_crs": "EPSG:32634",
+        "classification": "BUILDING_OBJECT_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:parcelparts_only_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "PARCEL_PART_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:parcelparts_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "PARCEL_PART_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:dkp_parcelparts_weekly_only_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "PARCEL_PART_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:parcels_only_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "PARCEL_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:parcels_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "PARCEL_CANDIDATE",
+        "automatic_use": "NOT_USABLE_UNDER_DECISION_41"
+      },
+      {
+        "name": "dkp:dkp_parcels_weekly_only_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "IMPLEMENTED_PARCEL_SOURCE_CANDIDATE",
+        "automatic_use": "EXPLICIT_ACTIVATION_REQUIRES_CURRENT_PINS"
+      },
+      {
+        "name": "dkp:scales_utm",
+        "default_crs": "EPSG:25834",
+        "classification": "CARTOGRAPHIC_METADATA_NOT_GEOMETRY_SOURCE",
+        "automatic_use": "NOT_APPLICABLE"
+      }
+    ],
+    "accepted_as_current_runtime_contract": false,
+    "runtime_default": false
+  },
+  "schemas": [
+    {
+      "feature_type": "dkp:dkp_parcels_weekly_only_utm",
+      "captured_at_utc": "2026-08-21T20:28:18Z",
+      "status": 200,
+      "media_type": "application/gml+xml; version=3.2",
+      "raw_size_bytes": 3406,
+      "raw_sha256": "8274f9672d6b0e244ce51113e693741cb55d558adbd2e4e40218ad5b0ba40cd6",
+      "raw_body_committed": false,
+      "declared_default_crs": "EPSG:25834",
+      "request_crs": "EPSG:4326",
+      "identity_fields": [
+        "cadmun_code",
+        "cadmun_name_lat",
+        "parcel_num"
+      ],
+      "geometry_field": "geom",
+      "geometry_schema_type": "gml:GeometryPropertyType",
+      "observed_geometry_types": [
+        "Polygon",
+        "MultiPolygon"
+      ],
+      "non_personal_property_whitelist": [
+        "id",
+        "source_is",
+        "source_parcel_id",
+        "mun_code",
+        "mun_name_cyr",
+        "mun_name_lat",
+        "city_code",
+        "city_name_cyr",
+        "city_name_lat",
+        "cadmun_code",
+        "cadmun_name_cyr",
+        "cadmun_name_lat",
+        "parcel_num",
+        "parcel_status_code",
+        "parcel_status_name_cyr",
+        "parcel_status_name_lat",
+        "area",
+        "dkp_status_code",
+        "dkp_status_name_cyr",
+        "dkp_status_name_lat",
+        "uipn",
+        "source_projection",
+        "scale"
+      ],
+      "authorized_use": "IMPLEMENTATION_REFERENCE_ONLY_EXPLICIT_ACTIVATION_REQUIRES_CURRENT_PINS",
+      "accepted_as_current_runtime_contract": false
+    }
+  ],
+  "building_object_answer": {
+    "dated_technical_candidate": "dkp:objekat",
+    "dated_declared_default_crs": "EPSG:32634",
+    "current_schema_hash": "06d95eb06d4d4a5408e8156df22a43082101affaf3b2b5ca4a6d6e6df87f8658",
+    "current_identity_fields": ["objectid", "maticnibrojko", "brparcele", "brdelaparc", "deoparcele_id"],
+    "identity_fields_are_candidates": true,
+    "geometry_field": "wkb_geometry",
+    "geometry_schema_type": "gml:GeometryPropertyType",
+    "current_geometry_type": null,
+    "ko_parcel_join_candidate": ["maticnibrojko", "brparcele"],
+    "ko_parcel_join_confirmed": false,
+    "non_personal_property_whitelist": [],
+    "lawful_automatic_feature_type": null,
+    "decision": "BUILDING_CONTRACT_REVIEW_PENDING",
+    "issue_42_disposition": "KEEP_OPEN_PENDING_CONTRACT_REVIEW",
+    "amended_on": "2026-09-08",
+    "reasons": [
+      "The current object schema exposes KO/parcel join candidates and a geometry field, so the timeout-based not-feasible recommendation is withdrawn.",
+      "Actual footprint geometry, a working identity join, the whitelist, dataset identity and building-specific access scope remain unverified; no building records were fetched.",
+      "The owner-authorized parcel scope does not extend to building fetching and is not publisher consent."
+    ]
+  },
+  "automatic_usable_feature_types": [],
+  "implementation": {
+    "issue": "#21",
+    "feature_type": "dkp:dkp_parcels_weekly_only_utm",
+    "automatic_fetching_implemented": true,
+    "default_enabled": false,
+    "activation_requires_current_external_pins": true
+  }
+}

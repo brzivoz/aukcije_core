@@ -51,4 +51,28 @@ public final class LocationSelectionSql {
     public static boolean publishableSelection(String extractionStatus, String resolutionStatus) {
         return "RESOLVED".equals(resolutionStatus) && publishableExtractionStatus(extractionStatus);
     }
+
+    /**
+     * Requires a parcel attempt to remain tied to the exact current #33 result.
+     * The alias is a trusted compile-time identifier supplied by repository code.
+     */
+    public static String currentParcelEligibilityPredicate(String attemptAlias) {
+        return "(" + attemptAlias + ".location_precision <> 'PARCEL' "
+                + "OR " + attemptAlias + ".resolver <> 'RGZ_WFS_PARCEL' OR EXISTS ("
+                + "SELECT 1 FROM current_property_reference_ko_matches current_ko "
+                + "JOIN property_reference_ko_match_results ko_result "
+                + "ON ko_result.reference_id = current_ko.reference_id "
+                + "AND ko_result.input_fingerprint = current_ko.input_fingerprint "
+                + "JOIN property_reference_extraction_memberships current_membership "
+                + "ON current_membership.reference_id = current_ko.reference_id "
+                + "JOIN current_property_reference_extractions current_extraction "
+                + "ON current_extraction.auction_id = current_membership.auction_id "
+                + "AND current_extraction.extraction_run_id "
+                + "= current_membership.extraction_run_id "
+                + "WHERE current_ko.reference_id = " + attemptAlias + ".property_reference_id "
+                + "AND " + attemptAlias + ".upstream_ko_match_input_fingerprint "
+                + "= current_ko.input_fingerprint "
+                + "AND ko_result.status = 'MATCHED' "
+                + "AND ko_result.reconciliation_status <> 'STRUCTURED_ONLY'))";
+    }
 }

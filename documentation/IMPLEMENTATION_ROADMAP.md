@@ -3,26 +3,30 @@
 First audited: 2026-08-21
 Re-audited and rewired: 2026-08-21
 Reordered for a coarse-map-first MVP: 2026-08-22
+RGZ automatic-access gate re-decided: 2026-09-03
 GitHub repository: [brzivoz/aukcije_core](https://github.com/brzivoz/aukcije_core)
 
 ## Executive summary
 
-The GitHub plan consists of 9 epics and 25 executable implementation/decision issues. Every issue has a priority, a size estimate, a milestone, explicit dependencies, testable acceptance criteria, and required completion evidence.
+The GitHub plan consists of 9 epics plus executable implementation and decision
+issues. Every issue has a priority, a size estimate, a milestone, explicit
+dependencies, testable acceptance criteria, and required completion evidence.
 
-Both external feasibility gates now have committed outcomes:
+The external feasibility decisions now have committed outcomes:
 
-- **#13 — REOPENED, option B verified for private use:** the public WFS returned three exact parcel geometries. Access is restricted to an occasional owner-initiated command and private local artifact; the running application still makes zero RGZ requests.
+- **#13 — SUPERSEDED FOR AUTOMATION, manual option B retained:** the public WFS returned three exact parcel geometries. Access remains restricted to an occasional owner-initiated command and private local artifact.
+- **#41 decision / #21 runtime — LOCAL CORE, REVIEW FOLLOW-UP:** bounded cache-first private-local WFS fetching is implemented and becomes automatic after explicit activation with current source pins. The 2026-09-08 corrections restore ordinary retry discovery and metadata-independent cache reuse. Publisher billing/agreement work and operator monitoring are deferred; published sources do not independently confirm automation/cache authority. #42 stays open: a current building schema exposes join candidates, but its complete contract is not yet verified.
 - **#32 — COMPLETE, feasible with a measured ceiling:** every measured auction reached some location tier, but only 16.3% reached address precision; no Address Registry point is promoted to parcel precision.
 
 Three milestones define completion:
 
 | Milestone | Goal | Exit condition |
 |---|---|---|
-| `M0 — Feasibility & Data Foundation` | Verified source contract, tests, PostGIS, resilient sync, immutable snapshots, measurable parser, both feasibility gates answered | Source can be replayed and reprocessed deterministically with complete-run evidence |
+| `M0 — Feasibility & Data Foundation` | Verified source contract, tests, PostGIS, resilient sync, immutable snapshots, measurable parser, all feasibility decisions answered | Source can be replayed and reprocessed deterministically with complete-run evidence |
 | `M1 — Geospatial Map MVP` | Lawful location resolution, spatial model, offline Serbia basemap, bounded GeoJSON, accessible map | Map works with network restricted to localhost and represents location precision honestly |
 | `M2 — Operational Daily Use` | Deterministic reprocessing, status/metrics, unified filters/list-map workflow, hardened private release | Fresh-machine release/backup/restore checklist passes with retained evidence |
 
-The 2026-08-22 reorder acts on the second of those outcomes. #32 measured that
+The 2026-08-22 reorder acts on the #32 outcome. #32 measured that
 the structured `Place.Cadastral` field carries an official KO name on 100% of
 auctions and that 83.7% of all placements are settlement or KO centroids. The
 coarse map therefore does not depend on the extraction parser, and the waves
@@ -51,7 +55,7 @@ Every figure below was verified directly against the live API on 2026-08-21.
 1. **Category ingestion was over-specified and duplicative.** Root `7` returns 622 unique records; children `47`/`48`/`49` are disjoint subsets totaling 530, leaving 92 root-only. #12 discovers by roots `7` and `8`, deduplicates stable IDs, and uses children/detail categories only for classification.
 2. **Presence is not activity.** The source includes historical auctions. #11 closes primarily from the source end instant and only uses absence after two complete successful cycles; partial runs cannot mutate lifecycle. (See correction 9 below for the revised magnitude.)
 3. **Raw payload replay is real.** #10 stores sanitized, append-only listing+detail JSONB snapshots keyed by canonical content hash. Base64 thumbnails/images and transport secrets are excluded by a versioned minimization policy.
-4. **RGZ parcel access is explicit and opt-in.** After the owner narrowed the scope to occasional private non-commercial use, #13 verified option B against a public WFS 2.0.0 contract. A manual one-parcel command produces a private local artifact; application/runtime code never calls RGZ, and missing or failed imports continue through #23.
+4. **RGZ parcel access began as explicit manual import.** #13 verified option B for occasional private non-commercial use: a one-parcel command produced a private local artifact and the application did not call RGZ. That statement describes the superseded #13 runtime only. The later #41 decision and #21 implementation add a guarded automatic `PARCEL_PATH`; missing or failed lookups still continue through #23.
 5. **The address fallback is concrete.** The official weekly Address Registry GPKG includes house-number geometry and street, municipality, settlement, KO, and parcel identifiers. The inspected artifact used `EPSG:25834`; #22 validates and transforms it rather than relying on a live geocoder.
 6. **Spatial persistence is production-shaped.** #15 standardizes `postgis/postgis:18-3.6`, Flyway, Hibernate Spatial, `ddl-auto=validate`, loopback database binding, and a clean re-sync from H2 while preserving any old H2 file for manual archive.
 7. **The basemap is genuinely local.** #24/#25 use a checksum-verified Geofabrik Serbia extract, pinned Protomaps/Planetiler tooling, PMTiles v3, same-origin sprites/glyphs/style, HTTP byte ranges/ETags, atomic activation, and browser proof with non-local network blocked.
@@ -115,6 +119,38 @@ product target itself, not only the ordering.
 
 27. **Correction 19's deferral is withdrawn.** `#10 → #18 → #19 → #33 → #23` returns to the critical path, because it is the only source of parcel numbers: #32 confirmed `Place.ParcelNumber` is null throughout, so the identities #21 looks up exist only in description text. The coarse-map-first ordering was still correct as executed — a working map shipped in ~49 focused days instead of ~103, and #40 made it operable in one click. What changes is what comes after it: the extraction chain is now the product, not a refinement of it.
 
+## Fifth-audit decision (opened 2026-09-02, finalized 2026-09-03)
+
+Corrections 23–27 are retained as the reason #41 was opened. #41 has now
+answered the gate and changes their assumed outcome.
+
+28. **The owner authorized automatic private-local parcel fetching.** Published
+    RGZ sources still do not independently grant unattended WFS/cache use: the
+    tariff lists standard NIGP WFS at 228,010 RSD for 12 months or 200,000
+    requests, and empty WFS `Fees`/`AccessConstraints` metadata is not a
+    licence. The owner's explicit direction is to implement automatic fetching
+    now and defer billing/service-agreement work and monitoring. #41 records
+    that distinction rather than presenting owner authorization as RGZ consent.
+
+29. **#21's automatic core is implemented and again gates the primary precision
+    path.** #29 now calls a bounded unauthenticated WFS client for current #33
+    matches. It is cache-first, rate-limited to 0.2 requests/second and one
+    concurrent call, capped at 100 logical misses per run, tied to the exact #33
+    fingerprint, and protected by a per-request kill switch. It defaults off and
+    requires explicit current dataset/capabilities/schema pins. The 2026-09-08
+    recheck succeeded, but did not establish a publisher dataset edition.
+    Once activated, manual and scheduled refreshes fetch automatically. Invalid, ambiguous, unavailable, or stale
+    inputs fail through to #23 without inventing precision.
+
+30. **Amended 2026-09-08: #42 remains open for building-contract review.** The
+    current `dkp:objekat` schema exposes `maticnibrojko` + `brparcele` join
+    candidates and `wkb_geometry`; default CRS is `EPSG:32634`. A timeout did
+    not prove the layer unusable, so the earlier not-feasible recommendation
+    is withdrawn. Actual footprint geometry, the join, whitelist, dataset and
+    access scope still need verification. Parcel authorization cannot be
+    extrapolated to that layer. Object auctions use a validated parcel polygon
+    when present, then #23's fallbacks.
+
 ## Honest total
 
 Summing the size labels at 1.5 / 5 / 12 focused days gives roughly **165 focused days** to complete all three milestones as written. For one developer working evenings and weekends that is a **6–12 month** programme.
@@ -128,13 +164,13 @@ The reorder does not change that total — it changes when the product becomes u
 
 The originally-wired row uses the pre-split #22/#33/#23; the coarse row uses #36/#37/#38.
 
-Deferred rather than cut: #12, #17, #10, #18, #19, #22, #33, #23 — about 64 focused days, sequenced behind a shipped map instead of in front of it. Correction 23 revises what those days buy: not a 16.3% address tier, but precise placement for the 74.7% of auctions carrying an extractable parcel reference, once #21 and #41 land alongside them.
+Deferred rather than cut: #12, #17, #10, #18, #19, #22, #33, #23 — about 64 focused days, sequenced behind a shipped map instead of in front of it. #41 fixes the access contract and #21 implements the automatic RGZ parcel ceiling; those days buy deterministic extracted identities and the official Address Registry/address fallbacks.
 
-The P2/M2 work remains the designated cut line, and #28 is the item to drop first if the schedule needs to give. #21 is no longer a candidate for cutting — correction 24 makes it the primary precision tier. If #41 declines automated access, the fallback is #23's address and centroid tiers, not a smaller #21.
+The P2/M2 work remains the designated cut line, and #28 is the item to drop first if the schedule needs to give. Automatic #21 parcel geometry is the primary precision input; #23's address and centroid tiers remain mandatory fail-closed fallbacks. #42 stays open pending building-contract review and does not block initial parcel outlines.
 
 ## Implementation order
 
-Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. #39 records the reviewed municipality-identity prerequisite discovered in #37's retained population before #38 consumes those matches. Correction 24 makes #21 a hard tier-1 edge into #23 rather than the optional dashed edge it was: automatic parcel geometry is the expected outcome for 74.7% of auctions. #41 gates #21 and #42; if #41 declines automated access, #23 still proceeds through the address and centroid fallbacks.
+Arrows are hard dependencies. `M1a`/`M1b` are planning phases inside the existing `M1 — Geospatial Map MVP` milestone, not new GitHub milestones. #36, #37, and #38 are the correction-21 splits, opened 2026-08-22; their parents #22, #33, and #23 keep the second half of each split. #39 records the reviewed municipality-identity prerequisite discovered in #37's retained population before #38 consumes those matches. #41 selected the explicitly activated private-local access contract; #21 implements it. #42 remains pending building-contract review.
 
 ```mermaid
 flowchart TB
@@ -203,9 +239,9 @@ flowchart TB
     subgraph M1B["M1b — Address & Parcel Precision"]
         I22["#22 Full Address Registry import"]
         I33["#33 Extracted KO matching"]
-        I41["#41 RGZ automated-access decision"]
-        I21["#21 Automatic parcel geometry"]
-        I42["#42 Building/object footprints"]
+        I41["#41 Automatic RGZ parcel contract ✅"]
+        I21["#21 Automatic parcel resolver core ✅"]
+        I42["#42 Footprint contract review pending"]
         I23["#23 Address/parcel resolver"]
 
         I36 --> I22
@@ -214,15 +250,12 @@ flowchart TB
         I13 --> I41
         I41 --> I21
         I41 --> I42
-        I21 --> I42
-        I19 --> I42
         I33 --> I21
         I20 --> I21
         I38 --> I23
         I22 --> I23
         I33 --> I23
         I21 --> I23
-        I42 -. "tier 2 when lawful" .-> I23
     end
 
     subgraph M2["M2 — Operational Daily Use"]
@@ -233,7 +266,6 @@ flowchart TB
 
         I11 --> I29
         I19 --> I29
-        I21 --> I29
         I23 --> I29
         I22 --> I30
         I25 --> I30
@@ -253,7 +285,7 @@ flowchart TB
 
 The critical path to a **usable map** is now the coarse-location chain: `#15 → #36 → #14 → #37 → #38 → #26 → #27`, with `#24 → #25` and `#34` running alongside it. Nothing on that path reads a description.
 
-The parser chain `#12 → #17 → #10 → #18 → #19 → #33 → #23` is still real and still largely irreducible, but #32 measured what it buys: the 16.3% address tier, not the map. It now runs after the map ships rather than in front of it. Everything that was needlessly attached to it — the GPKG import, the basemap build, the KO dictionary, the spatial schema, and the browser harness — runs alongside or ahead of it.
+The parser chain `#12 → #17 → #10 → #18 → #19 → #33 → #21 → #23` is still real and still largely irreducible. It now runs after the map ships rather than in front of it. #21 automatically supplies exact parcel geometry where possible, while #23 supplies the mandatory address/coarse fallback. Everything that was needlessly attached to the parser chain — the GPKG import, the basemap build, the KO dictionary, the spatial schema, and the browser harness — runs alongside or ahead of it.
 
 ## Issue hierarchy
 
@@ -261,7 +293,7 @@ The parser chain `#12 → #17 → #10 → #18 → #19 → #33 → #23` is still 
 |---|---|---|
 | [#1 Auction Data Foundation](https://github.com/brzivoz/aukcije_core/issues/1) | P0 / M0 | #16, #15 (cross-epic), #12, #17, #10, #11 |
 | [#2 Property Reference Extraction](https://github.com/brzivoz/aukcije_core/issues/2) | P0 / M0 | #18, #19 |
-| [#3 Lawful RGZ Parcel Resolution](https://github.com/brzivoz/aukcije_core/issues/3) | P1 / M1 | #13 (P0 gate), #21 |
+| [#3 Lawful RGZ Parcel Resolution](https://github.com/brzivoz/aukcije_core/issues/3) | P1 / M1 | #13 (manual B, superseded scope), #41 (owner-authorized automatic contract), #21 (automatic parcel resolver core); #42 building-contract review pending |
 | [#4 Official Address Resolution](https://github.com/brzivoz/aukcije_core/issues/4) | P1 / M1 | #32 (P0 spike), #36, #14, #37, #39, #38, then #22, #33, #23 |
 
 The correction-21 splits are [#36 centroid extract](https://github.com/brzivoz/aukcije_core/issues/36), [#37 structured KO matching](https://github.com/brzivoz/aukcije_core/issues/37), and [#38 coarse resolver](https://github.com/brzivoz/aukcije_core/issues/38). Their parents #22, #33, and #23 retain the address/parcel half of each and keep their original size labels. [#39 municipality aliases](https://github.com/brzivoz/aukcije_core/issues/39) is the small reviewed-data bridge from #37 to #38; it replaces per-KO suffix workarounds with one explicit municipality-identity contract.
@@ -296,7 +328,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 7 | #10, #22 | Snapshot replay/hash evidence; validated full GPKG import with atomic promotion and rollback |
 | 8 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
 | 9 | **#19 ✅** | Held-out parser thresholds met with versioned deterministic replacement, retained source/run evidence, and reviewed-correction preservation |
-| 10 | **#33 ✅**, #21 | Zero exact-match false positives on extracted names; selected parcel/fallback contract |
+| 10 | **#33 ✅, #41 ✅, #21 core ✅** | Zero exact-match false positives; bounded automatic parcel fetching, cache replay, PostGIS persistence, stale-#33 invalidation, and fallback behavior |
 | 11 | #23, **#29 coordinator ✅** | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
 | 12 | #30 | Persisted freshness/backlog/precision status |
 | 13 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
@@ -306,9 +338,11 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 measurement landed early on 2026-08-25. The #19 extracted-reference parser and
 V17 evidence ledger landed on 2026-09-02. #33 now supplies immutable V18
 per-reference KO matching and structured/text conflict evidence with zero
-held-out exact-match false positives. Wave 10 remains open on #21; #21/#23
-still own the parcel and higher-precision resolver implementations that plug
-into those stage/version boundaries.
+held-out exact-match false positives. #41 now records owner-authorized automatic
+WFS parcel access, and this change implements #21's core resolver, cache,
+provenance, invalidation, and map consumption. #23 still owns official-address
+and coarse fallback resolution. Monitoring and publisher billing remain
+deferred. #42 remains open without a footprint implementation pending its contract review.
 
 ## Definition of done for every issue
 
@@ -319,7 +353,7 @@ into those stage/version boundaries.
 - No raw base64 images, credentials, browser-session tokens, or unnecessary personal data appear in storage, logs, fixtures, or CI artifacts.
 - The issue body is updated if implementation changes the contract, and closure includes exact commands, results, artifacts, and current terminal CI URL.
 
-Spike issues (#13, #32) are exempt from the application test and CI requirements. Their deliverable is committed reproducible evidence. #13 additionally retains its bounded private lookup command; #32's measurement code remains disposable.
+Spike issues (#13 and #32) are exempt from application test and CI requirements. #13 retains its bounded private lookup command and #32's measurement code remains disposable. #41 also has an offline source/contract/redaction verifier, but its automatic runtime implementation is covered by unit and isolated PostGIS integration tests.
 
 ## Primary references
 
@@ -328,6 +362,8 @@ Spike issues (#13, #32) are exempt from the application test and CI requirements
 - [RGZ GeoSrbija](https://www.rgz.gov.rs/geo-srbija) and [public cadastral map](https://portal.rgz.gov.rs/rgz-portal/map)
 - [RGZ electronic-service terms](https://www.rgz.gov.rs/uslovi-kori%C5%A1%C4%87enja-elektronskih-servisa)
 - [Issue #13 option-B private WFS decision record](2026-08-21-decision-13-rgz-parcel-access.md)
+- [Issue #41 owner-authorized automatic parcel-access record](2026-09-03-decision-41-rgz-automatic-geometry-access.md)
+- [RGZ consolidated administrative-fee law](https://www.rgz.gov.rs/dokumenta-zakoni) (tariff 215i)
 - [Geofabrik Serbia extract](https://download.geofabrik.de/europe/serbia.html)
 - [OpenStreetMap tile usage policy](https://operations.osmfoundation.org/policies/tiles/)
 - [Protomaps basemap generator](https://github.com/protomaps/basemaps), [PMTiles specification/implementations](https://github.com/protomaps/PMTiles), and [MapLibre PMTiles example](https://maplibre.org/maplibre-gl-js/docs/examples/pmtiles/)

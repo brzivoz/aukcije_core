@@ -1,0 +1,131 @@
+{
+  "decision_date": "2026-09-03",
+  "reviewed_at_utc": "2026-09-03T14:35:26Z",
+  "scope": "automatic in-application parcel and building-footprint resolution for one private local non-commercial installation",
+  "sources": [
+    {
+      "id": "rgz-electronic-service-terms",
+      "url": "https://www.rgz.gov.rs/uslovi-kori%C5%A1%C4%87enja-elektronskih-servisa",
+      "read_date": "2026-09-02",
+      "publisher_version": "October 2023",
+      "findings": [
+        "Use must comply with law and remain optimal and non-disruptive.",
+        "RGZ may monitor, filter, restrict or block access.",
+        "The page states no machine-access rate, WFS cache right, named data licence or redistribution grant."
+      ],
+      "authorizes_automatic_wfs": false,
+      "authorizes_redistribution": false
+    },
+    {
+      "id": "rgz-geosrbija-overview",
+      "url": "https://www.rgz.gov.rs/geo-srbija",
+      "read_date": "2026-09-02",
+      "findings": [
+        "The platform is described as giving citizens and public and private sectors access and insight into spatial information.",
+        "The page states no named licence, machine-use contract, cache right, request rate or redistribution grant."
+      ],
+      "authorizes_automatic_wfs": false,
+      "authorizes_redistribution": false
+    },
+    {
+      "id": "rgz-laws-index",
+      "url": "https://www.rgz.gov.rs/dokumenta-zakoni",
+      "read_date": "2026-09-02",
+      "findings": [
+        "The current RGZ laws index links the consolidated administrative-fee law used for this decision."
+      ]
+    },
+    {
+      "id": "administrative-fee-law-tariff-215i",
+      "url": "https://www.rgz.gov.rs/content/docs/000/000/006/%D0%97%D0%B0%D0%BA%D0%BE%D0%BD%20%D0%BE%20%D1%80%D0%B5%D0%BF%D1%83%D0%B1%D0%BB%D0%B8%D1%87%D0%BA%D0%B8%D0%BC%20%D0%B0%D0%B4%D0%BC%D0%B8%D0%BD%D0%B8%D1%81%D1%82%D1%80%D0%B0%D1%82%D0%B8%D0%B2%D0%BD%D0%B8%D0%BC%20%D1%82%D0%B0%D0%BA%D1%81%D0%B0%D0%BC%D0%B0_%2043_03...63_24%20%D1%81%D0%B0%20%D1%83%D1%81%D0%BA%D0%BB%D0%B0%D1%92%D0%B5%D0%BD%D0%B8%D0%BC%20%D0%B4%D0%B8%D0%BD%D0%B0%D1%80%D1%81%D0%BA%D0%B8%D0%BC%20%D0%B8%D0%B7%D0%BD%D0%BE%D1%81%D0%B8%D0%BC%D0%B0.pdf",
+      "read_date": "2026-09-02",
+      "location": "tariff 215i, PDF pages 220-222",
+      "amount_source": "Official Gazette RS 55/2025",
+      "findings": [
+        "A standard NIGP WFS service for Serbia or 200000 annual requests is priced at 228010 RSD for 12 months.",
+        "The no-fee public-inspection exception does not state that WFS use is free.",
+        "The no-fee NIGP download list names Address Registry, Spatial Units Register, Geographical Names Register, Investment Locations Register and statistical-unit nomenclature; cadastral parcel and building WFS are not listed."
+      ],
+      "authorizes_anonymous_automatic_wfs": false,
+      "authorizes_redistribution": false
+    },
+    {
+      "id": "regdkp-wfs-capabilities",
+      "url": "https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=GetCapabilities",
+      "read_date": "2026-09-03",
+      "authentication": "none",
+      "outcome": "CONNECT_TIMEOUT",
+      "dns_resolved": true,
+      "https_connect_timeout_seconds": 5,
+      "current_response_retained": false,
+      "credentials_or_cookies_used": false,
+      "checked_at_utc": "2026-09-03T14:35:26Z"
+    },
+    {
+      "id": "regdkp-parcel-schema",
+      "url": "https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=DescribeFeatureType&typeNames=dkp%3Adkp_parcels_weekly_only_utm",
+      "read_date": "2026-09-03",
+      "authentication": "none",
+      "outcome": "CONNECT_TIMEOUT",
+      "https_connect_timeout_seconds": 5,
+      "current_response_retained": false,
+      "credentials_or_cookies_used": false,
+      "checked_at_utc": "2026-09-03T14:35:26Z"
+    },
+    {
+      "id": "regdkp-object-schema",
+      "url": "https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=DescribeFeatureType&typeNames=dkp%3Aobjekat",
+      "read_date": "2026-09-03",
+      "authentication": "none",
+      "outcome": "CONNECT_TIMEOUT",
+      "https_connect_timeout_seconds": 5,
+      "current_response_retained": false,
+      "credentials_or_cookies_used": false,
+      "checked_at_utc": "2026-09-03T14:35:26Z"
+    },
+    {
+      "id": "rgz-public-map",
+      "url": "https://portal.rgz.gov.rs/rgz-portal/map",
+      "read_date": "2026-09-02",
+      "authentication": "none",
+      "outcome": "CONNECT_TIMEOUT_FROM_PROJECT_ENVIRONMENT",
+      "credentials_or_cookies_used": false
+    }
+  ],
+  "rechecked_on": "2026-09-08",
+  "rechecks": [
+    {
+      "id": "regdkp-wfs-capabilities",
+      "url": "https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=GetCapabilities",
+      "read_date": "2026-09-08",
+      "outcome": "HTTP_200",
+      "authentication": "none",
+      "credentials_or_cookies_used": false,
+      "raw_sha256": "63d2e107b0073502c5363d53dd898beab9992246e10b48bf414a0007b2d575a5"
+    },
+    {
+      "id": "regdkp-parcel-schema",
+      "url": "https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=DescribeFeatureType&typeNames=dkp%3Adkp_parcels_weekly_only_utm",
+      "read_date": "2026-09-08",
+      "outcome": "HTTP_200",
+      "authentication": "none",
+      "credentials_or_cookies_used": false,
+      "raw_sha256": "4de609f7f017295f2891d3e0219729e24f440dd7f89c4e8baa872bb3c06a4b48"
+    },
+    {
+      "id": "regdkp-object-schema",
+      "url": "https://ogc-tmp.geosrbija.rs/regdkp/ows?service=WFS&version=2.0.0&request=DescribeFeatureType&typeNames=dkp%3Aobjekat",
+      "read_date": "2026-09-08",
+      "outcome": "HTTP_200",
+      "authentication": "none",
+      "credentials_or_cookies_used": false,
+      "raw_sha256": "06d95eb06d4d4a5408e8156df22a43082101affaf3b2b5ca4a6d6e6df87f8658"
+    }
+  ],
+  "contact": {
+    "url": "https://www.rgz.gov.rs/info-centar",
+    "published_email": "info.centar@rgz.gov.rs",
+    "contacted_for_issue_41": false,
+    "reason": "The owner directed implementation of the automatic private-local capability with explicit activation. Publisher authorization and any service agreement remain unconfirmed and are deferred; the application does not present owner direction as RGZ consent."
+  }
+}

@@ -62,13 +62,17 @@ public class EnrichmentPipeline {
     }
 
     public EnrichmentItemResult process(EnrichmentWorkItem item) {
+        return process(item, EnrichmentStage::process);
+    }
+
+    EnrichmentItemResult process(EnrichmentWorkItem item, StageExecutor executor) {
         List<String> outputComponents = new ArrayList<>();
         EnrichmentStageResult last = null;
         EnrichmentStageName lastStage = null;
         for (EnrichmentStage stage : stages) {
             lastStage = stage.name();
             try {
-                last = stage.process(item);
+                last = executor.process(stage, item);
             } catch (EnrichmentStageException failure) {
                 throw failure.atStage(stage.name());
             } catch (org.springframework.dao.DataAccessException persistenceFailure) {
@@ -94,6 +98,12 @@ public class EnrichmentPipeline {
                     "SELECTED_RESOLUTION_INCOMPLETE", null).atStage(lastStage);
         };
         return new EnrichmentItemResult(status, lastStage, outputHash);
+    }
+
+    @FunctionalInterface
+    interface StageExecutor {
+
+        EnrichmentStageResult process(EnrichmentStage stage, EnrichmentWorkItem item);
     }
 
     private static String requireVersion(String value, EnrichmentStageName stage, String kind) {

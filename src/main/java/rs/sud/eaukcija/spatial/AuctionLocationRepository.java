@@ -22,6 +22,8 @@ public class AuctionLocationRepository {
             "pr.reference_order",
             "attempt.completed_at",
             "attempt.id");
+    static final String CURRENT_PARCEL =
+            LocationSelectionSql.currentParcelEligibilityPredicate("attempt");
 
     private final JdbcTemplate jdbc;
 
@@ -94,8 +96,9 @@ public class AuctionLocationRepository {
                        AND attempt.property_reference_id = current_resolution.property_reference_id
                       LEFT JOIN spatial_resolution_geometries geometry ON geometry.id = attempt.geometry_id
                      WHERE pr.auction_id IN (%s)
+                       AND %s
                 )
                 SELECT * FROM ranked WHERE selection_rank = 1 ORDER BY auction_id
-                """.formatted(BEST_SELECTION_ORDER, placeholders);
+                """.formatted(BEST_SELECTION_ORDER, placeholders, CURRENT_PARCEL);
     }
 }

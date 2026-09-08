@@ -25,7 +25,8 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 | Structured auction KO matching | working (auditable PostgreSQL results, #37) |
 | Coarse auction locations | working (KO/settlement/municipality/`NONE`, #38) |
 | Official Address Registry full snapshots | working (points + centroids, #22) |
-| Parcel + address resolution | planned (EPIC-03, EPIC-04) |
+| Automatic parcel resolution | working (#21 under #41; bounded cache-first RGZ WFS, explicit pinned activation, exact current-#33 provenance) |
+| Address fallback resolution | planned (EPIC-04, #23) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
 | Bounded GeoJSON viewport API | working (indexed and precision-aware, #26) |
@@ -187,6 +188,13 @@ immutable versioned evidence, idempotent reprocessing, and held-out quality.
 See [issue #33 verification](documentation/2026-09-02-issue-33-verification.md)
 for the acceptance matrix and fresh Java, PostGIS, migration, and browser
 evidence.
+See [issue #41 automatic RGZ parcel access](documentation/2026-09-03-decision-41-rgz-automatic-geometry-access.md)
+for the owner-authorized private-local scope, fixed traffic/cache guardrails,
+explicit current-pin activation, dynamic kill switch, source caveat,
+building-contract review, and verification.
+See [the #41/#21 review corrections](documentation/2026-09-08-issue-41-fixes-verification.md)
+for ordinary retry discovery, disabled cache reuse, metadata-independent cache
+identity, the V21 upgrade, and fresh Java/browser regression evidence.
 See [coarse location operations](documentation/COARSE_LOCATION_OPERATIONS.md)
 for the #37→#36 resolution ladder, transactional spatial persistence, retained
 tier reports, idempotent refreshes, precision-aware consumers, and recovery.
@@ -461,6 +469,9 @@ data/address-registry-centroids/  ignored runtime #36 versions, ACTIVE pointer, 
 data/address-registry-ko-dictionary/  ignored runtime #14 versions, ACTIVE pointer, and run evidence
 
 config/address-registry/ko-alias-overrides.json  reviewed, versioned KO alias source
+
+spike/issue-13/               manual, private one-parcel RGZ lookup and offline evidence
+spike/issue-41/               automatic parcel-access contract and offline verifier
 
 src/test/resources/fixtures/
 ├── auctions-sample.json         86-record sample, thumbnails stripped

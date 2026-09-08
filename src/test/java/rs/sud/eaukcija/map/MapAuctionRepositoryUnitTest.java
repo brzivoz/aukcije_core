@@ -41,6 +41,7 @@ class MapAuctionRepositoryUnitTest {
                 .contains("ST_Intersects(geometry.canonical_geometry, viewport.bounds)")
                 .contains("JOIN auctions")
                 .contains("pr.extraction_status IN ('EXTRACTED', 'USER_CONFIRMED')")
+                .contains("RGZ_WFS_PARCEL", "upstream_ko_match_input_fingerprint")
                 .doesNotContain("NO_STRUCTURED_REFERENCE")
                 .contains("ORDER BY auction_id, md5(property_key)")
                 .contains("LIMIT ?");

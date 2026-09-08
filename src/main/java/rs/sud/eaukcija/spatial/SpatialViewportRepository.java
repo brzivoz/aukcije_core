@@ -55,9 +55,10 @@ public class SpatialViewportRepository {
                AND current_resolution.property_reference_id = attempt.property_reference_id
               JOIN property_references pr
                 ON pr.id = current_resolution.property_reference_id
+             WHERE %s
              ORDER BY pr.auction_id, pr.reference_order, pr.canonical_key, pr.id
              LIMIT ?
-            """;
+            """.formatted(LocationSelectionSql.currentParcelEligibilityPredicate("attempt"));
 
     private final JdbcTemplate jdbc;
 

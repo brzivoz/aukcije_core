@@ -37,6 +37,7 @@ public class SelectedResolutionEnrichmentStage implements EnrichmentStage {
     @Override
     public EnrichmentStageResult process(EnrichmentWorkItem item) {
         String rank = LocationSelectionSql.precisionRank("attempt.location_precision");
+        String currentParcel = LocationSelectionSql.currentParcelEligibilityPredicate("attempt");
         List<Selected> selected = jdbc.query("""
                 SELECT attempt.resolution_status, attempt.location_precision,
                        attempt.resolver, attempt.resolver_version,
@@ -49,9 +50,10 @@ public class SelectedResolutionEnrichmentStage implements EnrichmentStage {
                   JOIN location_resolution_attempts attempt
                     ON attempt.id = current.resolution_attempt_id
                  WHERE reference.auction_id = ?
+                   AND %s
                  ORDER BY %s DESC, attempt.completed_at DESC, attempt.id DESC
                  LIMIT 1
-                """.formatted(rank), (result, row) -> new Selected(
+                """.formatted(currentParcel, rank), (result, row) -> new Selected(
                 result.getString("resolution_status"),
                 result.getString("location_precision"),
                 result.getString("resolver"),

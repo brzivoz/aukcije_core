@@ -77,7 +77,10 @@ class DatabaseLifecycleIntegrationTest {
                         "V15__durable_refresh_workflow.sql",
                         "V16__immutable_eaukcija_source_snapshots.sql",
                         "V17__versioned_property_reference_extraction.sql",
-                        "V18__extracted_ko_matching.sql");
+                        "V18__extracted_ko_matching.sql",
+                        "V19__automatic_rgz_parcel_resolution.sql",
+                        "V20__durable_rgz_lookup_claims.sql",
+                        "V21__rgz_cache_identity_and_retry_discovery.sql");
     }
 
     @Test

@@ -28,6 +28,8 @@ public class MapAuctionRepository {
             "resolution_attempt_id");
     static final String PUBLISHABLE_REFERENCE =
             LocationSelectionSql.publishableReferencePredicate("pr.extraction_status");
+    static final String CURRENT_PARCEL =
+            LocationSelectionSql.currentParcelEligibilityPredicate("attempt");
 
     static final String VIEWPORT_QUERY = """
             WITH viewport AS (
@@ -66,6 +68,7 @@ public class MapAuctionRepository {
                     ON a.id = pr.auction_id
                  WHERE a.end_date IS NOT NULL
                    AND %s
+                   AND %s
                    AND a.end_date >= ?
                    AND (?::timestamptz IS NULL OR a.end_date < ?)
                    AND (?::text IS NULL OR a.status = ?)
@@ -92,7 +95,7 @@ public class MapAuctionRepository {
                AND (?::text IS NULL OR location_precision = ?)
              ORDER BY auction_id, md5(property_key)
              LIMIT ?
-            """.formatted(PUBLISHABLE_REFERENCE, BEST_SELECTION_ORDER);
+            """.formatted(PUBLISHABLE_REFERENCE, CURRENT_PARCEL, BEST_SELECTION_ORDER);
 
     private final JdbcTemplate jdbc;
 

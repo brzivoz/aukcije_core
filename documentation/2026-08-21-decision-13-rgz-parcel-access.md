@@ -6,17 +6,21 @@
 
 **Reopened scope:** occasional private, non-commercial use
 
-**Status:** **SUPERSEDED (2026-08-25) by #41 — retained as the dated record of
-what was decided on 2026-08-21**
+**Status:** **SUPERSEDED (2026-08-25) by #41 — outcome recorded in
+[`2026-09-03-decision-41-rgz-automatic-geometry-access.md`](2026-09-03-decision-41-rgz-automatic-geometry-access.md);
+retained as the dated record of what was decided on 2026-08-21**
 
 > **Superseded.** This decision was scoped by the owner's declaration of
 > *occasional private non-commercial* use, and states below that "a scope change
 > requires a new #13 review." That change has occurred: parcel geometry must now
 > be resolved automatically by the application and rendered on the map. #41
-> re-takes the decision under the automated scope and additionally enumerates
-> whether a lawful building/object footprint feature type exists (#42). #21 is
-> rescoped to automatic resolution and gated on #41. Nothing below is amended;
-> it records what was decided on 2026-08-21 and why.
+> re-took the decision under the automated scope. On 2026-09-02 the owner
+> explicitly authorized automatic private-local parcel fetching while deferring
+> publisher billing and operator monitoring. Published sources still do not
+> independently confirm automation/cache authority. #41 implemented the
+> bounded cache-first parcel path and found no contract-complete building/object
+> footprint layer for #42. Nothing below is amended; it records what was decided
+> on 2026-08-21 and why.
 
 ## Decision
 
@@ -33,7 +37,9 @@ actual use case and explicitly requested option A or B.
 The repository now contains a one-shot command that makes one unauthenticated
 WFS request, requests at most two features, validates exact identity/CRS/
 geometry, drops unrecognized properties, and writes the geometry only to a
-gitignored private directory. The application itself does not call RGZ.
+gitignored private directory. At the time of #13, the application itself did
+not call RGZ. That runtime statement was superseded by the #41 decision and
+#21 automatic implementation; it is retained here only as dated history.
 
 ## Why option B is technically available
 

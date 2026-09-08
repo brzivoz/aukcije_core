@@ -25,6 +25,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import rs.sud.eaukcija.repository.AuctionRepository;
+import rs.sud.eaukcija.rgz.RgzParcelProperties;
 import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 
 /** PostgreSQL authority for deterministic work discovery and retained run state. */
@@ -37,13 +38,15 @@ public class EnrichmentRunRepository {
     private final AuctionRepository auctions;
     private final ObjectMapper objectMapper;
     private final Clock clock;
+    private final RgzParcelProperties rgz;
 
     @Autowired
     public EnrichmentRunRepository(
             JdbcTemplate jdbc,
             AuctionRepository auctions,
-            ObjectMapper objectMapper) {
-        this(jdbc, auctions, objectMapper, Clock.systemUTC());
+            ObjectMapper objectMapper,
+            RgzParcelProperties rgz) {
+        this(jdbc, auctions, objectMapper, Clock.systemUTC(), rgz);
     }
 
     EnrichmentRunRepository(
@@ -51,10 +54,20 @@ public class EnrichmentRunRepository {
             AuctionRepository auctions,
             ObjectMapper objectMapper,
             Clock clock) {
+        this(jdbc, auctions, objectMapper, clock, new RgzParcelProperties());
+    }
+
+    EnrichmentRunRepository(
+            JdbcTemplate jdbc,
+            AuctionRepository auctions,
+            ObjectMapper objectMapper,
+            Clock clock,
+            RgzParcelProperties rgz) {
         this.jdbc = jdbc;
         this.auctions = auctions;
         this.objectMapper = objectMapper;
         this.clock = clock;
+        this.rgz = rgz;
     }
 
     public Optional<EnrichmentRunClaim> findByIdempotencyKey(String idempotencyKey) {
@@ -263,7 +276,7 @@ public class EnrichmentRunRepository {
             boolean matches = !explicit || selected.contains(row.auctionId());
             boolean retryable = row.stateStatus() == EnrichmentStateStatus.RETRYABLE_FAILURE
                     && row.retryableFailureCount() < maxAttempts;
-            boolean pending = row.stateStatus() == EnrichmentStateStatus.PENDING;
+            boolean pending = pendingWork(row);
             boolean changed = row.stateWorkKey() == null || !row.stateWorkKey().equals(workKey);
             if (matches && (explicit || changed || retryable || pending)) {
                 Instant availableSince = !changed && row.statePendingSince() != null
@@ -297,7 +310,7 @@ public class EnrichmentRunRepository {
             String workKey = versions.workKey(row.auctionId(), row.snapshotSha256(), dependencyHash);
             boolean retryable = row.stateStatus() == EnrichmentStateStatus.RETRYABLE_FAILURE
                     && row.retryableFailureCount() < maxAttempts;
-            boolean pending = row.stateStatus() == EnrichmentStateStatus.PENDING;
+            boolean pending = pendingWork(row);
             boolean changed = row.stateWorkKey() == null || !row.stateWorkKey().equals(workKey);
             if (changed || retryable || pending) {
                 count++;
@@ -309,6 +322,16 @@ public class EnrichmentRunRepository {
             }
         }
         return new EnrichmentBacklogMeasure(count, oldest);
+    }
+
+    private static boolean pendingWork(CandidateRow row) {
+        // A completed fallback is not a completed finer tier. Do not, however,
+        // bypass an unrelated permanent stage error or its exhausted retry budget.
+        return row.stateStatus() == EnrichmentStateStatus.PENDING
+                || (row.parcelRetryPending() && (
+                    row.stateStatus() == EnrichmentStateStatus.SUCCEEDED
+                    || row.stateStatus() == EnrichmentStateStatus.TERMINAL_NOT_FOUND
+                    || row.stateStatus() == EnrichmentStateStatus.AMBIGUOUS));
     }
 
     /** Successful-sync auctions whose current enrichment lineage cannot be discovered. */
@@ -706,6 +729,48 @@ public class EnrichmentRunRepository {
                         ON attempt.id = current.resolution_attempt_id
                      WHERE attempt.location_precision = 'PARCEL'
                      GROUP BY reference.auction_id
+                ),
+                pending_rgz AS (
+                    SELECT reference.auction_id,
+                           MAX(attempt.attempted_at) FILTER (
+                               WHERE attempt.candidate_evidence ->> 'physicalAttempts' ~ '^[1-9][0-9]*$'
+                           ) AS last_lookup_at
+                      FROM current_property_reference_extractions current_extraction
+                      JOIN property_reference_extraction_memberships membership
+                        ON membership.extraction_run_id = current_extraction.extraction_run_id
+                       AND membership.auction_id = current_extraction.auction_id
+                      JOIN property_references reference ON reference.id = membership.reference_id
+                      JOIN current_property_reference_ko_matches current_match
+                        ON current_match.reference_id = reference.id
+                       AND current_match.auction_id = reference.auction_id
+                      JOIN property_reference_ko_match_results match_result
+                        ON match_result.reference_id = current_match.reference_id
+                       AND match_result.input_fingerprint = current_match.input_fingerprint
+                      JOIN location_resolution_attempts attempt
+                        ON attempt.property_reference_id = reference.id
+                       AND attempt.upstream_ko_match_input_fingerprint = current_match.input_fingerprint
+                     WHERE ?
+                       AND attempt.resolver = 'RGZ_WFS_PARCEL'
+                       AND attempt.resolution_status = 'ERROR'
+                       AND attempt.source_dataset = 'RGZ_REGDKP_WFS'
+                       AND attempt.source_dataset_version = ?
+                       AND attempt.candidate_evidence ->> 'featureType' = ?
+                       AND reference.canonical_parcel_number IS NOT NULL
+                       AND reference.extraction_status IN ('EXTRACTED', 'USER_CONFIRMED')
+                       AND match_result.status = 'MATCHED'
+                       AND match_result.reconciliation_status <> 'STRUCTURED_ONLY'
+                       AND match_result.matched_ko_code ~ '^[0-9]{1,16}$'
+                       AND (NOT reference.user_reviewed OR reference.ko_code IS NULL
+                            OR reference.ko_code = match_result.matched_ko_code)
+                       AND NOT EXISTS (
+                           SELECT 1 FROM location_resolution_attempts handled
+                            WHERE handled.property_reference_id = reference.id
+                              AND handled.resolver = 'RGZ_WFS_PARCEL'
+                              AND handled.input_fingerprint = attempt.input_fingerprint
+                              AND handled.upstream_ko_match_input_fingerprint = current_match.input_fingerprint
+                              AND handled.used_cache_record_id IS NOT NULL
+                       )
+                     GROUP BY reference.auction_id
                 )
                 SELECT auction.id AS auction_id,
                        observation.source_sync_run_id,
@@ -716,7 +781,8 @@ public class EnrichmentRunRepository {
                        state.work_key_sha256 AS state_work_key,
                        state.status AS state_status,
                        COALESCE(state.retryable_failure_count, 0) AS retryable_failure_count,
-                       state.pending_since AS state_pending_since
+                       state.pending_since AS state_pending_since,
+                       pending_rgz.auction_id IS NOT NULL AS parcel_retry_pending
                   FROM auctions auction
                   JOIN latest_observation observation ON observation.auction_id = auction.id
                   JOIN auction_enrichment_input_snapshots snapshot
@@ -724,13 +790,15 @@ public class EnrichmentRunRepository {
                    AND snapshot.snapshot_sha256 = auction.current_enrichment_snapshot_sha256
                   LEFT JOIN parcel_dependencies dependency ON dependency.auction_id = auction.id
                   LEFT JOIN enrichment_state state ON state.auction_id = auction.id
+                  LEFT JOIN pending_rgz ON pending_rgz.auction_id = auction.id
                  WHERE (
                          auction.current_source_snapshot_sha256 IS NULL
                          AND snapshot.canonical_input ->> 'sourceSnapshotSha256' IS NULL
                        )
                     OR snapshot.canonical_input ->> 'sourceSnapshotSha256'
                        = btrim(auction.current_source_snapshot_sha256)
-                 ORDER BY observation.observed_at, auction.id
+                 ORDER BY COALESCE(pending_rgz.last_lookup_at, observation.observed_at),
+                          observation.observed_at, auction.id
                 """, (result, row) -> new CandidateRow(
                 result.getLong("auction_id"),
                 result.getObject("source_sync_run_id", UUID.class),
@@ -741,7 +809,9 @@ public class EnrichmentRunRepository {
                 result.getString("state_work_key"),
                 nullableStatus(result.getString("state_status")),
                 result.getInt("retryable_failure_count"),
-                instant(result, "state_pending_since")));
+                instant(result, "state_pending_since"),
+                result.getBoolean("parcel_retry_pending")),
+                rgz.networkAllowed(), rgz.getDatasetVersion(), rgz.getFeatureType());
     }
 
     private Set<Long> selectedAuctionIds(EnrichmentSelector selector) {
@@ -916,6 +986,7 @@ public class EnrichmentRunRepository {
             String stateWorkKey,
             EnrichmentStateStatus stateStatus,
             int retryableFailureCount,
-            Instant statePendingSince) {
+            Instant statePendingSince,
+            boolean parcelRetryPending) {
     }
 }

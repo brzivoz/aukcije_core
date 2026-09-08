@@ -25,7 +25,7 @@ public final class EnrichmentCrashProbe {
                 requiredEnvironment("ENRICHMENT_CRASH_DB_PASSWORD"));
         ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
         EnrichmentRunRepository repository = new EnrichmentRunRepository(
-                new JdbcTemplate(dataSource), null, objectMapper);
+                new JdbcTemplate(dataSource), null, objectMapper, java.time.Clock.systemUTC());
         UUID runId = UUID.fromString(args[0]);
         long auctionId = Long.parseLong(args[1]);
         EnrichmentVersions versions = new EnrichmentVersions(args[2], args[3], args[4]);

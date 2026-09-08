@@ -1,0 +1,118 @@
+{
+  "decision": "OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_EXPLICIT_ACTIVATION",
+  "decision_id": "2026-09-03-issue-41-explicit-activation-v3",
+  "publisher_automation_authority_confirmed": false,
+  "operator_direction": "Implement automatic fetching now; add monitoring and billing later.",
+  "scope": "APPLICATION_INITIATED_PRIVATE_LOCAL_NON_COMMERCIAL_PARCEL_ENRICHMENT",
+  "current": {
+    "rgz.access-mode": "OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_EXPLICIT_ACTIVATION",
+    "rgz.enabled": false,
+    "rgz.base-url": "https://ogc-tmp.geosrbija.rs/regdkp/ows",
+    "rgz.feature-type": "dkp:dkp_parcels_weekly_only_utm",
+    "rgz.dataset-version": null,
+    "rgz.capabilities-sha256": null,
+    "rgz.schema-sha256": null,
+    "rgz.requests-per-second": 0.2,
+    "rgz.max-concurrency": 1,
+    "rgz.max-logical-lookups-per-run": 100,
+    "rgz.max-attempts": 3,
+    "rgz.retry-delays": [
+      "5s",
+      "15s"
+    ],
+    "rgz.max-retry-after": "60s",
+    "rgz.connect-timeout": "5s",
+    "rgz.read-timeout": "20s",
+    "rgz.call-timeout": "25s",
+    "rgz.max-response-bytes": 5000000,
+    "rgz.user-agent": "aukcije-core/0.0.1",
+    "rgz.contact": "https://github.com/brzivoz/aukcije_core/issues/41",
+    "rgz.kill-switch-path": "data/control/rgz.disabled"
+  },
+  "request_contract": {
+    "service": "WFS",
+    "version": "2.0.0",
+    "request": "GetFeature",
+    "outputFormat": "application/json",
+    "srsName": "EPSG:4326",
+    "count": 2,
+    "identity_filter": [
+      "cadmun_code",
+      "parcel_num"
+    ],
+    "retryable_http_statuses": [
+      429,
+      502,
+      503,
+      504
+    ],
+    "transport_errors_retryable": true,
+    "kill_switch_checked_before_every_physical_request": true
+  },
+  "cache_contract": {
+    "cache_first": true,
+    "key": [
+      "feature_type",
+      "publisher_dataset_version",
+      "ko_code",
+      "canonical_parcel_number"
+    ],
+    "at_most_one_logical_lookup_per_key_and_version": true,
+    "logical_lookup_uniqueness_scope": "PER_ENRICHMENT_RUN",
+    "terminal_outcomes": [
+      "RESOLVED",
+      "NOT_FOUND",
+      "AMBIGUOUS",
+      "INVALID"
+    ],
+    "invalid_outcome_scope": "VALIDATED_IDENTITY_OR_GEOMETRY_REJECTION",
+    "transport_error_cached": false,
+    "protocol_error_cached": false,
+    "same_run_lookup_claim_committed_before_network": true,
+    "same_run_lookup_claim_survives_result_rollback": true,
+    "network_io_inside_database_transaction": false,
+    "non_terminal_retry_scope": "LATER_ENRICHMENT_RUN",
+    "dataset_version_change_forces_refetch": true,
+    "metadata_pin_change_forces_refetch": false,
+    "resolver_version_change_forces_refetch": false,
+    "canonical_identity_table": "rgz_parcel_cache_keys",
+    "legacy_duplicate_records_preserved": true,
+    "cache_reuse_preserves_original_source_pins": true,
+    "cache_reuse_while_network_disabled": true,
+    "unhandled_errors_rediscovered_after_fallback_completion": true,
+    "retry_discovery_requires_current_eligible_ko_and_dataset": true,
+    "retry_discovery_suspended_while_network_disabled_or_killed": true,
+    "ceiling_deferrals_prioritized_over_recent_network_failures": true,
+    "shared_or_hosted_cache": false
+  },
+  "fail_closed": {
+    "credentials_or_cookies_prohibited": true,
+    "browser_session_reuse_prohibited": true,
+    "personal_records_prohibited": true,
+    "unrecognized_properties_prohibited": true,
+    "redistribution_prohibited": true,
+    "building_fetch_prohibited": true,
+    "preserve_immutable_evidence_on_ko_change": true,
+    "invalidate_stale_current_selection_on_ko_change": true,
+    "continue_to_issue_23_fallback": true
+  },
+  "deferred": {
+    "publisher_billing_or_service_agreement": "deferred by operator",
+    "operator_monitoring_and_alerting": "deferred to issue #30",
+    "building_footprint_resolution": "not implemented; current schema candidates retained; issue #42 stays open pending contract review"
+  },
+  "decision_date": "2026-09-03",
+  "amended_on": "2026-09-08",
+  "activation": {
+    "automatic_when_activated": true,
+    "trigger": "PARCEL_PATH stage in every normal manual or scheduled refresh enrichment run",
+    "required_environment": [
+      "RGZ_ENABLED=true",
+      "RGZ_DATASET_VERSION=<current publisher dataset identifier>",
+      "RGZ_CAPABILITIES_SHA256=<current GetCapabilities SHA-256>",
+      "RGZ_SCHEMA_SHA256=<current parcel DescribeFeatureType SHA-256>"
+    ],
+    "historical_2026_08_21_pins_are_runtime_defaults": false,
+    "missing_or_malformed_pins_fail_startup_when_enabled": true
+  }
+}

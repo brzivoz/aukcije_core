@@ -998,7 +998,8 @@ class EnrichmentReprocessingIntegrationTest {
     @EnableAutoConfiguration
     @EntityScan(basePackageClasses = Auction.class)
     @EnableJpaRepositories(basePackageClasses = AuctionRepository.class)
-    @Import({EnrichmentRunRepository.class, SyncRunRepository.class})
+    @Import({EnrichmentRunRepository.class, SyncRunRepository.class,
+            rs.sud.eaukcija.rgz.RgzParcelProperties.class})
     static class TestApplication {
     }
 }

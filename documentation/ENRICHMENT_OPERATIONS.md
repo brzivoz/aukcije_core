@@ -2,9 +2,10 @@
 
 Issue #29 replaces a leased multi-worker queue with one deterministic,
 single-threaded reprocessor. Work is derived from immutable local input and
-active parser/resolver/dataset versions; it never refetches eAukcija and never
-contacts RGZ or an online geocoder. PostgreSQL retains current per-auction state
-and append-only run/item evidence.
+active parser/resolver/dataset versions. It never refetches eAukcija or calls
+an online geocoder. Its only optional network stage is #21's bounded automatic
+RGZ parcel lookup. PostgreSQL retains current per-auction state and append-only
+run/item evidence.
 
 The `local-h2` compatibility profile deliberately disables this subsystem. All
 commands below require the normal PostgreSQL/PostGIS runtime.
@@ -54,15 +55,19 @@ selected.
 
 ## Fixed stage order
 
-Every selected auction runs in its own transaction, in this exact order:
+Every selected auction runs in this exact order. Local database stages use
+short stage-scoped transactions; the parcel stage commits its lookup claim and
+ceiling reservation, performs HTTP with no database transaction open, then
+persists the result in another short transaction:
 
 1. `PARSE` — persist the structured `Place` reference first, then every
    normalized reference found in `Description` and `ShortDescription`;
 2. `KO_MATCHING` — refresh structured #37 matching, then match and explicitly
    reconcile every current extracted #19 KO against the same checksum-validated
    local dictionary;
-3. `PARCEL_PATH` — consume only already validated, private local parcel
-   evidence;
+3. `PARCEL_PATH` — reuse validated private cache evidence first and, when RGZ
+   is explicitly activated with current source pins, automatically fetch an
+   eligible exact parcel miss;
 4. `ADDRESS_FALLBACK` — run the available local resolution ladder without an
    online geocoder;
 5. `SELECTED_RESOLUTION` — retain the best lawful result and classify
@@ -75,9 +80,34 @@ persisted boundaries. Parser, resolver, dataset, or parcel-evidence changes
 alter the work key and select only affected auctions. A coarse result can never
 replace a retained address or verified parcel result.
 
-All stages read local snapshots or artifacts. The private parcel stage does not
-perform the user-initiated RGZ import and the application has no RGZ network
-client in this path.
+All stages except the private parcel path read local snapshots or artifacts.
+The parcel path automatically queries only the owner-authorized RGZ feature
+type under the bounded issue-#41 contract, then continues to local fallback.
+It is disabled by default and dated source hashes are not runtime defaults.
+The 2026-09-08 recheck succeeded; dataset identity and source pins still require
+explicit operator configuration. Activation
+requires `RGZ_ENABLED=true`, `RGZ_DATASET_VERSION`,
+`RGZ_CAPABILITIES_SHA256`, and `RGZ_SCHEMA_SHA256`. Once the application starts
+with those values, both a scheduled refresh and the refresh-start button run
+the same automatic `PARCEL_PATH` behavior.
+
+As of resolver `rgz-parcel-v2`, ordinary discovery also includes unhandled RGZ
+`ERROR` attempts for current eligible #33 references in the configured dataset,
+even if the auction's last fallback completed as `SUCCEEDED` or
+`TERMINAL_NOT_FOUND`. No explicit replay or source change is necessary.
+A cache-backed terminal attempt ends that retry obligation. Errors for stale KO
+matches or old datasets do not schedule work. Disabled networking or an engaged
+kill switch suspends this extra discovery; removing the switch resumes it.
+Never-attempted quota deferrals precede recently attempted failures, preventing
+the first failing identities from monopolizing every subsequent run's ceiling.
+The original fallback and attempt history remain available throughout.
+
+V21's `rgz_parcel_cache_keys` binds the logical feature/dataset/KO/parcel identity
+to the first terminal cache record, independent of capability/schema pins and
+resolver implementation version. Legacy duplicate records remain retained.
+Cache reuse keeps the original fetch provenance and works with `RGZ_ENABLED=false`
+when the dataset identity is configured, without consuming network quota.
+Changing the dataset version, not merely a metadata pin, permits a new fetch.
 
 ## Property-reference extraction
 
@@ -347,8 +377,8 @@ bulk-retry endpoint.
 
 ## Restart recovery and failure isolation
 
-`startItem` commits a durable `RUNNING` state/item before its auction
-transaction starts. If the process exits:
+`startItem` commits a durable `RUNNING` state/item before stage processing
+starts. If the process exits:
 
 1. PostgreSQL releases the session advisory lock;
 2. application startup acquires that same #17 worker lock;
@@ -366,11 +396,13 @@ the retained heartbeat. A run older than `running-stale-after` is recovered
 under the shared worker lock before the new claim, so a dead executor thread
 cannot wedge the unique `RUNNING` slot until another process restart.
 
-Every auction has its own transaction. A stage failure rolls back only that
-auction's derived writes, records a bounded safe code, updates the run counter,
-and allows the next auction to continue. Exception messages, SQL text, source
-JSON, headers, credentials, cookies, and personal fields are not copied into
-the ledger, API, or scheduler logs.
+Every local stage has its own short transaction. A stage failure rolls back
+only that stage's uncommitted writes, records a bounded safe code, updates the
+run counter, and allows the next auction to continue. An RGZ lookup claim and
+ceiling reservation are intentionally committed before HTTP, so a later result
+persistence failure cannot cause an extra outbound lookup in the same run.
+Exception messages, SQL text, source JSON, headers, credentials, cookies, and
+personal fields are not copied into the ledger, API, or scheduler logs.
 
 Do not repair `enrichment_runs` or `enrichment_run_items` with SQL. Terminal
 evidence is trigger-protected. Inspect status, pause if necessary, correct the

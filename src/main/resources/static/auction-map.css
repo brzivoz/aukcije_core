@@ -82,33 +82,8 @@
     font-weight: 650;
 }
 
-.map-filter-form {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(125px, 1fr)) auto;
-    gap: 10px;
-    align-items: end;
-    margin-bottom: 12px;
-    padding: 12px;
-    border: 1px solid #d8dee5;
-    border-radius: 7px;
-    background: #f8fafc;
-}
-
-.map-filter-field {
-    display: flex;
-    min-width: 0;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.map-filter-field label {
-    color: #3f4d5a;
-    font-size: .75rem;
-    font-weight: 700;
-}
-
-.map-filter-field select,
-.map-filter-field input {
+#shared-filters select,
+#shared-filters input {
     width: 100%;
     min-height: 38px;
     padding: 6px 8px;
@@ -120,16 +95,36 @@
     font-size: .82rem;
 }
 
-.map-filter-actions {
-    display: flex;
-    gap: 7px;
-    white-space: nowrap;
+#shared-results tr[aria-selected="true"] { background: #e8eaf6; outline: 2px solid #1a237e; outline-offset: -2px; }
+#shared-filters .filter-group { min-width: 0; }
+#shared-filters .municipality-group { border: 0; padding: 0; margin: 0; }
+.municipality-group legend { margin-bottom: 4px; font-size: .8rem; color: #666; font-weight: 500; }
+.municipality-select { position: relative; }
+.municipality-select[open] { z-index: 5; }
+.municipality-select summary {
+    display: flex; align-items: center; gap: 6px; min-height: 38px;
+    padding: 6px 8px; border: 1px solid #9aa6b2; border-radius: 4px;
+    background: #fff; font-size: .82rem; cursor: pointer; list-style: none;
 }
-
-.map-filter-actions .btn {
-    min-height: 38px;
-    padding-inline: 12px;
+.municipality-select summary::-webkit-details-marker { display: none; }
+.municipality-select summary::after { content: '▾'; margin-left: auto; }
+#municipality-summary { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.municipality-panel {
+    position: absolute; top: calc(100% + 4px); left: 0; width: max(100%, 18rem);
+    max-width: calc(100vw - 72px); padding: 12px; border: 1px solid #9aa6b2;
+    border-radius: 6px; background: #fff; box-shadow: 0 4px 12px #0003;
 }
+.municipality-tools:not([hidden]) { display: grid; gap: 6px; }
+#municipality-clear { padding: 6px; cursor: pointer; color: #1a237e; background: #f5f5f5; border: 1px solid #9aa6b2; border-radius: 4px; }
+#municipality-help, #municipality-empty { margin: 8px 0; font-size: .76rem; }
+#municipality-options { max-height: 240px; overflow-y: auto; }
+#municipality-filter .municipality-option { display: flex; align-items: center; gap: 8px; padding: 6px 2px; margin: 0; color: #333; cursor: pointer; }
+#municipality-filter .municipality-option[hidden] { display: none; }
+#municipality-filter .municipality-option input { flex: none; width: 1rem; height: 1rem; min-height: 0; margin: 0; padding: 0; }
+#shared-filters { scroll-margin-top: 12px; }
+#filter-state { margin-top: 10px; }
+#active-criteria { margin: 12px 0; overflow-wrap: anywhere; }
+.table-select { display: block; padding: 5px; cursor: pointer; }
 
 .map-default-note {
     margin: -2px 0 10px;
@@ -343,7 +338,10 @@
 .auction-map-panel button:focus-visible,
 .auction-map-panel select:focus-visible,
 .auction-map-panel input:focus-visible,
-.auction-map-panel a:focus-visible {
+.auction-map-panel a:focus-visible,
+#shared-filters :focus-visible,
+#shared-results button:focus-visible,
+#shared-results a:focus-visible {
     outline: 3px solid var(--map-focus-inner);
     outline-offset: 0;
     box-shadow: 0 0 0 5px var(--map-focus-outer);
@@ -382,12 +380,6 @@
 .map-popup p { margin: 0 0 9px; color: #3f4d5a; font-size: .73rem; line-height: 1.35; }
 .map-popup a { color: #162a83; font-size: .78rem; font-weight: 700; }
 
-@media (max-width: 1050px) {
-    .map-filter-form {
-        grid-template-columns: repeat(3, minmax(150px, 1fr));
-    }
-}
-
 @media (max-width: 760px) {
     .auction-map-panel {
         padding: 12px;
@@ -400,14 +392,6 @@
 
     .map-versions {
         min-width: 0;
-    }
-
-    .map-filter-form {
-        grid-template-columns: 1fr 1fr;
-    }
-
-    .map-filter-actions {
-        grid-column: 1 / -1;
     }
 
     .auction-map-layout {
@@ -433,15 +417,6 @@
 }
 
 @media (max-width: 430px) {
-    .map-filter-form {
-        grid-template-columns: 1fr;
-    }
-
-    .map-filter-actions {
-        grid-column: auto;
-        flex-wrap: wrap;
-    }
-
     .map-versions div {
         grid-template-columns: 1fr;
         gap: 2px;

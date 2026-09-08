@@ -30,7 +30,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
-import rs.sud.eaukcija.repository.AuctionSpecifications;
+import rs.sud.eaukcija.filter.AuctionFilters;
+import rs.sud.eaukcija.filter.AuctionSearchRepository;
 import rs.sud.eaukcija.testsupport.Fixtures;
 import rs.sud.eaukcija.testsupport.PostgisTestContainer;
 
@@ -109,21 +110,14 @@ class AuctionRepositoryPostgisIntegrationTest {
     }
 
     @Test
-    void pagedSpecificationMatchesTheControllerPathForCyrillicSearchAndNumericRange() {
+    void pagedSharedQueryMatchesTheControllerPathForCyrillicSearchAndNumericRange() {
         repository.saveAllAndFlush(uniqueAuctions(fixture));
 
-        var specification = AuctionSpecifications.withFilters(
-                "Кањижа",
-                null,
-                null,
-                "Verified",
-                new BigDecimal("160000.00"),
-                new BigDecimal("170000.00"),
-                true,
-                "МАРТОНОШ");
-        Page<Auction> page = repository.findAll(
-                specification,
-                PageRequest.of(0, 25, Sort.by("startingPrice").ascending()));
+        var filters = new AuctionFilters(List.of("Кањижа"), null, null, "Verified",
+                new BigDecimal("160000.00"), new BigDecimal("170000.00"), true, "МАРТОНОШ",
+                null, null, null, "all", "startingPrice", "asc", 0, null, java.time.Instant.now());
+        var search = new AuctionSearchRepository(jdbc, repository);
+        Page<Auction> page = search.page(filters, search.count(filters));
 
         assertThat(page.getTotalElements()).isOne();
         assertThat(page.getTotalPages()).isOne();

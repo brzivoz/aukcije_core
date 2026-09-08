@@ -26,7 +26,9 @@ class MapAuctionRequestParserTest {
 
         assertThat(request.boundingBox().minLongitude()).isEqualTo(18);
         assertThat(request.boundingBox().maxLatitude()).isEqualTo(47);
-        assertThat(request.endsAtOrAfter()).isEqualTo(NOW);
+        assertThat(request.endsAtOrAfter()).isNull();
+        assertThat(request.filters().asOf()).isEqualTo(NOW);
+        assertThat(request.filters().timeScope()).isEqualTo("not-ended");
         assertThat(request.endsBefore()).isNull();
         assertThat(request.limit()).isEqualTo(1_000);
         assertThat(request.sourceStatus()).isNull();
@@ -96,7 +98,7 @@ class MapAuctionRequestParserTest {
     @Test
     void rejectsUnknownRepeatedAndNonAllowlistedFilters() {
         MultiValueMap<String, String> unknown = parameters("bbox", "18,41,24,47");
-        unknown.add("search", "anything");
+        unknown.add("unknownField", "anything");
         assertThatThrownBy(() -> parser.parse(unknown))
                 .isInstanceOf(InvalidMapRequestException.class)
                 .hasMessage("unsupported query parameter");
@@ -114,9 +116,9 @@ class MapAuctionRequestParserTest {
                 .isInstanceOf(InvalidMapRequestException.class)
                 .hasMessage("query parameter must occur exactly once");
 
-        assertOptionalInvalid("status", "Deleted", "status must be one of");
-        assertOptionalInvalid("kind", "<script>alert(1)</script>", "category allowlist");
-        assertOptionalInvalid("precision", "NONE", "precision must be one of");
+        assertOptionalInvalid("status", "Deleted", "unsupported retained source status");
+        assertOptionalInvalid("kind", "<script>alert(1)</script>", "unsafe raw label");
+        assertOptionalInvalid("precision", "EXACT", "precision must be one of");
     }
 
     @Test

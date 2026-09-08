@@ -8,8 +8,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import rs.sud.eaukcija.map.InvalidMapRequestException;
 
-/** Stable JSON errors for every client-correctable map request. */
-@RestControllerAdvice(assignableTypes = MapAuctionController.class)
+/** Shared field-specific errors; the legacy code is retained for API compatibility. */
+@RestControllerAdvice(assignableTypes = {MapAuctionController.class, AuctionController.class, AuctionViewController.class})
 @Profile("!local-h2")
 public class MapApiExceptionHandler {
 

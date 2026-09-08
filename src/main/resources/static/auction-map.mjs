@@ -1,5 +1,6 @@
 import {NavigationControl, Popup} from './vendor/maplibre-gl/6.1.0/maplibre-gl.mjs';
 import {createLocalBasemap} from './basemap-map.mjs';
+import {createMunicipalitySelect} from './municipality-select.mjs';
 
 const POINT_SOURCE = 'auction-points';
 const AREA_SOURCE = 'auction-areas';
@@ -55,17 +56,12 @@ const PRECISIONS = Object.freeze({
     }
 });
 
-const URL_FIELDS = Object.freeze([
-    {element: 'map-status-filter', parameter: 'mapStatus', api: 'status', type: 'select'},
-    {element: 'map-kind-filter', parameter: 'mapKind', api: 'kind', type: 'select'},
-    {element: 'map-precision-filter', parameter: 'mapPrecision', api: 'precision', type: 'select'},
-    {element: 'map-from-filter', parameter: 'mapFrom', api: 'from', type: 'date'},
-    {element: 'map-to-filter', parameter: 'mapTo', api: 'to', type: 'date'}
-]);
+const FILTER_FIELDS = Object.freeze(['municipality', 'placeName', 'category', 'status',
+    'minPrice', 'maxPrice', 'firstSale', 'search', 'precision', 'from', 'to', 'timeScope']);
 
 const elements = {
-    filterForm: document.getElementById('map-filters'),
-    filterReset: document.getElementById('map-filter-reset'),
+    filterForm: document.getElementById('shared-filters'),
+    filterReset: document.getElementById('shared-filter-reset'),
     state: document.getElementById('map-state'),
     limitWarning: document.getElementById('map-limit-warning'),
     freshnessWarning: document.getElementById('map-freshness-warning'),
@@ -77,9 +73,9 @@ const elements = {
     selection: document.getElementById('map-selection')
 };
 
+const municipalitySelect = createMunicipalitySelect(document.getElementById('municipality-filter'));
+
 const FILTER_OPTIONS = Object.freeze({
-    status: selectOptionValues('map-status-filter'),
-    kind: selectOptionValues('map-kind-filter'),
     precision: selectOptionValues('map-precision-filter')
 });
 
@@ -112,10 +108,15 @@ const state = {
     activeRequest: null,
     requestSequence: 0,
     metadataWarnings: new Set(),
+    metadataSequence: 0,
     resourceWarnings: new Map(),
     pendingRefresh: false,
     sourcesReady: false,
-    initializationPromise: null
+    initializationPromise: null,
+    appliedQuery: new URLSearchParams(elements.filterForm.dataset.query),
+    selectionStatus: null,
+    lastUsableQuery: new URLSearchParams(elements.filterForm.dataset.query),
+    invalidFilter: false
 };
 
 const publicApi = {
@@ -134,7 +135,7 @@ if (document.querySelector('.auction-map-panel')?.dataset.mapTestHooks === 'true
     window.__auctionMap = publicApi;
 }
 
-restoreFiltersFromUrl();
+replaceUrl(state.appliedQuery);
 bindFilterControls();
 const metadataPromise = loadMetadata();
 initialize();
@@ -151,7 +152,7 @@ const autoRefreshMs = Number(document.querySelector('.auction-map-panel')?.datas
 if (Number.isFinite(autoRefreshMs) && autoRefreshMs >= 1000 && autoRefreshMs <= 300000) {
     window.setInterval(() => {
         if (!document.hidden && state.sourcesReady && state.map && !state.map.isMoving()
-                && !state.activeRequest && !state.debounceTimer && !state.pendingRefresh) {
+                && !state.activeRequest && !state.debounceTimer && !state.pendingRefresh && !state.invalidFilter) {
             requestRefresh();
             replayPendingRefresh();
         }
@@ -245,27 +246,93 @@ function configureTwoDimensionalCamera(map) {
 
 function bindFilterControls() {
     elements.filterForm.addEventListener('submit', event => {
+        // With no usable basemap, normal GET submission still provides a working table.
+        if (!state.map && !state.initializationPromise) return;
         event.preventDefault();
-        if (!validDateRange()) {
+        if (!validDateRange()) return;
+        const query = new URLSearchParams(state.appliedQuery);
+        const draft = new FormData(elements.filterForm);
+        for (const field of FILTER_FIELDS) {
+            query.delete(field);
+            for (const value of draft.getAll(field)) {
+                if (value) query.append(field, value);
+            }
+        }
+        query.set('page', '0');
+        navigateFilters(query, false);
+    });
+    for (const name of ['from', 'to']) {
+        elements.filterForm.elements.namedItem(name).addEventListener('input', () =>
+            document.getElementById('map-to-filter').setCustomValidity(''));
+    }
+    elements.filterReset.addEventListener('click', event => {
+        event.preventDefault();
+        const query = new URLSearchParams(state.appliedQuery);
+        FILTER_FIELDS.forEach(field => query.delete(field));
+        query.set('timeScope', 'not-ended'); query.set('page', '0');
+        navigateFilters(query, true);
+    });
+    document.addEventListener('click', event => {
+        const selected = event.target.closest('#shared-results .table-select');
+        if (selected) {
+            state.selectedAuctionId = selected.dataset.auctionId;
+            writeUrlState();
+            updateSelectionLayers();
+            restoreSelectionFromFeatures();
+            elements.selection.focus({preventScroll: true});
+            if (!state.features.some(f => String(f.properties.auctionId) === state.selectedAuctionId)) refreshNow();
             return;
         }
-        state.selectedAuctionId = null;
-        diagnostics.selectedAuctionId = null;
-        closePopup();
-        writeUrlState();
+        const link = event.target.closest('#shared-results th a, #shared-results .pagination a');
+        if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        const query = new URL(link.href).searchParams;
+        if (state.selectedAuctionId) query.set('auction', state.selectedAuctionId);
+        else query.delete('auction');
+        navigateFilters(query, false);
+    });
+    window.addEventListener('popstate', () => {
+        state.appliedQuery = new URL(window.location.href).searchParams;
+        state.invalidFilter = false;
+        state.selectedAuctionId = state.appliedQuery.get('auction');
+        restoreFilterControls();
         refreshNow();
     });
+}
 
-    elements.filterReset.addEventListener('click', () => {
-        for (const field of URL_FIELDS) {
-            document.getElementById(field.element).value = '';
+function navigateFilters(query, restore) {
+    state.appliedQuery = query;
+    state.invalidFilter = false;
+    const url = new URL(window.location.href); url.search = query.toString();
+    window.history.pushState(null, '', url);
+    if (restore) restoreFilterControls();
+    refreshNow();
+}
+
+function restoreFilterControls() {
+    for (const field of FILTER_FIELDS) {
+        if (field === 'municipality') municipalitySelect.setValues(state.appliedQuery.getAll(field));
+        else elements.filterForm.elements.namedItem(field).value = state.appliedQuery.get(field) || '';
+    }
+    document.getElementById('map-to-filter').setCustomValidity('');
+}
+
+function refreshOptions(options) {
+    if (!options) return;
+    for (const name of ['category', 'status', 'municipality', 'placeName']) {
+        if (!Array.isArray(options[name])) continue;
+        if (name === 'municipality') {
+            municipalitySelect.refreshOptions(options[name]);
+            continue;
         }
-        state.selectedAuctionId = null;
-        diagnostics.selectedAuctionId = null;
-        closePopup();
-        writeUrlState();
-        refreshNow();
-    });
+        const control = elements.filterForm.elements.namedItem(name);
+        const draft = control.value;
+        const target = control.list || control;
+        const empty = control.list ? [] : [new Option(control.options[0].text, '')];
+        const values = [...new Set([...options[name], ...(draft ? [draft] : [])])];
+        target.replaceChildren(...empty, ...values.map(value => new Option(value, value)));
+        control.value = draft;
+    }
 }
 
 function validDateRange() {
@@ -280,51 +347,15 @@ function validDateRange() {
     return elements.filterForm.reportValidity();
 }
 
-function restoreFiltersFromUrl() {
-    const parameters = new URL(window.location.href).searchParams;
-    let sanitized = false;
-    for (const field of URL_FIELDS) {
-        const element = document.getElementById(field.element);
-        const candidate = parameters.get(field.parameter);
-        if (!candidate) {
-            continue;
-        }
-        if (field.type === 'select' && [...element.options].some(option => option.value === candidate)) {
-            element.value = candidate;
-        } else if (field.type === 'date' && validIsoDate(candidate)) {
-            element.value = candidate;
-        } else {
-            parameters.delete(field.parameter);
-            sanitized = true;
-        }
-    }
-    const selected = parameters.get('auction');
-    if (selected && !validAuctionId(selected)) {
-        parameters.delete('auction');
-        state.selectedAuctionId = null;
-        sanitized = true;
-    }
-    if (sanitized) {
-        replaceUrl(parameters);
-    }
-}
-
 function writeUrlState() {
-    const url = new URL(window.location.href);
-    for (const field of URL_FIELDS) {
-        const value = document.getElementById(field.element).value;
-        if (value) {
-            url.searchParams.set(field.parameter, value);
-        } else {
-            url.searchParams.delete(field.parameter);
-        }
-    }
-    if (state.selectedAuctionId && validAuctionId(state.selectedAuctionId)) {
-        url.searchParams.set('auction', state.selectedAuctionId);
-    } else {
-        url.searchParams.delete('auction');
-    }
-    replaceUrl(url.searchParams);
+    const query = state.appliedQuery;
+    if (state.selectedAuctionId) query.set('auction', state.selectedAuctionId);
+    else query.delete('auction');
+    if (state.selectedAuctionId) state.lastUsableQuery.set('auction', state.selectedAuctionId);
+    else state.lastUsableQuery.delete('auction');
+    elements.filterForm.elements.namedItem('auction').value = state.selectedAuctionId || '';
+    const url = new URL(window.location.href); url.search = query.toString();
+    if (url.href !== window.location.href) window.history.pushState(null, '', url);
 }
 
 function replaceUrl(parameters) {
@@ -340,14 +371,6 @@ function readSelectedAuction() {
 
 function validAuctionId(value) {
     return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value);
-}
-
-function validIsoDate(value) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        return false;
-    }
-    const date = new Date(`${value}T00:00:00Z`);
-    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function scheduleLoad(delay = LOAD_DEBOUNCE_MS) {
@@ -427,11 +450,30 @@ async function loadViewport() {
         if (!response.ok) {
             throw await mapResponseError(response);
         }
-        const collection = validateCollection(await response.json());
-        if (sequence !== state.requestSequence) {
-            return;
+        const view = await response.json();
+        const collection = validateCollection(view.map);
+        if (sequence !== state.requestSequence || controller.signal.aborted) return;
+        if (typeof view.resultsHtml !== 'string' || typeof view.query !== 'string') throw new Error('INVALID_VIEW_RESPONSE');
+        // HTML is the same escaped, same-origin Thymeleaf fragment as the initial table,
+        // never source description text from GeoJSON. The form is deliberately not replaced.
+        const fragment = new DOMParser().parseFromString(view.resultsHtml, 'text/html').querySelector('#shared-results');
+        if (!fragment) throw new Error('INVALID_VIEW_RESPONSE');
+        document.getElementById('shared-results').replaceWith(fragment);
+        refreshOptions(view.options);
+        if (view.catalogue) {
+            document.getElementById('catalogue-count').textContent = String(view.catalogue.total);
+            document.getElementById('catalogue-details').textContent = String(view.catalogue.details);
         }
+        const canonical = new URLSearchParams(view.query);
+        if (state.selectedAuctionId) canonical.set('auction', state.selectedAuctionId);
+        else canonical.delete('auction');
+        state.appliedQuery = canonical;
+        state.lastUsableQuery = new URLSearchParams(canonical);
+        state.invalidFilter = false;
+        replaceUrl(canonical);
+        document.getElementById('filter-state').textContent = '';
         state.features = collection.features;
+        state.selectionStatus = collection.selection || null;
         diagnostics.requestsCompleted++;
         diagnostics.lastFeatureCount = collection.features.length;
         diagnostics.truncated = collection.truncated === true;
@@ -439,18 +481,21 @@ async function loadViewport() {
         renderResults(collection.features);
         elements.limitWarning.hidden = !collection.truncated;
 
-        if (collection.features.length === 0) {
-            setMapState('empty', 'У видљивом делу карте нема аукција за изабране филтере.');
-        } else {
-            const suffix = collection.truncated
-                    ? ' Приказ је ограничен; сузите област или филтере.'
-                    : '';
-            setMapState(
-                    'ready',
-                    `Приказано аукција: ${collection.features.length}.${suffix}`);
-        }
+        const counts = collection.counts;
+        const summary = `Филтрирано аукција: ${counts.filteredAuctionCount}. `
+                + `Мапирано аукција у приказу: ${counts.mappedAuctionCountInViewport}. `
+                + `Објеката на карти: ${collection.numberReturned} од ${counts.featureCountInViewport}. `
+                + `Без локације: ${counts.unmappedAuctionCount}. `
+                + `Ван приказа: ${counts.filteredAuctionCount - counts.unmappedAuctionCount - counts.mappedAuctionCountInViewport}.`;
+        const empty = !collection.features.length
+                ? (state.appliedQuery.get('precision') === 'NONE'
+                    ? ' Изабране су аукције без објављиве локације; карта нема ознаке.'
+                    : ' Нема објеката у приказу за пресек критеријума; проверите датуме и временски опсег.') : '';
+        setMapState(collection.features.length ? 'ready' : 'empty', summary + empty
+                + (collection.truncated ? ' Приказ је ограничен: нису све аукције/објекти учитани; сузите област или филтере.' : ''));
         restoreSelectionFromFeatures();
     } catch (error) {
+        if (sequence !== state.requestSequence || controller.signal.aborted) return;
         if (error?.name === 'AbortError') {
             return;
         }
@@ -459,11 +504,16 @@ async function loadViewport() {
                 ? ` Претходних ${state.features.length} резултата остаје приказано.`
                 : '';
         if (error instanceof MapHttpError && error.clientError) {
+            // A rejected draft is not a new canonical filter state. Keep the valid
+            // URL/results and the user's edits, and do not auto-retry a deterministic 400.
+            state.appliedQuery = new URLSearchParams(state.lastUsableQuery);
+            state.invalidFilter = true;
+            replaceUrl(state.appliedQuery);
             const field = error.field ? ` (${error.field})` : '';
             const detail = error.detail ? `: ${error.detail}` : '';
             setMapState(
                     'error',
-                    `Захтев карте није прихваћен${field}${detail}.${retained} Промените приказ или филтер.`);
+                    `Захтев приказа није прихваћен${field}${detail}.${retained} Промените приказ или филтер.`);
         } else {
             setMapState(
                     'error',
@@ -484,23 +534,18 @@ function abortActiveRequest() {
     state.activeRequest = null;
     diagnostics.requestsAborted++;
     controller.abort();
+    state.requestSequence++;
 }
 
 function viewportUrl() {
     const bounds = state.map.getBounds();
     diagnostics.lastRequestAreaSquareKm = boundingBoxAreaSquareKm(bounds);
-    const query = new URLSearchParams();
+    const query = new URLSearchParams(state.appliedQuery);
     query.set('bbox', [
         bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()
     ].map(coordinate => coordinate.toFixed(6)).join(','));
     query.set('limit', String(RESULT_LIMIT));
-    for (const field of URL_FIELDS) {
-        const value = document.getElementById(field.element).value;
-        if (value) {
-            query.set(field.api, value);
-        }
-    }
-    return `/api/map/auctions?${query.toString()}`;
+    return `/api/auctions/view?${query.toString()}`;
 }
 
 function synchronizeMinZoom(map) {
@@ -634,7 +679,7 @@ function optionLabel(elementId, value) {
 
 function assertPrecisionContract() {
     const styles = Object.keys(PRECISIONS);
-    if (styles.length !== FILTER_OPTIONS.precision.length
+    if (styles.length !== FILTER_OPTIONS.precision.filter(value => value !== 'NONE').length
             || styles.some(precision => !FILTER_OPTIONS.precision.includes(precision))) {
         throw new Error('MAP_PRECISION_CONTRACT_MISMATCH');
     }
@@ -887,7 +932,7 @@ function renderClusterSelection(features, total) {
     elements.selection.removeAttribute('role');
     elements.selection.removeAttribute('aria-live');
     const heading = document.createElement('h4');
-    heading.textContent = `${total} аукција на овој локацији`;
+    heading.textContent = `${total} објеката на овој локацији (${new Set(features.map(f => f.properties.auctionId)).size} учитаних аукција)`;
     elements.selection.append(heading);
     for (const feature of features) {
         const button = document.createElement('button');
@@ -909,6 +954,7 @@ function renderClusterSelection(features, total) {
 function renderResults(features) {
     elements.resultList.replaceChildren();
     elements.resultCount.textContent = String(features.length);
+    elements.resultCount.setAttribute('aria-label', `${features.length} објеката, ${new Set(features.map(f => f.properties.auctionId)).size} аукција`);
     for (const feature of features) {
         const item = document.createElement('li');
         item.dataset.precision = feature.properties.precision;
@@ -1000,6 +1046,9 @@ function renderSelectedSummary(feature) {
 }
 
 function updateResultSelection() {
+    for (const row of document.querySelectorAll('#shared-results tr[data-auction-id]')) {
+        row.setAttribute('aria-selected', String(row.dataset.auctionId === state.selectedAuctionId));
+    }
     for (const button of elements.resultList.querySelectorAll('.map-result-button')) {
         button.setAttribute(
                 'aria-current',
@@ -1038,7 +1087,15 @@ function restoreSelectionFromFeatures() {
     } else {
         elements.selection.replaceChildren();
         const text = document.createElement('p');
-        text.textContent = 'Изабрана аукција није у тренутно видљивом делу карте или не одговара филтерима.';
+        const reasons = {
+            OUTSIDE_FILTERS: 'Изабрана аукција не одговара примењеним филтерима.',
+            UNMAPPED: 'Изабрана аукција нема објављиву локацију; није додата ознака на карту.',
+            OUTSIDE_VIEWPORT: 'Изабрана аукција има локацију ван видљивог дела карте.',
+            LIMIT: 'Изабрана аукција је у приказу, али изван ограниченог броја учитаних објеката.',
+            NOT_FOUND: 'Изабрана аукција није у локалном каталогу.'
+        };
+        const code = String(state.selectionStatus?.auctionId) === state.selectedAuctionId ? state.selectionStatus.state : null;
+        text.textContent = (reasons[code] || 'Изабрана аукција није у видљивом делу карте, не одговара филтерима или нема објављиву локацију.') + ' Избор је сачуван.';
         elements.selection.append(text);
         elements.selection.hidden = false;
         closePopup();
@@ -1170,7 +1227,7 @@ function precisionExplanation(feature) {
 }
 
 function statusLabel(value) {
-    return optionLabel('map-status-filter', value) || 'Статус није познат';
+    return optionLabel('map-status-filter', value) || value || 'Статус није познат';
 }
 
 function formatAmount(properties) {
@@ -1215,10 +1272,12 @@ function formatEndTime(value) {
 }
 
 async function loadMetadata() {
+    const sequence = ++state.metadataSequence;
     const [basemap, data] = await Promise.allSettled([
         fetchJson('/api/basemap/status'),
         fetchJson('/api/map/status')
     ]);
+    if (sequence !== state.metadataSequence) return;
 
     if (basemap.status === 'fulfilled' && basemap.value.healthy) {
         elements.basemapVersion.textContent = basemap.value.activeVersion || 'Без ознаке верзије';
@@ -1273,6 +1332,7 @@ function setMapState(name, message) {
     elements.state.setAttribute('role', name === 'error' ? 'alert' : 'status');
     elements.state.setAttribute('aria-live', name === 'error' ? 'assertive' : 'polite');
     elements.state.textContent = message;
+    document.getElementById('filter-state').textContent = name === 'error' || name === 'loading' ? message : '';
 }
 
 function handleMapError(event) {

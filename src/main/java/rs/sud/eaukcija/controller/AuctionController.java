@@ -1,36 +1,37 @@
 package rs.sud.eaukcija.controller;
 
+import java.util.Optional;
+import java.util.Set;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Controller;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.ui.Model;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import rs.sud.eaukcija.filter.AuctionFilterParser;
+import rs.sud.eaukcija.filter.AuctionResultsService;
 import rs.sud.eaukcija.map.MapAuctionFilterOptions;
-import rs.sud.eaukcija.model.Auction;
 import rs.sud.eaukcija.repository.AuctionRepository;
-import rs.sud.eaukcija.repository.AuctionSpecifications;
 import rs.sud.eaukcija.service.SyncService;
-import rs.sud.eaukcija.spatial.AuctionLocationRepository;
 import rs.sud.eaukcija.sync.persistence.SyncRunStatus;
 import rs.sud.eaukcija.sync.persistence.SyncRunView;
 
-import java.math.BigDecimal;
-import java.util.Map;
-import java.util.Optional;
-
 @Controller
+@Profile("!local-h2")
 public class AuctionController {
 
     private static final Logger log = LoggerFactory.getLogger(AuctionController.class);
 
     private final AuctionRepository repo;
     private final SyncService syncService;
-    private final ObjectProvider<AuctionLocationRepository> locationRepository;
+    private final AuctionFilterParser filterParser;
+    private final AuctionResultsService results;
     private final boolean mapBrowserTestHooks;
     private final boolean refreshEnabled;
 
@@ -44,54 +45,32 @@ public class AuctionController {
     public AuctionController(
             AuctionRepository repo,
             SyncService syncService,
-            ObjectProvider<AuctionLocationRepository> locationRepository,
+            AuctionFilterParser filterParser,
+            AuctionResultsService results,
             @Value("${map.browser-test-hooks:false}") boolean mapBrowserTestHooks,
             @Value("${eaukcija.refresh.enabled:true}") boolean refreshEnabled) {
         this.repo = repo;
         this.syncService = syncService;
-        this.locationRepository = locationRepository;
+        this.filterParser = filterParser;
+        this.results = results;
         this.mapBrowserTestHooks = mapBrowserTestHooks;
         this.refreshEnabled = refreshEnabled;
     }
 
     @GetMapping("/")
-    public String index(
-            @RequestParam(required = false) String municipality,
-            @RequestParam(required = false) String placeName,
-            @RequestParam(required = false) String category,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false) BigDecimal minPrice,
-            @RequestParam(required = false) BigDecimal maxPrice,
-            @RequestParam(required = false) Boolean firstSale,
-            @RequestParam(required = false) String search,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "startingPrice") String sortBy,
-            @RequestParam(defaultValue = "asc") String sortDir,
-            Model model
-    ) {
-        Sort sort = sortDir.equalsIgnoreCase("desc")
-                ? Sort.by(sortBy).descending()
-                : Sort.by(sortBy).ascending();
-
-        var spec = AuctionSpecifications.withFilters(
-                municipality, placeName, category, status, minPrice, maxPrice, firstSale, search
-        );
-
-        Page<Auction> auctions = repo.findAll(spec, PageRequest.of(page, 25, sort));
-        AuctionLocationRepository locations = locationRepository.getIfAvailable();
-
-        model.addAttribute("auctions", auctions);
-        model.addAttribute("locationsByAuctionId", locations == null
-                ? Map.of()
-                : locations.findBestByAuctionIds(auctions.getContent().stream().map(Auction::getId).toList()));
-        model.addAttribute("municipalities", repo.findDistinctMunicipalities());
-        model.addAttribute("places", repo.findDistinctPlaceNames());
-        model.addAttribute("categories", repo.findDistinctCategories());
-        model.addAttribute("statuses", repo.findDistinctStatuses());
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public String index(@RequestParam MultiValueMap<String, String> parameters, Model model,
+                        HttpServletResponse response) {
+        var filters = filterParser.parse(parameters, Set.of());
+        response.setHeader("Cache-Control", "no-store, private");
+        model.addAllAttributes(results.model(filters, null));
+        var options = filterParser.options();
+        model.addAttribute("municipalities", options.get("municipality"));
+        model.addAttribute("places", options.get("placeName"));
+        model.addAttribute("categories", options.get("category"));
+        model.addAttribute("statuses", options.get("status"));
         model.addAttribute("totalCount", repo.count());
         model.addAttribute("detailsCount", repo.countByDetailsFetched(true));
-        model.addAttribute("mapStatusOptions", MapAuctionFilterOptions.statuses());
-        model.addAttribute("mapKindOptions", MapAuctionFilterOptions.kinds());
         model.addAttribute("mapPrecisionOptions", MapAuctionFilterOptions.precisions());
         model.addAttribute("mapBrowserTestHooks", mapBrowserTestHooks);
         model.addAttribute("mapAutoRefreshIntervalMs", mapAutoRefreshIntervalMs);
@@ -99,19 +78,6 @@ public class AuctionController {
         model.addAttribute("mapInitialLatitude", mapInitialLatitude);
         model.addAttribute("mapInitialZoom", mapInitialZoom);
         model.addAttribute("fitParcelsOnSelect", fitParcelsOnSelect);
-
-        // Preserve filter params
-        model.addAttribute("selectedMunicipality", municipality);
-        model.addAttribute("selectedPlace", placeName);
-        model.addAttribute("selectedCategory", category);
-        model.addAttribute("selectedStatus", status);
-        model.addAttribute("minPrice", minPrice);
-        model.addAttribute("maxPrice", maxPrice);
-        model.addAttribute("firstSale", firstSale);
-        model.addAttribute("search", search);
-        model.addAttribute("sortBy", sortBy);
-        model.addAttribute("sortDir", sortDir);
-        model.addAttribute("currentPage", page);
 
         // Durable sync status is auxiliary page chrome. A ledger outage must
         // not hide the already-persisted auction catalogue from operators.

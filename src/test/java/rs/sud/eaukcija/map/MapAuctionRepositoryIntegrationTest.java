@@ -232,10 +232,169 @@ class MapAuctionRepositoryIntegrationTest {
         assertThat(jsonResponse.getHeaders().getFirst("Vary")).contains("Accept");
     }
 
+    @Autowired private rs.sud.eaukcija.filter.AuctionSearchRepository searchRepository;
+    @Autowired private rs.sud.eaukcija.repository.AuctionRepository auctions;
+    @Autowired private MapAuctionService service;
+
+    @Test
+    void sharedTemporalScopesHandleLegacy179415BoundaryAndUnknownEndWithoutSourceSnapshots() {
+        insertAuction(179415, "Н179415", "150000", "2026-08-28T11:00:00Z", "InPrediction", "Викендица");
+        select(insertReference(179415, 0, "STRUCTURED_LOCATION", "legacy-ko", null),
+                "POINT(20.5 44.75)", "CADASTRAL_MUNICIPALITY", "2026-08-23T09:00:00Z");
+        for (long id = 1; id <= 4; id++) {
+            insertAuction(id, "Н" + id, "100", id == 1 ? "2026-09-01T00:00:00Z" :
+                    id == 2 ? "2026-08-30T12:00:00Z" : "2026-08-28T11:00:00Z", "InPrediction", "Викендица");
+            if (id != 4) select(insertReference(id, 0, "OTHER", "property:" + id, null),
+                    "POINT(20.5 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+        }
+        jdbc.update("UPDATE auctions SET end_date = NULL WHERE id = 3");
+        membership("", List.of(1L), List.of(1L));
+        membership("timeScope=ended", List.of(2L, 4L, 179415L), List.of(2L, 179415L));
+        membership("timeScope=all", List.of(1L, 2L, 3L, 4L, 179415L), List.of(1L, 2L, 3L, 179415L));
+        membership("timeScope=ended&category=Викендица&status=InPrediction&precision=CADASTRAL_MUNICIPALITY",
+                List.of(179415L), List.of(179415L));
+        membership("timeScope=ended&precision=PARCEL", List.of(), List.of());
+        membership("timeScope=all&precision=NONE", List.of(4L), List.of());
+        membership("timeScope=all&from=2026-08-28&to=2026-08-28", List.of(4L, 179415L), List.of(179415L));
+        membership("timeScope=not-ended&from=2026-08-28&to=2026-08-28", List.of(), List.of());
+        assertThat(repository.selectionState(shared("auction=179415"))).isEqualTo("OUTSIDE_FILTERS");
+        assertThat(repository.selectionState(shared("auction=3"))).isEqualTo("OUTSIDE_FILTERS");
+        assertThat(repository.selectionState(shared("timeScope=all&auction=4"))).isEqualTo("UNMAPPED");
+        assertThat(repository.selectionState(shared("timeScope=all&auction=179415"))).isEqualTo("VISIBLE");
+        assertThat(repository.selectionState(shared("auction=999999"))).isEqualTo("NOT_FOUND");
+        assertThat(service.findAuctions(shared("timeScope=all")).features()).anySatisfy(feature -> {
+            assertThat(feature.properties().auctionId()).isEqualTo(3L);
+            assertThat(feature.properties().endTime()).isNull();
+        });
+        assertThat(service.findAuctions(shared("timeScope=ended&precision=CADASTRAL_MUNICIPALITY")).features())
+                .singleElement().satisfies(feature -> {
+                    assertThat(feature.properties().endTime()).isEqualTo("2026-08-28T11:00:00Z");
+                    assertThat(feature.properties().precision()).isEqualTo("CADASTRAL_MUNICIPALITY");
+                });
+    }
+
+    @Test
+    void everySharedScalarFilterAndSerbianSearchAgreeIncludingLiteralWildcardsAndRsd() {
+        insertAuction(501, "Н501", "12345.67", "2026-09-01T00:00:00Z", "Closed", "Викендица");
+        select(insertReference(501, 0, "OTHER", "one", null), "POINT(20.5 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+        jdbc.update("UPDATE auctions SET municipality='Београд', place_name='Вождовац', first_sale=true, short_description='Њива Љубиње Чачак', description='Ђорђе 50%_попуст' WHERE id=501");
+        insertAuction(502, "Н502", "20000", "2026-09-01T00:00:00Z", "Verified", "Кућа");
+        select(insertReference(502, 0, "OTHER", "two", null), "POINT(20.5 44.75)", "PARCEL", "2026-08-23T09:00:00Z");
+        for (String query : List.of("municipality=Београд", "placeName=Вождовац", "category=Викендица", "status=Closed",
+                "minPrice=12345.67&maxPrice=12345.67", "maxPrice=15000", "firstSale=true", "precision=ADDRESS",
+                "search=њИВА", "search=NJIVA", "search=Ljubinje", "search=Čačak", "search=Djordje", "search=50%25_", "search=Н501",
+                "municipality=Београд&placeName=Вождовац&category=Викендица&status=Closed&minPrice=12000&maxPrice=13000&firstSale=true&search=njiva&precision=ADDRESS")) {
+            membership(query, List.of(501L), List.of(501L));
+        }
+        membership("firstSale=false&minPrice=15000", List.of(502L), List.of(502L));
+        assertThat(service.findAuctions(shared("search=njiva")).features()).singleElement();
+        jdbc.update("UPDATE auctions SET status='closed' WHERE id=502");
+        membership("status=CLOSED", List.of(501L, 502L), List.of(501L, 502L));
+    }
+
+    @Test
+    void multipleMunicipalitiesUseOrWithinTheSharedFiltersWithoutDependingOnCurrentOptions() throws Exception {
+        for (long id = 551; id <= 553; id++) {
+            insertAuction(id, "Н" + id, "100", "2026-09-01T00:00:00Z", "Verified", "Викендица");
+            select(insertReference(id, 0, "OTHER", "municipality:" + id, null), "POINT(20.5 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+        }
+        jdbc.update("UPDATE auctions SET municipality = CASE id WHEN 551 THEN 'ЧАЧАК' WHEN 552 THEN 'Ада' ELSE 'Београд' END");
+        membership("municipality=Чачак&municipality=Ада", List.of(551L, 552L), List.of(551L, 552L));
+        membership("municipality=Чачак&municipality=Ада&category=Кућа", List.of(), List.of());
+        membership("municipality=Чачак&municipality=ЧАЧАК&municipality=Апатин", List.of(551L), List.of(551L));
+        membership("municipality=Апатин", List.of(), List.of()); // Known municipality, currently no auctions.
+        membership("municipality=", List.of(551L, 552L, 553L), List.of(551L, 552L, 553L));
+        var response = http.getForEntity("/api/auctions/view?bbox=20.2,44.6,20.8,44.9&timeScope=all&municipality=Чачак&municipality=Ада", String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = json.readTree(response.getBody());
+        assertThat(body.at("/map/counts/filteredAuctionCount").asInt()).isEqualTo(2);
+        assertThat(body.path("resultsHtml").asText()).contains("Н551", "Н552").doesNotContain("Н553");
+        assertThat(body.at("/map/features")).hasSize(2);
+    }
+
+    @Test
+    void outsideViewportWinningParcelCannotResurrectAnInsideDuplicateAndCountsExplainTheSubset() {
+        insertAuction(601, "Н601", "1", "2026-09-01T00:00:00Z", "Verified", "Парцела");
+        long identity = insertParcelIdentity("702013", "1572");
+        select(insertReference(601, 0, "PARCEL", "old", identity), "POINT(20.5 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+        select(insertReference(601, 1, "PARCEL", "winner", identity), "POINT(21.5 44.75)", "PARCEL", "2026-08-23T09:00:00Z");
+        membership("", List.of(601L), List.of());
+        membership("precision=ADDRESS", List.of(), List.of());
+        membership("precision=PARCEL", List.of(601L), List.of());
+        assertThat(repository.counts(shared(""))).isEqualTo(new MapAuctionRepository.Counts(1, 0, 0, 0));
+        assertThat(repository.selectionState(shared("auction=601"))).isEqualTo("OUTSIDE_VIEWPORT");
+        // A genuine second property is not an obsolete duplicate.
+        select(insertReference(601, 2, "OTHER", "second", null), "POINT(20.5 44.75)", "MUNICIPALITY", "2026-08-23T09:00:00Z");
+        select(insertReference(601, 3, "OTHER", "third", null), "POINT(20.6 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+        insertAuction(602, "Н602", "1", "2026-09-01T00:00:00Z", "Verified", "Парцела");
+        var response = service.findAuctions(shared("limit=1"));
+        assertThat(response.counts()).isEqualTo(new MapAuctionRepository.Counts(2, 1, 1, 2));
+        assertThat(response.truncated()).isTrue();
+        assertThat(response.numberReturned()).isOne();
+        assertThat(response.returnedAuctionCount()).isOne();
+        membership("page=1", List.of(), List.of(601L)); // table page never restricts the map
+        insertAuction(603, "Н603", "1", "2026-09-01T00:00:00Z", "Verified", "Парцела");
+        select(insertReference(603, 0, "OTHER", "limited", null), "POINT(20.5 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+        assertThat(service.findAuctions(shared("limit=1&auction=603")).selection().state()).isEqualTo("LIMIT");
+    }
+
+    @Test
+    void realPostgisDatePredicatesIncludeExactlyTheLocalDayAtBothDstTransitions() {
+        String[][] days = {{"2026-03-29", "2026-03-28T23:00:00Z", "2026-03-29T22:00:00Z"},
+                {"2026-10-25", "2026-10-24T22:00:00Z", "2026-10-25T23:00:00Z"}};
+        long base = 800;
+        for (String[] day : days) {
+            var start = Instant.parse(day[1]); var end = Instant.parse(day[2]);
+            var times = List.of(start.minusMillis(1), start, end.minusMillis(1), end);
+            for (int i = 0; i < 4; i++) {
+                long id = base + i;
+                insertAuction(id, "Н" + id, "1", times.get(i).toString(), "InPrediction", "Викендица");
+                select(insertReference(id, 0, "OTHER", "dst" + id, null), "POINT(20.5 44.75)", "ADDRESS", "2026-08-23T09:00:00Z");
+            }
+            membership("timeScope=all&from=" + day[0] + "&to=" + day[0], List.of(base + 1, base + 2), List.of(base + 1, base + 2));
+            base += 100;
+        }
+    }
+
+    @Test
+    void realCombinedViewUsesOneCutoffAndNullableEndPresentationAndLegacyHttpErrors() throws Exception {
+        insertAuction(701, "Н701", "1", "2026-08-28T11:00:00Z", "InPrediction", "Викендица");
+        jdbc.update("UPDATE auctions SET end_date = NULL WHERE id=701");
+        select(insertReference(701, 0, "OTHER", "unknown", null), "POINT(20.5 44.75)", "CADASTRAL_MUNICIPALITY", "2026-08-23T09:00:00Z");
+        var response = http.getForEntity("/api/auctions/view?bbox=20.2,44.6,20.8,44.9&timeScope=all", String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var body = json.readTree(response.getBody());
+        assertThat(body.at("/map/features/0/properties/endTime").isNull()).isTrue();
+        assertThat(body.path("resultsHtml").asText()).contains("Непознат завршетак", body.at("/map/asOf").asText());
+        for (String path : List.of("/", "/api/auctions/view", "/api/map/auctions")) {
+            var invalid = http.getForEntity(path + "?category=Кућа&mapKind=Викендица", String.class);
+            assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(json.readTree(invalid.getBody()).path("field").asText()).isEqualTo("category");
+        }
+    }
+
+    private MapAuctionRequest shared(String query) {
+        var values = new org.springframework.util.LinkedMultiValueMap<String, String>();
+        if (!query.isBlank()) for (String pair : query.split("&")) {
+            String[] parts = pair.split("=", 2);
+            values.add(parts[0], java.net.URLDecoder.decode(parts[1], java.nio.charset.StandardCharsets.UTF_8));
+        }
+        values.add("bbox", "20.2,44.6,20.8,44.9");
+        return new MapAuctionRequestParser(new rs.sud.eaukcija.filter.AuctionFilterParser(auctions,
+                java.time.Clock.fixed(Instant.parse("2026-08-30T12:00:00Z"), java.time.ZoneOffset.UTC))).parse(values);
+    }
+    private void membership(String query, List<Long> table, List<Long> map) {
+        var request = shared(query);
+        assertThat(searchRepository.page(request.filters(), searchRepository.count(request.filters())).stream()
+                .map(rs.sud.eaukcija.model.Auction::getId).sorted().toList()).as("table: %s", query).isEqualTo(table);
+        assertThat(repository.findWithin(request).stream().map(MapAuctionRow::auctionId).distinct().sorted().toList())
+                .as("map: %s", query).isEqualTo(map);
+    }
+
     private MapAuctionRequest request(
             String status, String kind, LocationPrecision precision,
             Instant from, Instant to, int limit) {
-        return new MapAuctionRequest(
+        return MapAuctionRepositoryTestAccess.request(
                 new BoundingBox(20.20, 44.60, 20.80, 44.90),
                 status, kind, precision, from, to, limit);
     }

@@ -94,8 +94,8 @@
     <div class="container">
         <h1>еАукција — Претрага непокретности</h1>
         <div class="stats">
-            Укупно: <strong th:text="${totalCount}">0</strong> аукција |
-            Са детаљима: <strong th:text="${detailsCount}">0</strong>
+            Укупно: <strong id="catalogue-count" th:text="${totalCount}">0</strong> аукција |
+            Са детаљима: <strong id="catalogue-details" th:text="${detailsCount}">0</strong>
         </div>
     </div>
 </header>
@@ -148,6 +148,8 @@
         </details>
     </section>
 
+    <div th:replace="~{auction-filters :: filters}"></div>
+
     <section class="auction-map-panel" aria-labelledby="auction-map-heading"
              th:attr="data-map-test-hooks=${mapBrowserTestHooks},data-auto-refresh-interval-ms=${mapAutoRefreshIntervalMs},data-initial-longitude=${mapInitialLongitude},data-initial-latitude=${mapInitialLatitude},data-initial-zoom=${mapInitialZoom},data-fit-parcels=${fitParcelsOnSelect}">
         <div class="auction-map-heading-row">
@@ -168,50 +170,7 @@
 
         <div id="map-freshness-warning" class="map-notice map-notice-warning" role="status" hidden></div>
 
-        <form id="map-filters" class="map-filter-form" aria-label="Филтери карте">
-            <div class="map-filter-field">
-                <label for="map-status-filter">Статус</label>
-                <select id="map-status-filter" name="mapStatus">
-                    <option value="">Сви статуси</option>
-                    <option th:each="option : ${mapStatusOptions}"
-                            th:value="${option.value}" th:text="${option.label}"></option>
-                </select>
-            </div>
-            <div class="map-filter-field">
-                <label for="map-kind-filter">Врста</label>
-                <select id="map-kind-filter" name="mapKind">
-                    <option value="">Све врсте</option>
-                    <option th:each="option : ${mapKindOptions}"
-                            th:value="${option.value}" th:text="${option.label}"></option>
-                </select>
-            </div>
-            <div class="map-filter-field">
-                <label for="map-precision-filter">Прецизност</label>
-                <select id="map-precision-filter" name="mapPrecision">
-                    <option value="">Све прецизности</option>
-                    <option th:each="option : ${mapPrecisionOptions}"
-                            th:value="${option.value}" th:text="${option.label}"></option>
-                </select>
-            </div>
-            <div class="map-filter-field">
-                <label for="map-from-filter">Завршава се од</label>
-                <input id="map-from-filter" name="mapFrom" type="date"
-                       aria-describedby="map-default-time-note"/>
-            </div>
-            <div class="map-filter-field">
-                <label for="map-to-filter">Завршава се до</label>
-                <input id="map-to-filter" name="mapTo" type="date"/>
-            </div>
-            <div class="map-filter-actions">
-                <button type="submit" class="btn btn-primary">Примени на карту</button>
-                <button type="button" id="map-filter-reset" class="btn btn-secondary">Обриши</button>
-            </div>
-        </form>
-
-        <p id="map-default-time-note" class="map-default-note">
-            Ако датум „од” није унет, карта приказује само аукције које се још нису завршиле
-            у тренутку захтева.
-        </p>
+        <p class="map-default-note">Померање карте мења само просторни подскуп на карти, не глобалне филтере или страницу табеле.</p>
 
         <div id="map-state" class="map-notice" role="status" aria-live="polite"
              aria-atomic="true" data-state="loading">
@@ -252,77 +211,18 @@
         </div>
     </section>
 
-    <!-- Filters -->
-    <form class="filters" method="get" action="/">
-        <h3>Филтери</h3>
-        <div class="filter-grid">
-            <div class="filter-group">
-                <label>Општина</label>
-                <select name="municipality">
-                    <option value="">— Све —</option>
-                    <option th:each="m : ${municipalities}" th:value="${m}" th:text="${m}"
-                            th:selected="${m == selectedMunicipality}"></option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Место</label>
-                <select name="placeName">
-                    <option value="">— Сва —</option>
-                    <option th:each="p : ${places}" th:value="${p}" th:text="${p}"
-                            th:selected="${p == selectedPlace}"></option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Категорија</label>
-                <select name="category">
-                    <option value="">— Све —</option>
-                    <option th:each="c : ${categories}" th:value="${c}" th:text="${c}"
-                            th:selected="${c == selectedCategory}"></option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Статус</label>
-                <select name="status">
-                    <option value="">— Сви —</option>
-                    <option th:each="s : ${statuses}" th:value="${s}" th:text="${s}"
-                            th:selected="${s == selectedStatus}"></option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Мин. цена (РСД)</label>
-                <input type="number" name="minPrice" th:value="${minPrice}" placeholder="0"/>
-            </div>
-            <div class="filter-group">
-                <label>Макс. цена (РСД)</label>
-                <input type="number" name="maxPrice" th:value="${maxPrice}" placeholder="∞"/>
-            </div>
-            <div class="filter-group">
-                <label>Прва продаја</label>
-                <select name="firstSale">
-                    <option value="">— Свеједно —</option>
-                    <option value="true" th:selected="${firstSale != null and firstSale}">Да</option>
-                    <option value="false" th:selected="${firstSale != null and !firstSale}">Не</option>
-                </select>
-            </div>
-            <div class="filter-group">
-                <label>Претрага (текст)</label>
-                <input type="text" name="search" th:value="${search}" placeholder="Кључна реч..."/>
-            </div>
-        </div>
-        <input type="hidden" name="sortBy" th:value="${sortBy}"/>
-        <input type="hidden" name="sortDir" th:value="${sortDir}"/>
-        <div class="filter-actions">
-            <button type="submit" class="btn btn-primary">Филтрирај</button>
-            <a href="/" class="btn btn-secondary">Ресетуј</a>
-        </div>
-    </form>
-
-    <!-- Results -->
+    <section id="shared-results" th:fragment="results" th:attr="data-as-of=${filters.asOf}">
+    <p id="active-criteria" role="status">Примењено:
+        <strong th:text="${filters.timeScopeLabel()}"></strong>
+        <span th:each="entry : ${filters.activeCriteria()}"
+              th:text="${' · ' + entry.key + ': ' + entry.value}"></span>
+        <span th:text="${' · Провера: ' + #temporals.format(filters.asOf.atZone(displayZone), 'dd.MM.yyyy. HH:mm:ss') + ' (Београд)'}"></span>
+    </p>
     <div class="results-info">
-        <span>Приказ <strong th:text="${auctions.numberOfElements}">0</strong> од <strong th:text="${auctions.totalElements}">0</strong> резултата</span>
-        <span>Страница <strong th:text="${currentPage + 1}">1</strong> / <strong th:text="${auctions.totalPages}">1</strong></span>
+        <span>Приказ <strong th:text="${auctions.numberOfElements}">0</strong> од <strong th:text="${auctions.totalElements}">0</strong> филтрираних аукција</span>
+        <span>Страница <strong th:text="${currentPage + 1}">1</strong> / <strong th:text="${T(java.lang.Math).max(1, auctions.totalPages)}">1</strong></span>
     </div>
-    <p class="precision-note" th:if="${!locationsByAuctionId.isEmpty()}">
+    <p class="precision-note">
         Ознака „центар“ је приближна локација области, не адреса, улица или парцела.
     </p>
 
@@ -330,44 +230,44 @@
     <table>
         <thead>
         <tr>
-            <th><a th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy='auctionNumber',sortDir=${sortBy == 'auctionNumber' and sortDir == 'asc' ? 'desc' : 'asc'})}">Број</a></th>
+            <th><a th:href="${filters.sortUrl('auctionNumber')}">Број</a></th>
             <th>Опис</th>
             <th>Општина</th>
             <th>Место</th>
             <th>Прецизност локације</th>
             <th>Категорија</th>
-            <th><a th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy='startingPrice',sortDir=${sortBy == 'startingPrice' and sortDir == 'asc' ? 'desc' : 'asc'})}">Почетна цена</a></th>
-            <th><a th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy='estimatedPrice',sortDir=${sortBy == 'estimatedPrice' and sortDir == 'asc' ? 'desc' : 'asc'})}">Процена</a></th>
+            <th><a th:href="${filters.sortUrl('startingPrice')}">Почетна цена</a></th>
+            <th><a th:href="${filters.sortUrl('estimatedPrice')}">Процена</a></th>
+            <th><a th:href="${filters.sortUrl('endDate')}">Завршетак (Београд)</a></th>
             <th>Статус</th>
             <th>Прва</th>
         </tr>
         </thead>
         <tbody>
-        <tr th:each="a : ${auctions}">
+        <tr th:each="a : ${auctions}" th:attr="data-auction-id=${a.id}">
             <td>
                 <a class="auction-link"
                    th:href="'https://eaukcija.sud.rs/#/aukcije/' + ${a.id}"
                    th:text="${a.auctionNumber}" target="_blank" rel="noopener noreferrer"></a>
+                <button type="button" class="table-select" th:attr="data-auction-id=${a.id}">Изабери на карти</button>
             </td>
             <td class="desc-cell" th:text="${a.shortDescription}"></td>
             <td th:text="${a.municipality ?: '—'}"></td>
             <td th:text="${a.placeName ?: '—'}"></td>
-            <td th:with="location=${locationsByAuctionId.get(a.id)}">
-                <span th:if="${location != null}"
-                      class="precision-badge"
-                      th:classappend="${location.precision.name() == 'NONE' ? 'precision-none' : (location.coarse ? 'precision-coarse' : 'precision-exact')}"
-                      th:title="${location.confidenceReason}"
-                      th:text="${location.precisionLabelSr}"></span>
-                <span th:unless="${location != null}">—</span>
+            <td>
+                <span th:each="precision : ${precisionsByAuctionId.get(a.id)}" class="precision-badge"
+                      th:text="${precisionLabels.get(precision)}"></span>
+                <span th:unless="${precisionsByAuctionId.containsKey(a.id)}" class="precision-badge precision-none">Нема објављиве локације</span>
             </td>
             <td th:text="${a.categoryName ?: '—'}"></td>
             <td class="price" th:text="${a.startingPrice != null ? #numbers.formatDecimal(a.startingPrice, 1, 'POINT', 0, 'POINT') + ' РСД' : '—'}"></td>
             <td class="price" th:text="${a.estimatedPrice != null ? #numbers.formatDecimal(a.estimatedPrice, 1, 'POINT', 0, 'POINT') + ' РСД' : '—'}"></td>
+            <td th:text="${a.endDate == null ? 'Непознат завршетак' : #temporals.format(a.endDate.atZone(displayZone), 'dd.MM.yyyy. HH:mm')}"></td>
             <td><span class="status-badge" th:classappend="'status-' + ${a.status}" th:text="${a.status}"></span></td>
             <td><span class="first-sale" th:if="${a.firstSale}">Да</span></td>
         </tr>
         <tr th:if="${auctions.isEmpty()}">
-            <td colspan="10" style="text-align:center; padding:30px; color:#999;">Нема резултата. Покрените синхронизацију или промените филтере.</td>
+            <td colspan="11" style="text-align:center; padding:30px;">Нема резултата за пресек изабраних критеријума. Проверите временски опсег и датуме завршетка; ниједан услов није аутоматски уклоњен.</td>
         </tr>
         </tbody>
     </table>
@@ -376,19 +276,20 @@
     <!-- Pagination -->
     <div class="pagination" th:if="${auctions.totalPages > 1}">
         <a th:if="${currentPage > 0}"
-           th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy=${sortBy},sortDir=${sortDir},page=${currentPage - 1})}">« Претходна</a>
+           th:href="${filters.pageUrl(currentPage - 1)}">« Претходна</a>
 
-        <th:block th:each="i : ${#numbers.sequence(0, auctions.totalPages - 1)}">
+        <th:block th:each="i : ${#numbers.sequence(T(java.lang.Math).max(0, currentPage - 2), T(java.lang.Math).min(auctions.totalPages - 1, currentPage + 2))}">
             <span class="active" th:if="${i == currentPage}" th:text="${i + 1}"></span>
             <a th:unless="${i == currentPage}"
                th:if="${i == 0 or i == auctions.totalPages - 1 or (i >= currentPage - 2 and i <= currentPage + 2)}"
-               th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy=${sortBy},sortDir=${sortDir},page=${i})}"
+               th:href="${filters.pageUrl(i)}"
                th:text="${i + 1}"></a>
         </th:block>
 
         <a th:if="${currentPage < auctions.totalPages - 1}"
-           th:href="@{/(municipality=${selectedMunicipality},placeName=${selectedPlace},category=${selectedCategory},status=${selectedStatus},minPrice=${minPrice},maxPrice=${maxPrice},firstSale=${firstSale},search=${search},sortBy=${sortBy},sortDir=${sortDir},page=${currentPage + 1})}">Следећа »</a>
+           th:href="${filters.pageUrl(currentPage + 1)}">Следећа »</a>
     </div>
+    </section>
 </div>
 
 <script src="/vendor/pmtiles/4.4.0/pmtiles.js"></script>

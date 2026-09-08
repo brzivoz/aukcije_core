@@ -1,87 +1,119 @@
-# Map GeoJSON API
+# Shared auction / map API
 
-`GET /api/map/auctions` returns only the selected, verified auction locations
-needed to render the current map viewport. It is unavailable in the legacy
-`local-h2` profile because that profile has no PostGIS contract.
+`GET /api/map/auctions` returns eligible winning property locations in a bounded
+viewport of the **same filtered auction population as the table**. `GET
+/api/auctions/view` is the browser's atomic table/map/count refresh endpoint.
+Both require PostgreSQL/PostGIS, not the legacy `local-h2` profile.
+
+The authoritative [shared-filter contract and user guide](SHARED_FILTERS.md)
+documents every criterion, validation rule, URL field, compatibility alias,
+search normalization, time boundary, and #28 extension point. There is no
+independent map filter state or hidden `from=now` default.
 
 ## Request
 
 ```text
-GET /api/map/auctions?bbox=18,41,24,47&status=Verified&kind=Парцела&precision=PARCEL&from=2026-08-23&to=2026-08-30&limit=1000
+GET /api/map/auctions?bbox=18,41,24,47&category=Викендица&timeScope=ended&from=2026-08-28&to=2026-08-28&precision=CADASTRAL_MUNICIPALITY&limit=1000
 ```
 
-Only these query parameters are accepted; repeated or unknown parameters return
-the structured `400` contract below.
+Shared fields: `municipality`, `placeName`, `category`, `status`, `search`,
+`minPrice`, `maxPrice`, `firstSale`, `precision`, `timeScope`, `from`, `to`,
+`sortBy`, `sortDir`, `page`, `auction`. Sort/page never limit map membership.
+`municipality` alone can repeat: `municipality=Ада&municipality=Чачак` matches
+any selected municipality (case-insensitive), intersected with other criteria.
+Names come from the bundled 168-name RGZ extract plus safe retained labels,
+including municipalities with no auctions; blank/absent means no restriction.
+All routes reject unknown/conflicting/invalid parameters and repetitions of
+other fields with a field-specific problem. Raw category/status values come from supported legacy
+seeds plus safe retained values, including `Викендица` and `Closed`.
+
+Map-only transport fields:
 
 | Parameter | Contract |
 |---|---|
-| `bbox` | Required WGS84 `minLon,minLat,maxLon,maxLat`. Longitude comes first. Values must be finite and in `[-180,180]` / `[-90,90]`; both axes must increase, so antimeridian-wrapping boxes are rejected. Boundary intersections are included. The spherical rectangle may not exceed 1,000,000 km². |
-| `status` | Optional, case-insensitive allowlist: `InPrediction`, `Published`, `Verification`, `Verified`. The response retains the canonical source spelling. This is a source workflow status, not an ended/active flag. |
-| `kind` | Optional exact eAukcija category allowlist: `Гаража`, `Грађевинско земљиште`, `Земљиште`, `Кућа`, `Локал`, `Непокретности`, `Објекат`, `Остали пословни објекат`, `Парцела`, `Пољопривредно земљиште`, `Стамбена зграда са више станова`, `Стамбени објекат`, `Шумско земљиште`. The always-generic source `PropertyType=ImmovableProperties` is deliberately not used. |
-| `precision` | Optional, case-insensitive: `PARCEL`, `ADDRESS`, `STREET`, `CADASTRAL_MUNICIPALITY`, `SETTLEMENT`, or `MUNICIPALITY`. `NONE` has no geometry and is not a map filter value. This filters the winning tier after canonical-property deduplication: `precision=ADDRESS` does not return a property whose winner is `PARCEL`. |
-| `from` / `to` | Optional ISO calendar dates (`YYYY-MM-DD`) in `Europe/Belgrade`. `from` is inclusive at local start of day; `to` includes the complete local day by using the next local start of day as an exclusive UTC boundary. DST days therefore remain honest 23/24/25-hour local days. |
-| `limit` | Optional integer `1..5000`; default `1000`. The repository fetches at most one private sentinel row beyond it to determine whether the public response is truncated. |
+| `bbox` | Required WGS84 `minLon,minLat,maxLon,maxLat`, longitude first. Finite values in `[-180,180]` / `[-90,90]`; both axes increase, no antimeridian wrapping. Inclusive intersections. Maximum spherical rectangle area: 1,000,000 km². |
+| `limit` | Integer 1..5000, default 1000. At most one extra private sentinel feature determines truncation. |
 
-When `from` is absent, its lower bound is the current instant. That is the
-default “currently relevant” behavior: auctions whose `end_date` has passed are
-not returned. eAukcija has no reliable closed status, so `status` is never used
-as a substitute for that time rule. Supplying `from` is the explicit way to
-request historical dates. The map form states this default beside the empty
-`from` field; an empty control therefore never hides the active time rule.
+The browser calculates its responsive minimum zoom from the same area ceiling
+with a safety margin, rechecks after resize and verifies bounds before fetch.
+A valid viewport outside Serbia returns an empty collection.
 
-The MapLibre client derives its minimum zoom from the rendered canvas size and
-the same 1,000,000 km² ceiling, with a safety margin. It re-evaluates that
-minimum after resize and verifies the actual spherical bbox before fetching.
-This keeps a national zoom useful on both narrow and wide layouts without
-sending a request the API must reject. The server ceiling remains authoritative.
+### Time, legacy links and unknown dates
 
-PostgreSQL stores `end_date` as `TIMESTAMP WITH TIME ZONE`; the JSON value is an
-ISO-8601 UTC instant. Map UI consumers display it in `Europe/Belgrade`.
+The visibly selected default `timeScope=not-ended` requires known `end_date >
+asOf`; `ended` requires known `end_date <= asOf`; `all` adds no current-time
+restriction and permits null end times. Neither `ended` nor `all` inherits a
+hidden current-time lower bound. Raw source workflow status is independent.
+Dates filter **end time**, intersect scope, and use inclusive Belgrade
+start-of-day `from` / exclusive start-of-next-day `to`, with DST. Null end dates
+fail explicit dates and the two known-time scopes; under `all` they may have
+features with `endTime: null`.
 
-## Response
+`kind`/`mapKind`, `mapStatus`, `mapPrecision`, `mapFrom`, `mapTo` are compatibility
+aliases only. Date-bearing legacy links without an explicit scope normalize to
+`all`; links without dates/scope now default **both** views to `not-ended`.
+Conflicting canonical/aliased values are errors. `asOf` is server response
+metadata, not a bookmark parameter; every refresh evaluates relative time anew.
 
-The default content type is `application/geo+json`; a client sending strict
-`Accept: application/json` receives `application/json` instead of `406`. The
-body is identical for both representations and caches vary by `Accept`. Point,
-Polygon, and MultiPolygon coordinates are WGS84 longitude/latitude.
+## GeoJSON response
+
+Default content type: `application/geo+json`; strict `Accept: application/json`
+receives JSON with the same body. Coordinates are WGS84 longitude/latitude.
 
 ```json
 {
   "type": "FeatureCollection",
-  "features": [
-    {
-      "type": "Feature",
-      "id": "12345:735977df20b23da84356ab104b49f2cb",
-      "geometry": {"type": "Point", "coordinates": [20.457273, 44.787197]},
-      "properties": {
-        "auctionId": 12345,
-        "title": "Н12345",
-        "amount": 125000.50,
-        "currency": "RSD",
-        "endTime": "2026-08-24T10:00:00Z",
-        "sourceStatus": "Verified",
-        "propertyKind": "Парцела",
-        "precision": "CADASTRAL_MUNICIPALITY",
-        "detailUrl": "https://eaukcija.sud.rs/#/aukcije/12345"
-      }
+  "features": [{
+    "type": "Feature",
+    "id": "179415:735977df20b23da84356ab104b49f2cb",
+    "geometry": {"type": "Point", "coordinates": [20.457273, 44.787197]},
+    "properties": {
+      "auctionId": 179415,
+      "title": "Н179415",
+      "amount": 125000.50,
+      "currency": "RSD",
+      "endTime": "2026-08-28T11:00:00Z",
+      "sourceStatus": "InPrediction",
+      "category": "Викендица",
+      "propertyKind": "Викендица",
+      "precision": "CADASTRAL_MUNICIPALITY",
+      "detailUrl": "https://eaukcija.sud.rs/#/aukcije/179415"
     }
-  ],
+  }],
   "numberReturned": 1,
   "limit": 1000,
-  "truncated": false
+  "truncated": false,
+  "asOf": "2026-08-30T12:00:00Z",
+  "timeScope": "ended",
+  "counts": {
+    "filteredAuctionCount": 3,
+    "unmappedAuctionCount": 1,
+    "mappedAuctionCountInViewport": 1,
+    "featureCountInViewport": 1
+  },
+  "returnedAuctionCount": 1,
+  "selection": null
 }
 ```
 
-`amount` is the source starting price and `currency` is always `RSD`. A feature
-never contains `short_description`, `description`, raw reference evidence,
-resolver candidate evidence, or a source response payload. Display strings are
-plain JSON text with control/Unicode-format characters removed, whitespace
-normalized, and length bounded. They are not HTML entity encoded. Consumers
-must render them through a text API such as DOM `textContent` or React text
-interpolation, never through `innerHTML`. `detailUrl` is derived only from the numeric auction id beneath the fixed
-`https://eaukcija.sud.rs/#/aukcije/` prefix; no source URL is accepted.
+`category` is raw category, nullable when unknown (never inferred from prose or
+generic property type). `propertyKind` is a deprecated JSON alias for it,
+**not normalized property kind or sale scope**. `amount` is starting price in
+RSD. End times display in Europe/Belgrade, with an explicit unknown fallback.
 
-The response repeats result-size state in headers for clients and operators:
+Counts precede map limits. Distinct mapped-auction count can differ from feature
+count for genuine multi-property auctions; neither equals paginated table row
+count. Outside-viewport auctions = filtered − unmapped − mapped-in-viewport.
+`truncated` and `numberReturned` explain feature limiting; `returnedAuctionCount`
+is the distinct auction count actually included. `precision=NONE` means no
+publishable location, matches the table and produces an explained empty map.
+
+With `auction` selected, `selection` has `auctionId` and `state`: `VISIBLE`,
+`OUTSIDE_FILTERS`, `UNMAPPED`, `OUTSIDE_VIEWPORT`, `LIMIT`, or `NOT_FOUND`. The
+browser keeps that selection and explains exclusions instead of clearing filters
+or fabricating a pin.
+
+Headers preserve the existing contract:
 
 ```text
 X-Map-Feature-Count: 1
@@ -91,119 +123,94 @@ Cache-Control: max-age=60, private
 Vary: Accept
 ```
 
-`numberReturned`/`X-Map-Feature-Count` make feature-count response size
-observable. `truncated=true` means another matching feature exists and the
-client should narrow the viewport or filters; the sentinel is never returned.
-Normal HTTP access logs or client tooling can additionally record transferred
-byte size without changing the public JSON contract.
+This permits private reuse only, never shared proxy caching of #41 geometry.
+The interactive client uses no-store fetching and the combined endpoint below.
 
-Responses permit private browser reuse for 60 seconds, never shared-proxy
-caching: automatic RGZ parcel geometry is governed by #41's private-local,
-non-redistribution scope. This bounds staleness for an auction crossing its end
-time while avoiding another database query when a map client revisits the same
-viewport. Query parameters remain part of the HTTP cache key.
+### Atomic browser refresh
 
-## Map-data version and freshness
+`GET /api/auctions/view` accepts exactly the same query and returns:
 
-`GET /api/map/status` is a separate anonymous, `Cache-Control: no-store`
-metadata endpoint used by the map shell. It reads the newest transactionally
-completed `coarse_location_resolution_runs` row; an in-progress or rolled-back
-population run can never become the visible version.
-
-```json
-{
-  "available": true,
-  "state": "AVAILABLE",
-  "dataVersion": "coarse-location-v1/centroids-2026-08/4a7d2c981de0",
-  "lastSuccessfulSync": "2026-08-23T10:00:00Z",
-  "stale": false,
-  "populationCount": 589,
-  "mappedAuctionCount": 587,
-  "precisionSummary": {"ADDRESS": 240, "MUNICIPALITY": 347, "NONE": 2},
-  "warning": null
-}
+```text
+{ "map": <GeoJSON response>, "resultsHtml": <escaped Thymeleaf table fragment>,
+  "query": <canonical query without bbox/limit>,
+  "options": { "category": [...], "status": [...], "municipality": [...], "placeName": [...] },
+  "catalogue": { "total": 123, "details": 120 } }
 ```
 
-The version combines the retained resolver version, centroid-extract version,
-and a twelve-character prefix of the exact source checksum. The timestamp is
-the successful run's durable `finished_at`, not page-load time or process-local
-state. `mappedAuctionCount` is the population less explicit `NONE` results.
-`map.data.stale-after` (default `PT24H`, environment override
-`MAP_DATA_STALE_AFTER`) controls the stale boundary.
-Internal coarse-resolution and refresh-workflow UUIDs are used by the
-server-side readiness check but are not fields of this anonymous response.
+One repeatable-read transaction and one cutoff cover both projections, counts,
+selection and options. The browser replaces results together, never the draft
+form, and rejects stale/cancelled responses. The table has at most 25 hydrated
+entities, fetched in bulk. Corresponding result/count/time-scope state refreshes
+on panning, automatic local updates and source-refresh completion. This endpoint
+and the page use `Cache-Control: no-store, private`.
 
-If no completed run exists, the endpoint deliberately returns
-`available=false`, `stale=true`, null version/timestamp, and
-`warning=NO_SUCCESSFUL_MAP_SYNC`. The UI renders that warning and never turns
-missing freshness into an apparently current dataset. A stale successful run
-uses `warning=MAP_DATA_STALE` while retaining its exact version and timestamp.
+## Publication, deduplication, spatial bounds and privacy
 
-## Property and resolution semantics
+`AuctionFilterSql` supplies identical auction-level predicates. The shared
+`PublishableLocationSql` relation includes only current `RESOLVED` attempts
+with geometry on `EXTRACTED`/`USER_CONFIRMED` references, satisfying current #33
+RGZ eligibility. A legacy fallback does not need source snapshots to publish.
+Canonical parcel identities/non-parcel keys collapse duplicates; genuine
+properties retain distinct stable IDs. Winners use enum precision rank, source
+reference order, latest completion, then attempt UUID.
 
-The database owns one current selected attempt per property reference. Only
-current `RESOLVED` attempts with geometry whose extraction status is
-`EXTRACTED` or `USER_CONFIRMED` can enter the public map; all other extraction
-states fail closed. References
-that share a canonical parcel identity, or the same canonical non-parcel key,
-collapse to one feature; the highest precision among those selected results is
-used. Parser-version duplicates do not create another feature and are not
-reported as a property count. Distinct canonical properties remain distinct
-features with stable feature ids even when
-they belong to the same auction or share a coarse representative point. The
-numeric `auctionId` is stable across all of that auction's features.
+**Winners are chosen before bbox and precision filtering**, including when a
+winning parcel is outside the viewport and a lower-tier duplicate is inside.
+Generic `STRUCTURED_LOCATION` centroids remain auction-level fallbacks, hidden
+while an eligible parcel exists anywhere. Revoking the #33 premise makes a
+retained fallback available again; filtering never fetches external geometry or
+changes selection/history. A table precision predicate uses any eligible
+canonical-property winner, not the evidence/detail endpoint's best attempt.
 
-A generic `STRUCTURED_LOCATION` centroid is an auction-level fallback, not a
-second property. It is hidden whenever that auction has an eligible selected
-`PARCEL`, even if the parcel lies outside the requested viewport. Distinct
-property references remain distinct. Revoking the parcel's current #33 premise
-immediately makes the retained structured fallback visible again; neither
-geometry nor attempt history is deleted.
+Spatial reads keep `&&`, `ST_Intersects`, canonical SRID protections, stable
+auction/property ordering and sentinel `LIMIT`. The winner CTE is not a global
+materialized geometry load: GiST-driven bounded spatial reads and auction-local
+competitor lookups remain possible. Aggregate counts do not hydrate the
+catalogue or export it to the browser. V24 adds immutable Serbian search
+functions, a `pg_trgm` GIN index and a lowercase-status index. V25 adds a
+lowercase-municipality B-tree index for multi-selection. All values are bound
+parameters and sort expressions are allowlisted with an ID tie-break.
 
-The map and `/api/locations/{id}` selectors share one enum-generated order:
-strongest declared `LocationPrecision`, then lowest source reference order,
-then latest completed attempt, then attempt UUID. This prevents the two public
-contracts from choosing different results when one canonical property has tied
-references. An unrecognized precision sorts last in both winner selectors;
-the coarse resolver's non-downgrade comparison retains SQL `NULL` semantics and
-therefore cannot promote an unrecognized tier. Adding or reordering a precision
-in the enum changes both SQL selectors and that comparison together.
+GeoJSON never contains descriptions, raw reference/candidate evidence or source
+payloads. Display strings have control/format characters removed, whitespace
+normalized and length bounded. Render them with DOM `textContent`, not HTML.
+`detailUrl` is derived only from numeric ID and the fixed eAukcija origin.
+The combined endpoint's table fragment is the same escaped, same-origin
+Thymeleaf markup as the initial table, not descriptions exported through GeoJSON.
+`/api/locations/{id}` remains an evidence view: review/invalid/NONE attempts can
+be inspected there without becoming publishable table/map locations.
 
-The detail endpoint is intentionally an evidence view, not a publication gate.
-It keeps current `NEEDS_REVIEW`, `INVALID`, and explicit `NONE` selections
-visible and returns both `extractionStatus` and `publishable`. The map alone
-enforces `publishable=true`, so review workflows retain the candidate evidence
-without exposing it as a public map feature.
+## Map-data freshness
 
-The repository performs this join, deduplication, filtering, ordering, and field
-projection in one SQL statement. It always requires a bounded bbox, applies
-both the PostGIS `&&` operator and `ST_Intersects`, orders by stable auction and
-MD5 property keys (rather than environment-specific text collation), and applies
-`LIMIT`. No entity hydration or per-feature lookup is
-performed.
+`GET /api/map/status` remains separate anonymous no-store metadata. It reads
+the latest transactionally completed `coarse_location_resolution_runs` row,
+never an in-progress/rolled-back population run. Fields include `available`,
+`state`, `dataVersion`, `lastSuccessfulSync`, `stale`, `populationCount`,
+`mappedAuctionCount`, `precisionSummary`, and `warning`. These are **pipeline
+population statistics**, not shared-filter result counts.
+
+The version combines resolver version, extract version and twelve checksum
+characters; the timestamp is durable `finished_at`, not page-load time.
+`map.data.stale-after` defaults to PT24H (`MAP_DATA_STALE_AFTER`). No successful
+run means unavailable/stale, null version/time and `NO_SUCCESSFUL_MAP_SYNC`;
+a stale success retains its timestamp and reports `MAP_DATA_STALE`. Internal
+run/workflow UUIDs are not exposed by this metadata endpoint.
 
 ## Errors
-
-Invalid requests return `application/problem+json`:
 
 ```json
 {
   "type": "about:blank",
   "title": "Invalid map request",
   "status": 400,
-  "detail": "minLongitude must be less than maxLongitude",
-  "instance": "/api/map/auctions",
+  "detail": "maxPrice must be at least minPrice (RSD)",
+  "instance": "/api/auctions/view",
   "code": "INVALID_MAP_REQUEST",
-  "field": "bbox"
+  "field": "maxPrice"
 }
 ```
 
-The browser client preserves and displays `field` plus `detail` for a `4xx`
-response and asks the user to change the view or filter. It reserves the retry
-instruction for network/`5xx` failures, so a deterministic invalid request is
-not presented as a transient outage.
-
-The `field` property identifies the missing, repeated, unknown, or invalid
-parameter and is normalized and capped at 64 Unicode code points before being
-echoed. A valid viewport outside Serbia simply returns an empty
-`FeatureCollection`.
+The historical title/code are retained on all three routes for compatibility.
+Content type is `application/problem+json`; field is normalized and capped at
+64 Unicode code points. Browser 4xx states name the field and request correction;
+network/5xx states offer retry. Both retain the last usable view and drafts.

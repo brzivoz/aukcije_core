@@ -1,0 +1,88 @@
+<form xmlns:th="http://www.thymeleaf.org" th:fragment="filters" id="shared-filters" class="filters" method="get" action="/"
+      aria-label="Заједнички филтери табеле и карте" th:attr="data-query=${filters.query()}">
+    <h3>Филтери табеле и карте</h3>
+    <div class="filter-grid">
+        <div class="filter-group"><label for="time-scope-filter">Временски опсег</label>
+            <select id="time-scope-filter" name="timeScope">
+                <option value="not-ended" th:selected="${filters.timeScope == 'not-ended'}">Нису завршене</option>
+                <option value="ended" th:selected="${filters.timeScope == 'ended'}">Завршене</option>
+                <option value="all" th:selected="${filters.timeScope == 'all'}">Све</option>
+            </select>
+        </div>
+        <fieldset class="filter-group municipality-group">
+            <legend id="municipality-label">Општине</legend>
+            <details id="municipality-filter" class="municipality-select">
+                <summary aria-labelledby="municipality-label municipality-summary" aria-describedby="municipality-help">
+                    <span id="municipality-summary" th:text="${filters.municipalities.isEmpty() ? 'Све општине' : #strings.listJoin(filters.municipalities, ', ')}">Све општине</span>
+                </summary>
+                <div class="municipality-panel">
+                    <div class="municipality-tools" hidden>
+                        <label for="municipality-search">Претрага општина</label>
+                        <input id="municipality-search" type="search" autocomplete="off" placeholder="Назив општине…"/>
+                        <button id="municipality-clear" type="button">Обриши избор — све општине</button>
+                    </div>
+                    <p id="municipality-help">Можете изабрати више општина. Без избора — све општине.</p>
+                    <div id="municipality-options" role="group" aria-label="Доступне општине">
+                        <label th:each="v : ${municipalities}" class="municipality-option">
+                            <input type="checkbox" name="municipality" th:value="${v}" th:checked="${filters.municipalities.contains(v)}"/>
+                            <span th:text="${v}"></span>
+                        </label>
+                    </div>
+                    <p id="municipality-empty" role="status" hidden>Нема општина за ову претрагу.</p>
+                </div>
+            </details>
+        </fieldset>
+        <div class="filter-group"><label for="place-filter">Место / насеље</label>
+            <input id="place-filter" name="placeName" list="place-options" maxlength="255" th:value="${filters.placeName}" placeholder="Сва места"/>
+            <datalist id="place-options"><option th:each="v : ${places}" th:value="${v}"></option></datalist>
+        </div>
+        <div class="filter-group"><label for="map-kind-filter">Изворна категорија</label>
+            <select id="map-kind-filter" name="category"><option value="">Све категорије</option>
+                <option th:each="v : ${categories}" th:value="${v}" th:text="${v}" th:selected="${v == filters.category}"></option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="map-status-filter">Изворни статус (није временски опсег)</label>
+            <select id="map-status-filter" name="status"><option value="">Сви статуси</option>
+                <option th:each="v : ${statuses}" th:value="${v}" th:text="${v}" th:selected="${v == filters.status}"></option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="map-precision-filter">Прецизност локације</label>
+            <select id="map-precision-filter" name="precision"><option value="">Све прецизности</option>
+                <option th:each="v : ${mapPrecisionOptions}" th:value="${v.value}" th:text="${v.label}"
+                        th:selected="${filters.precision != null and v.value == filters.precision.name()}"></option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="map-from-filter">Завршетак од (Београд)</label>
+            <input id="map-from-filter" name="from" type="date" th:value="${filters.from}"/>
+        </div>
+        <div class="filter-group"><label for="map-to-filter">Завршетак до, укључиво (Београд)</label>
+            <input id="map-to-filter" name="to" type="date" th:value="${filters.to}"/>
+        </div>
+        <div class="filter-group"><label for="min-price-filter">Мин. почетна цена (РСД)</label>
+            <input id="min-price-filter" name="minPrice" type="number" min="0" step="0.01" th:value="${filters.minPrice}"/>
+        </div>
+        <div class="filter-group"><label for="max-price-filter">Макс. почетна цена (РСД)</label>
+            <input id="max-price-filter" name="maxPrice" type="number" min="0" step="0.01" th:value="${filters.maxPrice}"/>
+        </div>
+        <div class="filter-group"><label for="first-sale-filter">Прва продаја</label>
+            <select id="first-sale-filter" name="firstSale"><option value="">Свеједно</option>
+                <option value="true" th:selected="${filters.firstSale == true}">Да</option>
+                <option value="false" th:selected="${filters.firstSale == false}">Не</option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="search-filter">Број или опис (ћирилица / латиница)</label>
+            <input id="search-filter" name="search" type="search" maxlength="200" th:value="${filters.search}"/>
+        </div>
+    </div>
+    <input type="hidden" name="sortBy" th:value="${filters.sortBy}"/>
+    <input type="hidden" name="sortDir" th:value="${filters.sortDir}"/>
+    <input type="hidden" name="auction" th:value="${filters.auction}"/>
+    <p id="map-default-time-note" class="map-default-note">Подразумевано: нису завршене (познат завршетак после тренутка провере),
+        не нужно отворене за лицитирање. Датуми завршетка и временски опсег се укрштају.
+        Непознат завршетак је укључен само под „Све” без датума.</p>
+    <div class="filter-actions">
+        <button type="submit" class="btn btn-primary">Примени филтере</button>
+        <a id="shared-filter-reset" class="btn btn-secondary" th:href="${filters.resetUrl()}">Ресетуј</a>
+    </div>
+    <p id="filter-state" role="status" aria-live="polite"></p>
+</form>

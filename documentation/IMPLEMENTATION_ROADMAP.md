@@ -153,6 +153,22 @@ answered the gate and changes their assumed outcome.
     extrapolated to that layer. Object auctions use a validated parcel polygon
     when present, then #23's fallbacks.
 
+## Shared-filter correctness pulled forward (#44)
+
+#44 implements the correctness slice previously owned by #28: one canonical
+filter model/form/URL adapter, explicit not-ended/ended/all scope, Belgrade end
+dates, shared Serbian search and retained raw categories/statuses, RSD prices,
+precision winners, honest table/map counts, selection preservation and atomic
+refresh. See [SHARED_FILTERS.md](SHARED_FILTERS.md) and [MAP_API.md](MAP_API.md).
+This is P1 correctness, not deferrable #28 interaction polish. It does not wait
+for #11 lifecycle auditing or for historical source-snapshot/parcel backfill.
+
+**#28 remaining scope:** extend `AuctionFilters`/`AuctionFilterSql` for #12's
+normalized property kind/sale scope and KO, richer counterpart scrolling/camera
+navigation, and any optional explicitly shared “limit to map area” mode. Keep
+#44's compatibility, DST, precision/publication, counts and refresh regressions;
+do not create a second filter model or repeat the filter unification work.
+
 ## Honest total
 
 Summing the size labels at 1.5 / 5 / 12 focused days gives roughly **165 focused days** to complete all three milestones as written. For one developer working evenings and weekends that is a **6–12 month** programme.
@@ -263,7 +279,7 @@ flowchart TB
     subgraph M2["M2 — Operational Daily Use"]
         I29["#29 Deterministic reprocessing"]
         I30["#30 Metrics + operator status"]
-        I28["#28 Filters + list-map workflow"]
+        I28["#28 Remaining list-map workflow (shared filters: #44)"]
         I31["#31 Private runtime + release gate"]
 
         I11 --> I29
@@ -302,7 +318,7 @@ The correction-21 splits are [#36 centroid extract](https://github.com/brzivoz/a
 | [#5 PostgreSQL/PostGIS Spatial Store](https://github.com/brzivoz/aukcije_core/issues/5) | P1 / M1 | #15 (P0 prerequisite), #20 |
 | [#6 Reproducible Local Serbia Basemap](https://github.com/brzivoz/aukcije_core/issues/6) | P1 / M1 | #24, #25 |
 | [#7 Auction Map MVP](https://github.com/brzivoz/aukcije_core/issues/7) | P1 / M1 | #34, #26, #27 |
-| [#8 Search, Filters & List–Map Workflow](https://github.com/brzivoz/aukcije_core/issues/8) | P2 / M2 | #28 |
+| [#8 Search, Filters & List–Map Workflow](https://github.com/brzivoz/aukcije_core/issues/8) | P1 correctness / P2 workflow | #44 shared filters, #28 remaining workflow |
 | [#9 Durable Incremental Enrichment & Operations](https://github.com/brzivoz/aukcije_core/issues/9) | P1 / M2 | #29, #30, #31 |
 
 GitHub sub-issues allow one parent each. Where the table says "cross-epic", the GitHub parent is the other epic and the listing here is informational.
@@ -333,7 +349,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 10 | **#33 ✅, #41 parcel decision ✅, #21 ✅** | Zero exact-match false positives; bounded automatic parcel fetching, durable replay, standalone/in-flight #33 invalidation, fallback, operator kill-switch status, and rendered-polygon proof |
 | 11 | #23, **#29 coordinator ✅** | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
 | 12 | #30 | Persisted freshness/backlog/precision status |
-| 13 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
+| 13 | #28 (remaining workflow; #44 correctness pulled forward) | Extend shared filters for normalized taxonomy/KO and richer list-map navigation; retain #44 URL/DST/refresh parity regressions |
 | 14 | #31 | Fresh-machine private release, backup/restore, and dependency/secret scan evidence |
 
 #29's coordinator, V13 ledger, controls, recovery proof, and current-stage cold

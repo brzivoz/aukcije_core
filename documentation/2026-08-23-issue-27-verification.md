@@ -1,5 +1,10 @@
 # Issue #27 precision-aware auction map verification
 
+> Historical evidence. #44 supersedes the independent `map*` UI state, invalid
+> value dropping and hidden current-time defaults described below. Current
+> shared form, URL compatibility and atomic table/map refresh are documented in
+> [SHARED_FILTERS.md](SHARED_FILTERS.md) and [BROWSER_AND_FRONTEND.md](BROWSER_AND_FRONTEND.md).
+
 Date: 2026-08-23
 
 Scope: usable MapLibre auction map in the existing Thymeleaf shell, local

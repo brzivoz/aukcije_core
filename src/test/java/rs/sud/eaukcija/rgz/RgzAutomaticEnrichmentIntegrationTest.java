@@ -92,7 +92,7 @@ class RgzAutomaticEnrichmentIntegrationTest {
                     assertThat(location.precision()).isEqualTo(LocationPrecision.PARCEL);
                     assertThat(location.coarse()).isFalse();
                 });
-        var exported = mapper.valueToTree(map.findAuctions(new MapAuctionRequest(
+        var exported = mapper.valueToTree(map.findAuctions(rs.sud.eaukcija.map.MapAuctionRepositoryTestAccess.request(
                 new BoundingBox(20.48, 44.76, 20.51, 44.79), null, null, null, Instant.EPOCH, null, 100)));
         assertThat(exported.path("features")).hasSize(4);
         exported.path("features").forEach(feature -> {
@@ -189,6 +189,8 @@ class RgzAutomaticEnrichmentIntegrationTest {
         FIXTURE.population = List.of(RgzWorkflowFixture.DIMITROVGRAD);
         runRefresh();
         long attemptsBefore = count("location_resolution_attempts");
+        assertSharedPrecisionCount("PARCEL", 1);
+        assertSharedPrecisionCount("CADASTRAL_MUNICIPALITY", 0);
         jdbc.update("""
                 UPDATE property_references SET raw_ko = 'Чајетина', normalized_ko = 'CAJETINA'
                  WHERE auction_id = 21001 AND canonical_parcel_number IS NOT NULL
@@ -196,12 +198,14 @@ class RgzAutomaticEnrichmentIntegrationTest {
         koMatches.run();
         assertThat(locations.findBestByAuctionIds(List.of(21001L)).get(21001L).precision())
                 .isEqualTo(LocationPrecision.CADASTRAL_MUNICIPALITY);
-        var exported = map.findAuctions(new MapAuctionRequest(new BoundingBox(20.48, 44.76, 20.51, 44.79),
+        var exported = map.findAuctions(rs.sud.eaukcija.map.MapAuctionRepositoryTestAccess.request(new BoundingBox(20.48, 44.76, 20.51, 44.79),
                 null, null, null, Instant.EPOCH, null, 100));
         assertThat(exported.features()).singleElement().satisfies(feature -> {
             assertThat(feature.properties().precision()).isEqualTo("CADASTRAL_MUNICIPALITY");
             assertThat(feature.geometry().type()).isEqualTo("Point");
         });
+        assertSharedPrecisionCount("PARCEL", 0);
+        assertSharedPrecisionCount("CADASTRAL_MUNICIPALITY", 1);
         assertThat(count("location_resolution_attempts")).isEqualTo(attemptsBefore);
         assertThat(count("rgz_parcel_cache_keys")).isOne();
         assertThat(FIXTURE.parcelRequests).hasSize(1);
@@ -216,6 +220,15 @@ class RgzAutomaticEnrichmentIntegrationTest {
         runEnrichment();
         assertThat(locations.findBestByAuctionIds(List.of(21001L)).get(21001L).resolutionAttemptId()).isEqualTo(selected);
         assertThat(count("rgz_parcel_cache_keys")).isOne();
+    }
+
+    @Autowired private rs.sud.eaukcija.filter.AuctionSearchRepository sharedSearch;
+    private void assertSharedPrecisionCount(String precision, long expected) {
+        var parameters = new org.springframework.util.LinkedMultiValueMap<String, String>();
+        parameters.add("bbox", "18,41,24,47"); parameters.add("timeScope", "all"); parameters.add("precision", precision);
+        var request = new rs.sud.eaukcija.map.MapAuctionRequestParser().parse(parameters);
+        assertThat(sharedSearch.count(request.filters())).isEqualTo(expected);
+        assertThat(map.findAuctions(request).returnedAuctionCount()).isEqualTo(expected);
     }
 
     private void runRefresh() throws Exception {

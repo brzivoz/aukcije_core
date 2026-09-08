@@ -10,7 +10,14 @@ public record MapGeoJsonResponse(
         List<Feature> features,
         int numberReturned,
         int limit,
-        boolean truncated) {
+        boolean truncated,
+        Instant asOf,
+        String timeScope,
+        MapAuctionRepository.Counts counts,
+        long returnedAuctionCount,
+        Selection selection) {
+
+    public record Selection(long auctionId, String state) {}
 
     public record Feature(
             String type,
@@ -29,5 +36,8 @@ public record MapGeoJsonResponse(
             String propertyKind,
             String precision,
             String detailUrl) {
+        /** Unambiguous name; propertyKind remains a deprecated raw-category JSON alias. */
+        @com.fasterxml.jackson.annotation.JsonProperty("category")
+        public String category() { return propertyKind; }
     }
 }

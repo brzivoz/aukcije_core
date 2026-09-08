@@ -220,7 +220,7 @@ if (panel) {
             elements.result.hidden = false;
             announce(`Карта је спремна. Мапирано је ${state.mappedCount} од ${state.populationCount} аукција.`, 'success');
             if (firstStateRendered && previous?.status === 'RUNNING') {
-                refreshCatalogueWithoutReload();
+                // The shared view owns all result/count refreshes at one cutoff.
                 window.dispatchEvent(new CustomEvent('eaukcija:refresh-complete', {
                     detail: {workflowId: state.workflowId}
                 }));
@@ -301,29 +301,6 @@ if (panel) {
             return;
         }
         elements.schedule.textContent = `Аутоматско освежавање се покреће једном дневно (${state.scheduleZone}). Следеће покретање: ${formatInstant(state.nextScheduledRun, 'није израчунато')}.`;
-    }
-
-    async function refreshCatalogueWithoutReload() {
-        try {
-            const response = await fetch(window.location.href, {cache: 'no-store', headers: {'Accept': 'text/html'}});
-            if (!response.ok) {
-                return;
-            }
-            const fresh = new DOMParser().parseFromString(await response.text(), 'text/html');
-            for (const selector of ['header .stats', '.results-info', '.table-scroll', '.pagination']) {
-                const current = document.querySelector(selector);
-                const replacement = fresh.querySelector(selector);
-                if (current && replacement) {
-                    current.replaceWith(replacement);
-                } else if (current && !replacement && selector === '.pagination') {
-                    current.remove();
-                } else if (!current && replacement && selector === '.pagination') {
-                    document.querySelector('.table-scroll')?.insertAdjacentElement('afterend', replacement);
-                }
-            }
-        } catch (_ignored) {
-            // The workflow remains successful; a later filter/map action retries reads.
-        }
     }
 
     async function startAdvanced(url, successMessage) {

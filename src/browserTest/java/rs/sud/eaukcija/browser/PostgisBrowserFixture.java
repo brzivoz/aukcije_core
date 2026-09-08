@@ -45,7 +45,7 @@ public abstract class PostgisBrowserFixture {
         auction.setId(SEEDED_AUCTION_ID);
         auction.setAuctionNumber("Н34-001");
         auction.setStartDate(Instant.parse("2026-08-20T08:00:00Z"));
-        auction.setEndDate(Instant.parse("2026-08-30T08:00:00Z"));
+        auction.setEndDate(Instant.parse("2099-08-30T08:00:00Z"));
         auction.setStartingPrice(new BigDecimal("123456.00"));
         auction.setShortDescription("Детерминистичка browser-test аукција");
         auction.setMunicipality("Београд");

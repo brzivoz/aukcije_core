@@ -100,21 +100,43 @@ remote runtime asset, or second frontend build.
 
 ## Fate of the Thymeleaf UI
 
-The current `AuctionController` and `index.html` remain the product shell. #27
-extends that page in place with the precision-aware map and a list/map layout;
-it does not replace Thymeleaf with a client-side application. #28 then evolves
-the same shell into the broader daily list-map workflow. The live #27 contract
-owns map-specific URL state now: only allowlisted status/kind/precision values,
-ISO dates, and a numeric auction id are written. #28 retains ownership of
-unifying the legacy table's larger filter/search contract, navigation, and
-daily workflow across list and map. This keeps one controller/view contract and
-prevents the two issues from each building half of a replacement UI.
+`AuctionController` and `index.html` remain the Thymeleaf product shell. #44
+pulls shared-filter correctness forward from #28: one `AuctionFilters` model,
+`AuctionFilterParser` compatibility/validation adapter, and `AuctionFilterSql`
+predicate drive table, map and counts. `auction-filters.html` is the only form;
+`auction-map.mjs` keeps applied canonical URL state separate from draft controls.
+The old `map*` names exist only as server-side compatibility aliases.
+`municipality-select.mjs` progressively enhances native details/checkboxes with
+local Cyrillic/Latin option search, a clear-choice action and Escape/outside-click
+closing. Checkbox drafts remain in the form, not a second filter model; native
+GET/FormData and canonical links use repeated `municipality` parameters. The
+packaged RGZ name catalogue requires no live lookup or imported geometry.
 
-The parser and page consume one `MapAuctionFilterOptions` catalog for status,
-kind, and precision values. The browser regression compares every rendered
-option to that server catalog and checks that the JavaScript precision-style
-keys match it, turning drift into a test/init failure instead of a silent API
-`400`.
+`/api/auctions/view` atomically returns bounded GeoJSON and the escaped table
+fragment at one cutoff/snapshot. Refreshes replace only results, merge updated
+retained options without losing drafts, and use sequence/abort guards. URL
+history uses pushState for edits/selection and handles popstate; canonicalization
+uses replaceState. Pages, sorts and selected IDs remain independent of criteria.
+The default scope is visibly `not-ended`; dates intersect scope, not a hidden
+current-time lower bound. See [the user/URL contract](SHARED_FILTERS.md).
+
+Raw category/status options and validators consume safe retained values plus
+`MapAuctionFilterOptions` legacy seeds. Precision includes `NONE` for unmapped
+auctions, but the map-style assertion deliberately excludes it: NONE must never
+invent a pin. #28 extends these same models for normalized taxonomy, KO and
+richer counterpart/camera navigation; it must not introduce another filter form.
+
+## Shared-filter evidence
+
+`SharedAuctionFiltersBrowserTest` uses real PostGIS, the local basemap and the
+localhost-only guard. A legacy 179415-equivalent KO point has a past end time,
+stale `InPrediction`, and no source snapshots. Tests cover historical aliases,
+category/scope/precision/search/RSD-price/first-sale combinations, sorting,
+paging, reset, selection, reload/copied URLs and back/forward. Automatic and
+source-refresh completion preserve historical dates, page, selection and draft
+controls; invalid filters retain the last usable view. API/PostGIS tests cover
+missing/equal end times, both Belgrade DST transitions, multi-property counts,
+and an off-screen parcel winner suppressing its on-screen lower-tier duplicate.
 
 ## Auction map evidence
 

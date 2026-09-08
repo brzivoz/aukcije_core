@@ -82,7 +82,9 @@ class DatabaseLifecycleIntegrationTest {
                         "V20__durable_rgz_lookup_claims.sql",
                         "V21__rgz_cache_identity_and_retry_discovery.sql",
                         "V22__guard_current_rgz_parcel_selection.sql",
-                        "V23__rgz_observed_source_contracts.sql");
+                        "V23__rgz_observed_source_contracts.sql",
+                        "V24__shared_auction_search.sql",
+                        "V25__municipality_filter_index.sql");
     }
 
     @Test

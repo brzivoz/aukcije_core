@@ -327,7 +327,7 @@ class SpatialResolutionSchemaIntegrationTest {
                  WHERE id >= 1000001
                 """);
         jdbc.execute("ANALYZE auctions");
-        List<String> mapPlan = MapAuctionRepositoryTestAccess.explain(mapAuctionRepository, new MapAuctionRequest(
+        List<String> mapPlan = MapAuctionRepositoryTestAccess.explain(mapAuctionRepository, MapAuctionRepositoryTestAccess.request(
                 belgrade, null, null, null,
                 Instant.parse("2026-08-23T00:00:00Z"), null, 100));
         assertThat(String.join("\n", mapPlan))

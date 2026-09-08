@@ -58,6 +58,20 @@ class MapAuctionServiceTest {
     }
 
     @Test
+    void unknownRawCategoryAndEndTimeAreNotInferred() throws Exception {
+        var request = request(5);
+        when(repository.findWithin(request)).thenReturn(List.of(new MapAuctionRow(
+                "42:feature", 42, "Н42", BigDecimal.TEN, null, "InPrediction", null,
+                LocationPrecision.CADASTRAL_MUNICIPALITY, new WKTReader().read("POINT(20.5 44.75)"))));
+        assertThat(service.findAuctions(request).features()).singleElement().satisfies(feature -> {
+            assertThat(feature.properties().category()).isNull();
+            assertThat(feature.properties().propertyKind()).isNull();
+            assertThat(feature.properties().endTime()).isNull();
+            assertThat(feature.properties().sourceStatus()).isEqualTo("InPrediction");
+        });
+    }
+
+    @Test
     void sentinelRowMakesTruncationObservableWithoutReturningIt() throws Exception {
         MapAuctionRequest request = request(1);
         when(repository.findWithin(request)).thenReturn(List.of(row(1), row(2)));
@@ -86,7 +100,7 @@ class MapAuctionServiceTest {
     }
 
     private static MapAuctionRequest request(int limit) {
-        return new MapAuctionRequest(
+        return MapAuctionRepositoryTestAccess.request(
                 new BoundingBox(18, 41, 24, 47), null, null, null,
                 Instant.parse("2026-08-23T00:00:00Z"), null, limit);
     }

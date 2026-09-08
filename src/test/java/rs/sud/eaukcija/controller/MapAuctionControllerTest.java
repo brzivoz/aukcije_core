@@ -30,7 +30,8 @@ import rs.sud.eaukcija.map.MapAuctionService;
 import rs.sud.eaukcija.spatial.LocationPrecision;
 
 @WebMvcTest(MapAuctionController.class)
-@Import({MapAuctionRequestParser.class, MapAuctionService.class, MapApiExceptionHandler.class})
+@Import({MapAuctionRequestParser.class, MapAuctionService.class, MapApiExceptionHandler.class,
+        rs.sud.eaukcija.filter.AuctionFilterParser.class})
 @ActiveProfiles("test")
 class MapAuctionControllerTest {
 
@@ -39,6 +40,8 @@ class MapAuctionControllerTest {
 
     @MockitoBean
     private MapAuctionRepository repository;
+    @MockitoBean
+    private rs.sud.eaukcija.repository.AuctionRepository auctions;
 
     @Test
     void exposesTheGeoJsonContractAndLimitMetadata() throws Exception {

@@ -1,5 +1,9 @@
 # Issue #26 bounded GeoJSON API verification
 
+> Historical evidence. #44 supersedes the map-only filter/default-time and
+> winner-after-viewport portions below. Current shared criteria, private cache,
+> nullable end times, counts and compatibility are in [MAP_API.md](MAP_API.md).
+
 Date: 2026-08-23
 
 Scope: public WGS84 viewport request validation, one-query selected-location

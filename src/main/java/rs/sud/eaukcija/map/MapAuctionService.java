@@ -19,6 +19,8 @@ public class MapAuctionService {
         this.repository = repository;
     }
 
+    @org.springframework.transaction.annotation.Transactional(readOnly = true,
+            isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public MapGeoJsonResponse findAuctions(MapAuctionRequest request) {
         List<MapAuctionRow> rows = repository.findWithin(request);
         boolean truncated = rows.size() > request.limit();
@@ -27,13 +29,22 @@ public class MapAuctionService {
         for (int index = 0; index < returned; index++) {
             features.add(toFeature(rows.get(index)));
         }
-        return new MapGeoJsonResponse("FeatureCollection", List.copyOf(features), returned, request.limit(), truncated);
+        MapGeoJsonResponse.Selection selection = null;
+        if (request.filters().auction() != null) {
+            String selectedState = repository.selectionState(request);
+            if ("VISIBLE".equals(selectedState) && features.stream().noneMatch(
+                    f -> f.properties().auctionId() == request.filters().auction())) selectedState = "LIMIT";
+            selection = new MapGeoJsonResponse.Selection(request.filters().auction(), selectedState);
+        }
+        return new MapGeoJsonResponse("FeatureCollection", List.copyOf(features), returned, request.limit(), truncated,
+                request.filters().asOf(), request.filters().timeScope(), repository.counts(request),
+                features.stream().map(f -> f.properties().auctionId()).distinct().count(), selection);
     }
 
     private static MapGeoJsonResponse.Feature toFeature(MapAuctionRow row) {
         String title = safeText(row.auctionNumber(), "Е-аукција " + row.auctionId());
         String status = safeText(row.sourceStatus(), "Unknown");
-        String kind = safeText(row.propertyKind(), "Непокретности");
+        String kind = safeText(row.propertyKind(), null); // Unknown raw category is not inferred taxonomy.
         return new MapGeoJsonResponse.Feature(
                 "Feature",
                 row.featureId(),

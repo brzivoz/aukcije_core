@@ -71,10 +71,13 @@ class AutoEnabledRgzBrowserTest {
         assertThat(source.findRun(run).orElseThrow().status()).isEqualTo(SyncRunStatus.SUCCEEDED);
         Page page = browser.page();
         AtomicBoolean initialEmptyView = new AtomicBoolean(true);
-        page.route("**/api/map/auctions?**", route -> {
+        page.route("**/api/auctions/view?**", route -> {
             if (initialEmptyView.get()) {
                 route.fulfill(new FulfillOptions().setContentType("application/geo+json").setBody("""
-                        {"type":"FeatureCollection","features":[],"numberReturned":0,"limit":1000,"truncated":false}
+                        {"map":{"type":"FeatureCollection","features":[],"numberReturned":0,"limit":1000,"truncated":false,
+                         "counts":{"filteredAuctionCount":0,"unmappedAuctionCount":0,"mappedAuctionCountInViewport":0,"featureCountInViewport":0}},
+                         "query":"timeScope=not-ended&sortBy=startingPrice&sortDir=asc&page=0",
+                         "resultsHtml":"<section id='shared-results'></section>"}
                         """));
             } else route.resume();
         });

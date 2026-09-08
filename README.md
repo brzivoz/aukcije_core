@@ -18,7 +18,7 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 |---|---|
 | eAukcija ingest (complete durable runs) | working (#17) |
 | Deterministic enrichment reprocessing | working (single-threaded, restart-safe, #29) |
-| Local filtering / list UI | working |
+| Shared table/map filters | working (#44; explicit Not ended / Ended / All, retained raw categories, unified search/precision/counts/URL) |
 | Property reference extraction | planned (EPIC-02) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
@@ -125,7 +125,8 @@ GET  /api/operator/refresh/{workflowId} persisted workflow state and correlation
 GET  /api/enrichment/status  active versions, backlog/age/gaps/distribution, active run
 GET  /api/enrichment/runs/{runId} retained redacted run and item evidence
 GET  /api/locations/{id}    best selected location with explicit precision
-GET  /api/map/auctions      bounded GeoJSON features for one WGS84 viewport
+GET  /api/map/auctions      shared-filter GeoJSON subset for one WGS84 viewport
+GET  /api/auctions/view     atomic table/map/count/options refresh at one temporal cutoff
 GET  /api/map/status        retained map-data version and freshness state
 GET  /api/basemap/status    active immutable basemap version and health
 GET  /api/operator/status   loopback-only persisted pipeline/readiness evidence
@@ -134,14 +135,29 @@ GET  http://127.0.0.1:8082/actuator/health/readiness  loopback-only fail-closed 
 GET  /basemap/*             same-origin PMTiles, style, sprites, and glyphs
 ```
 
-The map endpoint requires `bbox=minLon,minLat,maxLon,maxLat`; optional
-allowlisted filters are `status`, `kind`, `precision`, `from`, `to`, and
-`limit`. See [Map API](documentation/MAP_API.md) for the complete request,
-timezone, safety, deduplication, and truncation contract.
+The table and map use one filter form and server contract. Both visibly default
+to **Нису завршене** (`endDate > asOf`); choose **Завршене** or **Све** for
+history without losing category, dates, search, RSD prices or precision.
+`Викендица` is a raw category in both views. Unknown end dates belong only to
+All without date criteria. Raw source status is independent of time scope.
+
+Map transports additionally require `bbox=minLon,minLat,maxLon,maxLat` and
+optionally `limit`. Panning only changes the mapped subset, not table criteria;
+counts distinguish auctions, property features, unmapped/outside/limited results.
+The searchable **Општине** dropdown supports multiple choices from the bundled
+RGZ municipality catalogue plus retained source names, including municipalities
+with no auctions. Choices match any selected municipality and survive copied
+URLs, sorting, pagination and refresh; no choices means all municipalities.
+Historical `map*` bookmarks are explicitly adapted, not discarded. Read the
+[shared-filter user/URL guide](documentation/SHARED_FILTERS.md) and
+[Map API](documentation/MAP_API.md) for defaults, aliases, validation,
+Belgrade/DST boundaries, privacy, counts and publication/winner semantics.
+See [#44 verification](documentation/2026-09-08-issue-44-verification.md) for the
+acceptance matrix and full Java/PostGIS/browser results.
 
 The old H2 console and automatic DDL are disabled. An explicitly activated
 `local-h2` profile remains only for legacy compatibility after an archive has
-been taken; it is never the default runtime.
+been taken; it is never the default runtime and does not serve the shared spatial UI.
 
 See [Database operations](documentation/DATABASE_OPERATIONS.md) for profile,
 backup/restore, legacy-H2 archive, clean re-sync, and failure-recovery commands.
@@ -314,8 +330,9 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `CrsTransformIntegrationTest` | EPSG:4326 → 25834/32634 through PostGIS, cross-checked against the pyproj values proven in issue #13 |
 | `SpatialQueryIntegrationTest` | bbox filtering incl. boundary inclusion, metre-based distance ordering |
 | `SpatialResolutionSchemaIntegrationTest` | isolated PostGIS database; source CRS transform; point/polygon/multipolygon fidelity; invalid geometry/bounds/SRID rejection; recorded repair; write-free identity replay; immutable provenance; supersession; `STREET` representative-point semantics; and a default-planner exact-query proof over 20k geometries/100k attempts |
+| `SharedAuctionFilterParserTest` / `SharedAuctionFiltersBrowserTest` | canonical/legacy URLs, conflicts, raw labels, invalid criteria, Belgrade DST, historical table-filter reproduction, combined filters, searchable multi-municipality dropdown/catalogue, sort/page/reset, selection, copy/reload/back/forward, atomic automatic/source refresh without losing drafts |
 | `MapAuctionRequestParserTest` / `MapAuctionControllerTest` | WGS84 order/ranges/edges/area, allowlisted filters, Belgrade date boundaries, structured errors, GeoJSON fields, safe links, and observable truncation |
-| `MapAuctionRepositoryIntegrationTest` / `MapAuctionRepositoryUnitTest` | stable multi-property deduplication, highest selected precision, bbox/date/status/kind/precision filters, amounts, inclusive edges, one bounded JDBC query, and no N+1 hydration |
+| `MapAuctionRepositoryIntegrationTest` / `MapAuctionRepositoryUnitTest` | shared table/map membership for every filter, 179415-equivalent legacy fallback, unknown end times, temporal equality, Cyrillic/Latin search, multi-property winners before bbox/precision, counts/truncation, safe bulk projection and no N+1 hydration |
 | `MapDataStatusServiceTest` / `MapDataStatusControllerTest` | retained successful resolution version/timestamp and internal workflow correlation, anonymous DTO exclusion of both internal run IDs, mapped/precision counts, configurable stale boundary, never-synchronized disclosure, and no-store HTTP metadata |
 | `LocationSelectionSqlTest` | enum-generated precision ranking, unknown-tier fail-closed ordering, shared tie-breaks, and publication policy |
 | `AddressRegistryCentroidExtractorTest` | deterministic immutable centroid artifact, exact ids/names/relationships, reports, validation, atomic activation |

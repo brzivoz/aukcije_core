@@ -132,12 +132,12 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-last-sync").textContent()).doesNotContain("Није");
         assertThat(page.locator("#map-freshness-warning").isHidden()).isTrue();
         assertThat(page.locator("#map-default-time-note").textContent())
-                .contains("само аукције које се још нису завршиле", "тренутку захтева");
+                .contains("Подразумевано", "нису завршене", "познат завршетак");
 
         assertThat(optionValues(page, "#map-status-filter"))
-                .containsExactlyElementsOf(values(MapAuctionFilterOptions.statuses()));
+                .containsExactlyInAnyOrderElementsOf(values(MapAuctionFilterOptions.statuses()));
         assertThat(optionValues(page, "#map-kind-filter"))
-                .containsExactlyElementsOf(values(MapAuctionFilterOptions.kinds()));
+                .containsExactlyInAnyOrderElementsOf(values(MapAuctionFilterOptions.kinds()));
         assertThat(optionValues(page, "#map-precision-filter"))
                 .containsExactlyElementsOf(values(MapAuctionFilterOptions.precisions()));
 
@@ -179,8 +179,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.url()).contains("auction=34001").doesNotContain("%3Cimg", "onerror");
         assertThat(page.locator(".map-popup").textContent())
                 .contains("<img src=x onerror=window.__popupXss=true>")
-                .contains("RSD", "Парцела", "Проверена граница", "Проверено")
-                .doesNotContain("Verified");
+                .contains("RSD", "Парцела", "Проверена граница", "Verified");
         assertThat(page.locator(".map-popup img").count()).isZero();
         assertThat(page.evaluate("window.__popupXss ?? null")).isNull();
         Locator source = page.locator(".map-popup a");
@@ -214,12 +213,12 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-selection").textContent()).contains("Изабрана аукција");
 
         page.selectOption("#map-status-filter", "Verified");
-        page.locator("#map-filters button[type='submit']").click();
+        page.locator("#shared-filters button[type='submit']").click();
         page.waitForFunction("""
                 window.__auctionMap.getDiagnostics().lastState === 'ready'
-                  && window.__auctionMap.getDiagnostics().selectedAuctionId === null
+                  && window.__auctionMap.getDiagnostics().selectedAuctionId === '34001'
                 """);
-        assertThat(page.url()).contains("mapStatus=Verified").doesNotContain("auction=");
+        assertThat(page.url()).contains("status=Verified", "auction=34001");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("6");
 
         page.waitForTimeout(350);
@@ -247,10 +246,12 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                     window.__realClusterLeaves;
                 }
                 """);
+        // Shared filters retain selection now; close its overlapping popup before clicking the cluster.
+        page.locator(".maplibregl-popup-close-button").click();
         clickFirstCluster(page);
         page.waitForSelector("#map-selection:not([hidden]) .map-selection-button");
         assertThat(page.locator("#map-selection h4").textContent())
-                .isEqualTo("3 аукција на овој локацији");
+                .isEqualTo("3 објеката на овој локацији (3 учитаних аукција)");
         assertThat(page.locator("#map-selection .map-selection-button").count()).isEqualTo(3);
         page.waitForFunction("""
                 window.__auctionMap.getDiagnostics().lastState === 'ready'
@@ -335,8 +336,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 }
                 """);
         page.selectOption("#map-status-filter", "Verified");
-        page.locator("#map-filters button[type='submit']").click();
-        assertThat(page.url()).contains("mapStatus=Verified");
+        page.locator("#shared-filters button[type='submit']").click();
+        assertThat(page.url()).contains("status=Verified");
         assertThat(page.locator("#map-state").getAttribute("data-state")).isEqualTo("loading");
         assertThat((Boolean) page.evaluate(
                 "window.__auctionMap.getDiagnostics().pendingRefresh")).isTrue();
@@ -409,7 +410,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 """);
         page.evaluate("window.__auctionMap.refreshNow()");
         page.waitForFunction("window.__auctionMap.getDiagnostics().lastState === 'empty'");
-        assertThat(page.locator("#map-state").textContent()).contains("нема аукција");
+        assertThat(page.locator("#map-state").textContent()).contains("Нема објеката");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("0");
         assertThat(page.locator("#map-limit-warning").isHidden()).isTrue();
 
@@ -437,8 +438,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         page.waitForFunction("window.__auctionMap.getDiagnostics().lastFeatureCount === 1");
         page.locator(".map-result-button").press("Enter");
         assertThat(page.locator(".map-popup").textContent())
-                .contains("Није наведен", "RSD", "Проверено")
-                .doesNotContain("USD", "Verified");
+                .contains("Није наведен", "RSD", "Verified")
+                .doesNotContain("USD");
 
         browser.network().assertOnlyLocalhostRequests();
         assertThat(browser.network().contactedHosts()).containsExactly("localhost");
@@ -880,7 +881,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                     date: contrast(outer, background('#map-from-filter')),
                     selection: contrast(outer, background('#map-selection')),
                     popup: contrast(outer, background('.maplibregl-popup-content')),
-                    primary: contrast(inner, background('#map-filters button[type="submit"]')),
+                    primary: contrast(inner, background('#shared-filters button[type="submit"]')),
                     twoTone: contrast(inner, outer)
                   };
                 }
@@ -892,7 +893,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
     }
 
     private static String mockViewportFetchScript() {
-        return """
+        return viewFixtureAdapter() + """
                 (() => {
                   const originalFetch = window.fetch.bind(window);
                   const feature = {
@@ -919,13 +920,13 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                   window.__mapFetchAborts = 0;
                   window.fetch = (input, init = {}) => {
                     const url = new URL(typeof input === 'string' ? input : input.url, location.href);
-                    if (url.pathname !== '/api/map/auctions') return originalFetch(input, init);
+                    if (url.pathname !== '/api/auctions/view') return originalFetch(input, init);
                     window.__mapFetchStarted++;
                     const response = window.__mapResponses.shift();
                     if (!response) return originalFetch(input, init);
                     return new Promise((resolve, reject) => {
                       const finish = () => resolve(new Response(
-                        JSON.stringify(response.body || {error: 'controlled'}),
+                        JSON.stringify(response.status === 200 ? window.__viewFixture(response.body, url) : response.body || {error: 'controlled'}),
                         {status: response.status, headers: {'Content-Type': 'application/geo+json'}}));
                       const timer = setTimeout(finish, response.delay || 0);
                       const abort = () => {
@@ -941,8 +942,21 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 """;
     }
 
-    private static String manyViewportResultsFetchScript() {
+    private static String viewFixtureAdapter() {
         return """
+                window.__viewFixture = (map, url) => {
+                  url.searchParams.delete('bbox'); url.searchParams.delete('limit');
+                  return {map: {...map, counts: {
+                    filteredAuctionCount: map.features.length, unmappedAuctionCount: 0,
+                    mappedAuctionCountInViewport: map.features.length, featureCountInViewport: map.features.length
+                  }}, query: url.searchParams.toString(),
+                  resultsHtml: document.getElementById('shared-results').outerHTML};
+                };
+                """;
+    }
+
+    private static String manyViewportResultsFetchScript() {
+        return viewFixtureAdapter() + """
                 (() => {
                   window.__rsdNumberFormatConstructions = 0;
                   Intl.NumberFormat = new Proxy(Intl.NumberFormat, {
@@ -990,14 +1004,14 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                   });
                   window.fetch = (input, init = {}) => {
                     const url = new URL(typeof input === 'string' ? input : input.url, location.href);
-                    if (url.pathname !== '/api/map/auctions') return originalFetch(input, init);
-                    return Promise.resolve(new Response(JSON.stringify({
+                    if (url.pathname !== '/api/auctions/view') return originalFetch(input, init);
+                    return Promise.resolve(new Response(JSON.stringify(window.__viewFixture({
                       type: 'FeatureCollection',
                       features,
                       numberReturned: features.length,
                       limit: 1000,
                       truncated: false
-                    }), {
+                    }, url)), {
                       status: 200,
                       headers: {'Content-Type': 'application/geo+json'}
                     }));

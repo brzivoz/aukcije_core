@@ -106,6 +106,14 @@ tasks.register('basemapTest', Exec) {
     }
 }
 
+// Even tests that explicitly boot the dev profile must never auto-contact RGZ.
+// Dedicated local-fixture tests override these with DynamicPropertySource.
+tasks.withType(Test).configureEach {
+    systemProperty 'rgz.enabled', 'false'
+    systemProperty 'rgz.auto-configure', 'false'
+    systemProperty 'rgz.warmup-enabled', 'false'
+}
+
 tasks.named('test') {
     useJUnitPlatform()
 

@@ -54,7 +54,7 @@ class MapAuctionControllerTest {
                 .andExpect(header().string("X-Map-Feature-Limit", "1"))
                 .andExpect(header().string("X-Map-Truncated", "true"))
                 .andExpect(header().string("Cache-Control", containsString("max-age=60")))
-                .andExpect(header().string("Cache-Control", containsString("public")))
+                .andExpect(header().string("Cache-Control", containsString("private")))
                 .andExpect(header().string("Vary", containsString("Accept")))
                 .andExpect(jsonPath("$.type").value("FeatureCollection"))
                 .andExpect(jsonPath("$.numberReturned").value(1))

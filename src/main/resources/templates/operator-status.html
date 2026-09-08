@@ -33,6 +33,10 @@
         <section><h2>Enrichment</h2><dl id="enrichment"></dl></section>
         <section><h2>Artifacts</h2><dl id="artifacts"></dl></section>
         <section><h2>Import</h2><dl id="imports"></dl></section>
+        <section><h2>RGZ parcel access</h2><dl id="rgz"></dl>
+            <p class="muted">The operator kill-switch file stops new requests without a restart.
+                Verified cached parcels remain usable; misses use fallback tiers.</p>
+        </section>
     </div>
     <section><h2>Failures, warnings, and notices</h2><ul id="signals"></ul></section>
     <details><summary>Complete retained status response</summary><pre id="evidence"></pre></details>
@@ -90,6 +94,17 @@
             ['Last error', imports.lastAttempt && imports.lastAttempt.errorCode],
             ['Last success', time(imports.lastSuccessful && imports.lastSuccessful.finishedAt)],
             ['Retention job', imports.lastRetention && imports.lastRetention.outcome]
+        ]);
+        const rgz = data.rgz || {};
+        dl('rgz', [
+            ['State', rgz.state], ['Kill switch engaged', rgz.killSwitchEngaged],
+            ['Network allowed', rgz.networkAllowed], ['Dataset configured', rgz.datasetConfigured],
+            ['Requests/second', rgz.requestsPerSecond], ['Max concurrency', rgz.maxConcurrency],
+            ['Lookups/run', rgz.maxLogicalLookupsPerRun], ['Attempts/lookup', rgz.maxAttempts],
+            ['Automatic configuration', rgz.autoConfigure], ['Source contract ready', rgz.sourceContractReady],
+            ['Cache version', rgz.datasetVersion], ['Version policy', rgz.datasetVersionPolicy],
+            ['Contract first observed', time(rgz.sourceContractObservedAt)],
+            ['Background enrichment', rgz.warmupEnabled ? rgz.warmupState : 'DISABLED']
         ]);
         const signals = byId('signals'); signals.replaceChildren();
         for (const signal of [...data.readinessFailures, ...data.warnings, ...data.notices]) {

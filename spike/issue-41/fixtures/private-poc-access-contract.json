@@ -1,0 +1,73 @@
+{
+  "decision": "OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_POC",
+  "decision_id": "2026-09-08-issue-41-private-poc-v4",
+  "decision_record": "documentation/2026-09-08-decision-41-private-poc-auto-activation.md",
+  "supersedes_activation_policy": "2026-09-03-issue-41-explicit-activation-v3",
+  "publisher_automation_authority_confirmed": false,
+  "publisher_dataset_edition_established": false,
+  "scope": "SINGLE_PRIVATE_LOCAL_NON_COMMERCIAL_PARCEL_POC",
+  "dev_defaults": {
+    "server.address": "127.0.0.1",
+    "rgz.enabled": true,
+    "rgz.auto-configure": true,
+    "rgz.warmup-enabled": true,
+    "rgz.warmup-batch-size": 100,
+    "rgz.auto-start-delay": "PT2S",
+    "rgz.auto-poll-interval": "PT30S",
+    "rgz.auto-retry-delay": "PT15M",
+    "map.auto-refresh-interval-ms": 15000,
+    "map.initial-longitude": 20.8,
+    "map.initial-latitude": 44.0,
+    "map.initial-zoom": 6,
+    "map.fit-parcels-on-select": true
+  },
+  "other_profile_defaults_enabled": false,
+  "explicit_disable_and_live_kill_switch_preserved": true,
+  "cache": {
+    "default_epoch": "private-local-first-observation-v1",
+    "version_policy": "PRIVATE_FIRST_OBSERVATION",
+    "claims_publisher_edition": false,
+    "automatically_rotates": false,
+    "promises_weekly_freshness": false,
+    "terminal_identity_refetched_on_restart": false,
+    "retained_metadata_refetched_on_restart": false,
+    "metadata_table": "rgz_observed_source_contracts",
+    "immutable_metadata_evidence": true,
+    "raw_xml_persisted": false
+  },
+  "metadata": {
+    "operations": ["GetCapabilities", "DescribeFeatureType"],
+    "feature_type": "dkp:dkp_parcels_weekly_only_utm",
+    "logical_lookup_ceiling": 2,
+    "physical_attempt_ceiling": 6,
+    "shares_physical_rate_concurrency_and_kill_gates": true,
+    "external_xml_resources_prohibited": true,
+    "requires_verified_contract_before_parcel_requests": true,
+    "fail_closed_to_cache_and_coarse_tiers": true
+  },
+  "unchanged_traffic_contract": {
+    "requests_per_second": 0.2,
+    "max_concurrency": 1,
+    "max_logical_parcel_lookups_per_run": 100,
+    "max_attempts": 3,
+    "retry_delays_seconds": [5, 15],
+    "max_retry_after_seconds": 60,
+    "connect_read_call_timeout_seconds": [5, 20, 25],
+    "max_response_bytes": 5000000
+  },
+  "privacy": {
+    "credentials_or_cookies_prohibited": true,
+    "browser_session_reuse_prohibited": true,
+    "personal_records_prohibited": true,
+    "unrecognized_properties_prohibited": true,
+    "redistribution_prohibited": true,
+    "building_fetch_prohibited": true
+  },
+  "fresh_preflight": {
+    "capabilities_read_at_utc": "2026-09-08T10:07:58Z",
+    "schema_read_at_utc": "2026-09-08T10:08:04Z",
+    "capabilities_sha256": "63d2e107b0073502c5363d53dd898beab9992246e10b48bf414a0007b2d575a5",
+    "schema_sha256": "4de609f7f017295f2891d3e0219729e24f440dd7f89c4e8baa872bb3c06a4b48",
+    "hashes_are_runtime_defaults": false
+  }
+}

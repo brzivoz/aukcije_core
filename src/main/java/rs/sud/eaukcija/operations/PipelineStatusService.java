@@ -19,6 +19,8 @@ import org.springframework.transaction.TransactionException;
 import rs.sud.eaukcija.basemap.BasemapArtifactRegistry;
 import rs.sud.eaukcija.basemap.BasemapStatus;
 import rs.sud.eaukcija.operations.PipelineStatusRepository.PersistedEvidence;
+import rs.sud.eaukcija.rgz.RgzParcelProperties;
+import rs.sud.eaukcija.rgz.RgzAccessStatus;
 
 /** Applies documented freshness/readiness policy to retained evidence. */
 @Service
@@ -33,24 +35,28 @@ public class PipelineStatusService {
     private final BasemapArtifactRegistry basemap;
     private final PipelineStatusProperties properties;
     private final Clock clock;
+    private final RgzParcelProperties rgz;
 
     @Autowired
     public PipelineStatusService(
             PipelineStatusRepository repository,
             BasemapArtifactRegistry basemap,
-            PipelineStatusProperties properties) {
-        this(repository, basemap, properties, Clock.systemUTC());
+            PipelineStatusProperties properties,
+            RgzParcelProperties rgz) {
+        this(repository, basemap, properties, Clock.systemUTC(), rgz);
     }
 
     PipelineStatusService(
             PipelineStatusRepository repository,
             BasemapArtifactRegistry basemap,
             PipelineStatusProperties properties,
-            Clock clock) {
+            Clock clock,
+            RgzParcelProperties rgz) {
         this.repository = repository;
         this.basemap = basemap;
         this.properties = properties;
         this.clock = clock;
+        this.rgz = rgz;
     }
 
     public PipelineStatus status() {
@@ -65,6 +71,10 @@ public class PipelineStatusService {
         List<String> readinessFailures = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
         List<String> notices = new ArrayList<>();
+        RgzAccessStatus rgzStatus = rgz.status();
+        if (rgzStatus.killSwitchEngaged()) {
+            notices.add("RGZ_KILL_SWITCH_ENGAGED_CACHE_AND_FALLBACK_ONLY");
+        }
 
         if (!evidence.database().available()) {
             readinessFailures.add("DATABASE_UNAVAILABLE");
@@ -187,7 +197,8 @@ public class PipelineStatusService {
                 new PipelineStatus.Artifacts(
                         evidence.addressRegistryArtifact(),
                         evidence.resolverArtifact(),
-                        basemapStatus));
+                        basemapStatus),
+                rgzStatus);
     }
 
     private PipelineStatus databaseUnavailable(Instant now) {
@@ -217,7 +228,8 @@ public class PipelineStatusService {
                         null, null, 0, null, null, false,
                         Map.of(), null, Map.of(), Map.of(), Map.of(), Map.of()),
                 new PipelineStatus.Imports(null, null, null, null),
-                new PipelineStatus.Artifacts(null, null, basemapStatus));
+                new PipelineStatus.Artifacts(null, null, basemapStatus),
+                rgz.status());
     }
 
     static String externalSourceState(PipelineStatus.RunMetric attempt) {

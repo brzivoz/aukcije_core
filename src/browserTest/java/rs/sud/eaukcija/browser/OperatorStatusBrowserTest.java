@@ -34,7 +34,7 @@ class OperatorStatusBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("h1").textContent()).isEqualTo("Pipeline status");
         assertThat(page.locator("#summary").textContent())
                 .contains("UNAVAILABLE", "readiness DOWN");
-        assertThat(page.locator("main section").count()).isEqualTo(5);
+        assertThat(page.locator("main section").count()).isEqualTo(6);
         assertThat(page.locator("#signals").textContent())
                 .contains("NO_SUCCESSFUL_SYNC", "ADDRESS_REGISTRY_ARTIFACT_MISSING");
         assertThat(page.locator("#evidence").textContent())

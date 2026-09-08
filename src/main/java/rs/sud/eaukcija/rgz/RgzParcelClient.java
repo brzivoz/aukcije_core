@@ -18,9 +18,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -78,6 +80,19 @@ public class RgzParcelClient {
                 .readTimeout(properties.getReadTimeout())
                 .callTimeout(properties.getCallTimeout())
                 .retryOnConnectionFailure(false)
+                // Redirects would bypass the per-physical-request gate and could
+                // reach a login/session endpoint outside the authorized contract.
+                .followRedirects(false)
+                .followSslRedirects(false)
+                .addNetworkInterceptor(chain -> {
+                    // OkHttp can internally follow up a 503 Retry-After: 0 even
+                    // with retryOnConnectionFailure(false). Every wire request
+                    // must instead pass our own attempt/rate/kill-switch gates.
+                    if (!chain.request().tag(AtomicBoolean.class).compareAndSet(false, true)) {
+                        throw new java.net.ProtocolException("Automatic HTTP follow-up prohibited");
+                    }
+                    return chain.proceed(chain.request());
+                })
                 .build();
     }
 
@@ -85,6 +100,27 @@ public class RgzParcelClient {
             String koCode,
             String canonicalParcelNumber,
             BooleanSupplier networkAllowed) {
+        RgzParcelResult result = fetchBounded(koCode, canonicalParcelNumber, networkAllowed);
+        Map<String, Object> evidence = new LinkedHashMap<>(result.evidence());
+        if (koCode != null && koCode.matches("[0-9]{1,16}")) {
+            evidence.put("requestedKoCode", koCode);
+        }
+        if (canonicalParcelNumber != null
+                && canonicalParcelNumber.matches("[0-9]{1,32}(?:/[0-9]{1,32})?")) {
+            evidence.put("requestedParcelNumber", canonicalParcelNumber);
+        }
+        evidence.put("wfsVersion", "2.0.0");
+        if (result.physicalAttempts() > 0) {
+            evidence.put("retrievedAt", timing.instant().toString());
+        }
+        return new RgzParcelResult(result.status(), result.reason(), result.rawResponseSha256(),
+                result.sourceFeatureId(), result.geometryType(), result.geometryJson(),
+                result.areaSquareMetres(), result.sourceProjection(), result.scale(),
+                result.physicalAttempts(), evidence);
+    }
+
+    private RgzParcelResult fetchBounded(
+            String koCode, String canonicalParcelNumber, BooleanSupplier networkAllowed) {
         if (koCode == null || !koCode.matches("[0-9]{1,16}")) {
             return terminal(RgzParcelResult.Status.INVALID, "INVALID_KO_CODE", null, 0);
         }
@@ -147,6 +183,57 @@ public class RgzParcelClient {
         return terminal(RgzParcelResult.Status.ERROR, "ATTEMPTS_EXHAUSTED", null, physicalAttempts);
     }
 
+    /** Metadata uses the same bounded transport, physical rate/concurrency and live kill gates. */
+    public MetadataResponse fetchMetadata(boolean capabilities) {
+        for (int attempt = 1; attempt <= properties.getMaxAttempts(); attempt++) {
+            if (!properties.metadataNetworkAllowed()) {
+                return new MetadataResponse(null, null, "RGZ_METADATA_STOPPED");
+            }
+            try (RgzRateGate.Permit ignored = rateGate.acquire()) {
+                if (!properties.metadataNetworkAllowed()) {
+                    return new MetadataResponse(null, null, "RGZ_METADATA_STOPPED");
+                }
+                HttpUrl.Builder url = HttpUrl.get(properties.getBaseUrl()).newBuilder()
+                        .addQueryParameter("service", "WFS").addQueryParameter("version", "2.0.0")
+                        .addQueryParameter("request", capabilities ? "GetCapabilities" : "DescribeFeatureType");
+                if (!capabilities) url.addQueryParameter("typeNames", properties.getFeatureType());
+                Request request = new Request.Builder().url(url.build())
+                        .tag(AtomicBoolean.class, new AtomicBoolean())
+                        .header("Accept", "application/xml, application/gml+xml, text/xml")
+                        .header("User-Agent", properties.requestUserAgent()).build();
+                try (Response response = http.newCall(request).execute()) {
+                    if (!response.isSuccessful()) {
+                        if (RETRYABLE_STATUSES.contains(response.code()) && attempt < properties.getMaxAttempts()) {
+                            if (!sleepBeforeRetry(response, attempt)) break;
+                            continue;
+                        }
+                        return new MetadataResponse(null, null, "RGZ_METADATA_HTTP_ERROR");
+                    }
+                    MediaType type = response.body() == null ? null : response.body().contentType();
+                    if (type == null || !("xml".equals(type.subtype()) || type.subtype().endsWith("+xml"))) {
+                        return new MetadataResponse(null, null, "RGZ_METADATA_CONTENT_TYPE");
+                    }
+                    byte[] raw = boundedBody(response);
+                    return new MetadataResponse(raw, sha256(raw), null);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (BodyTooLargeException tooLarge) {
+                return new MetadataResponse(null, null, "RGZ_METADATA_TOO_LARGE");
+            } catch (IOException failure) {
+                if (attempt < properties.getMaxAttempts() && sleep(properties.getRetryDelays().get(attempt - 1))) {
+                    continue;
+                }
+                return new MetadataResponse(null, null, "RGZ_METADATA_TRANSPORT_ERROR");
+            }
+        }
+        return new MetadataResponse(null, null, "RGZ_METADATA_INTERRUPTED");
+    }
+
+    /** Raw XML stays transient and is never passed to persistence or operator status. */
+    public record MetadataResponse(byte[] body, String sha256, String failureCode) { }
+
     private Request request(String koCode, String parcelNumber) {
         HttpUrl base = HttpUrl.get(properties.getBaseUrl());
         HttpUrl url = base.newBuilder()
@@ -162,6 +249,7 @@ public class RgzParcelClient {
                         "cadmun_code=" + koCode + " AND parcel_num='" + parcelNumber + "'")
                 .build();
         return new Request.Builder()
+                .tag(AtomicBoolean.class, new AtomicBoolean())
                 .url(url)
                 .header("Accept", "application/json, application/geo+json")
                 .header("User-Agent", properties.requestUserAgent())
@@ -254,7 +342,10 @@ public class RgzParcelClient {
         }
         JsonNode payload;
         try {
-            payload = objectMapper.readTree(raw);
+            payload = objectMapper.reader()
+                    .with(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                    .readTree(raw);
         } catch (JsonProcessingException invalidJson) {
             return terminal(RgzParcelResult.Status.ERROR, "INVALID_JSON", rawSha256, physicalAttempts);
         } catch (IOException invalidJson) {
@@ -275,15 +366,34 @@ public class RgzParcelClient {
                     RgzParcelResult.Status.ERROR,
                     "INVALID_FEATURES", rawSha256, physicalAttempts);
         }
+        if (features.size() > 1) {
+            return terminal(RgzParcelResult.Status.AMBIGUOUS,
+                    "MULTIPLE_FEATURES", rawSha256, physicalAttempts);
+        }
+        // Observe ambiguity even when a broken/truncated server returns only
+        // one of the advertised matches. Never choose or merge candidates.
+        for (String field : List.of("numberMatched", "totalFeatures", "numberReturned")) {
+            JsonNode count = payload.get(field);
+            if (count == null || "unknown".equals(count.asText())) {
+                continue;
+            }
+            if (!count.isIntegralNumber() || !count.canConvertToLong() || count.longValue() < 0) {
+                return terminal(RgzParcelResult.Status.ERROR,
+                        "INVALID_FEATURE_COUNT", rawSha256, physicalAttempts);
+            }
+            if (!"numberReturned".equals(field) && count.longValue() > 1) {
+                return terminal(RgzParcelResult.Status.AMBIGUOUS,
+                        "MULTIPLE_FEATURES", rawSha256, physicalAttempts);
+            }
+            if (count.longValue() != features.size()) {
+                return terminal(RgzParcelResult.Status.ERROR,
+                        "INCONSISTENT_FEATURE_COUNT", rawSha256, physicalAttempts);
+            }
+        }
         if (features.isEmpty()) {
             return terminal(
                     RgzParcelResult.Status.NOT_FOUND,
                     "AUTHORITATIVE_NOT_FOUND", rawSha256, physicalAttempts);
-        }
-        if (features.size() != 1) {
-            return terminal(
-                    RgzParcelResult.Status.AMBIGUOUS,
-                    "MULTIPLE_FEATURES", rawSha256, physicalAttempts);
         }
         JsonNode feature = features.get(0);
         JsonNode values = feature.path("properties");
@@ -318,7 +428,14 @@ public class RgzParcelClient {
         }
         String geometryJson;
         try {
-            geometryJson = objectMapper.writeValueAsString(feature.path("geometry"));
+            JsonNode rawGeometry = feature.path("geometry");
+            if (rawGeometry.has("crs") && !validCrs(rawGeometry.get("crs"))) {
+                return terminal(RgzParcelResult.Status.ERROR, "INVALID_CRS", rawSha256, physicalAttempts);
+            }
+            // GeoJSON foreign members are not part of the persistence/export whitelist.
+            geometryJson = objectMapper.writeValueAsString(objectMapper.createObjectNode()
+                    .put("type", geometry.getGeometryType())
+                    .set("coordinates", rawGeometry.path("coordinates")));
         } catch (JsonProcessingException impossible) {
             return terminal(
                     RgzParcelResult.Status.ERROR,
@@ -358,7 +475,8 @@ public class RgzParcelClient {
 
     private static boolean validCrs(JsonNode crs) {
         String name = crs.path("properties").path("name").asText();
-        return "EPSG:4326".equals(name) || "urn:ogc:def:crs:EPSG::4326".equals(name);
+        return crs.isObject() && "name".equals(crs.path("type").asText())
+                && ("EPSG:4326".equals(name) || "urn:ogc:def:crs:EPSG::4326".equals(name));
     }
 
     private static String textualNumber(JsonNode value) {

@@ -66,6 +66,7 @@ class PipelineReadinessHealthIndicatorTest {
                         java.util.Map.of(), null, java.util.Map.of(),
                         java.util.Map.of(), java.util.Map.of(), java.util.Map.of()),
                 new PipelineStatus.Imports(null, null, null, null),
-                new PipelineStatus.Artifacts(null, null, null));
+                new PipelineStatus.Artifacts(null, null, null),
+                new rs.sud.eaukcija.rgz.RgzParcelProperties().status());
     }
 }

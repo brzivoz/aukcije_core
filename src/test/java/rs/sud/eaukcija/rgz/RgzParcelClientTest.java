@@ -206,6 +206,131 @@ class RgzParcelClientTest {
         assertThat(server.getRequestCount()).isZero();
     }
 
+    @Test
+    void refusesRedirectsRatherThanBypassingTheRateAndKillGates() {
+        server.enqueue(new MockResponse().setResponseCode(302)
+                .setHeader("Location", server.url("/login"))
+                .setHeader("Set-Cookie", "session=must-not-reuse"));
+        RgzParcelResult result = client().fetch("713848", "1572", () -> true);
+        assertThat(result.reason()).isEqualTo("HTTP_302");
+        assertThat(result.physicalAttempts()).isOne();
+        assertThat(server.getRequestCount()).isOne();
+        assertThat(result.evidence().toString()).doesNotContain("must-not-reuse", "login");
+    }
+
+    @Test
+    void httpLibraryCannotRetry503OutsideThePhysicalRequestBudget() {
+        properties.setMaxAttempts(1);
+        properties.setRetryDelays(List.of());
+        server.enqueue(new MockResponse().setResponseCode(503).setHeader("Retry-After", "0"));
+        server.enqueue(json(polygon("713848", "1572")));
+        RgzParcelResult result = client().fetch("713848", "1572", () -> true);
+        assertThat(result.status()).isEqualTo(RgzParcelResult.Status.ERROR);
+        assertThat(result.physicalAttempts()).isOne();
+        assertThat(server.getRequestCount()).isOne();
+    }
+
+    @Test
+    void cookiesFromAResponseAreNeverReplayedByTheSharedClient() throws Exception {
+        RgzParcelClient shared = client();
+        server.enqueue(json(polygon("713848", "1572")).setHeader("Set-Cookie", "session=secret"));
+        server.enqueue(json(polygon("713848", "1573")));
+        shared.fetch("713848", "1572", () -> true);
+        shared.fetch("713848", "1573", () -> true);
+        server.takeRequest(1, TimeUnit.SECONDS);
+        RecordedRequest next = server.takeRequest(1, TimeUnit.SECONDS);
+        assertThat(next.getHeader("Cookie")).isNull();
+        assertThat(next.getHeader("Authorization")).isNull();
+    }
+
+    @Test
+    void strictEnvelopeValidationNeverTurnsTruncationOrAmbiguityIntoSuccessOrNotFound() {
+        String valid = polygon("713848", "1572");
+        for (String body : List.of(valid + " {}", valid.replace("\"type\":\"FeatureCollection\"",
+                "\"type\":\"FeatureCollection\",\"type\":\"FeatureCollection\""))) {
+            server.enqueue(json(body));
+            assertThat(client().fetch("713848", "1572", () -> true).reason()).isEqualTo("INVALID_JSON");
+        }
+        server.enqueue(json(valid.replace("\"features\":", "\"numberMatched\":2,\"features\":")));
+        assertThat(client().fetch("713848", "1572", () -> true).status())
+                .isEqualTo(RgzParcelResult.Status.AMBIGUOUS);
+        server.enqueue(json(featureCollection("[]").replace("\"features\":", "\"numberMatched\":1,\"features\":")));
+        assertThat(client().fetch("713848", "1572", () -> true).reason()).isEqualTo("INCONSISTENT_FEATURE_COUNT");
+        server.enqueue(json(valid.replace("\"features\":", "\"numberMatched\":-1,\"features\":")));
+        assertThat(client().fetch("713848", "1572", () -> true).reason()).isEqualTo("INVALID_FEATURE_COUNT");
+    }
+
+    @Test
+    void geometryForeignMembersAreNotExportedAndInvalidRingsAreasAndCrsFailClosed() {
+        String valid = polygon("713848", "1572");
+        server.enqueue(json(valid.replace("\"type\":\"Polygon\"",
+                "\"type\":\"Polygon\",\"futurePersonalField\":\"secret\"")));
+        assertThat(client().fetch("713848", "1572", () -> true).geometryJson())
+                .doesNotContain("futurePersonalField", "secret");
+        for (String invalid : List.of(
+                valid.replace("\"area\":406", "\"area\":0"),
+                valid.replace("[20.1,44.1]", "[20.2,44.0]"),
+                valid.replace("[20.1,44.1],[20.0,44.0]", "[20.1,44.1],[20.0,44.1]"),
+                valid.replace("\"type\":\"Polygon\"", "\"type\":\"Point\""))) {
+            server.enqueue(json(invalid));
+            assertThat(client().fetch("713848", "1572", () -> true).status())
+                    .isEqualTo(RgzParcelResult.Status.INVALID);
+        }
+        server.enqueue(json(valid.replace("\"type\":\"name\"", "\"type\":\"link\"")));
+        assertThat(client().fetch("713848", "1572", () -> true).reason()).isEqualTo("INVALID_CRS");
+    }
+
+    @Test
+    void boundsPhysicalRetriesBackoffAndRetryAfterAndRetainsSafeNegativeProvenance() {
+        for (int attempt = 0; attempt < 3; attempt++) server.enqueue(new MockResponse().setResponseCode(503));
+        RgzParcelResult result = client().fetch("713848", "1572", () -> true);
+        assertThat(result.physicalAttempts()).isEqualTo(3);
+        assertThat(result.reason()).isEqualTo("HTTP_503");
+        assertThat(timing.sleeps()).containsExactly(Duration.ofSeconds(5), Duration.ofSeconds(15));
+        assertThat(result.evidence()).containsKeys("requestedKoCode", "requestedParcelNumber", "retrievedAt", "wfsVersion");
+        for (int attempt = 0; attempt < 3; attempt++) {
+            server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "999"));
+        }
+        assertThat(client().fetch("713848", "1573", () -> true).physicalAttempts()).isEqualTo(3);
+        assertThat(timing.sleeps()).endsWith(Duration.ofSeconds(60), Duration.ofSeconds(60));
+        assertThat(server.getRequestCount()).isEqualTo(6);
+    }
+
+    @Test
+    void wholeCallTimeoutIsBoundedAndDoesNotCacheATransportFailure() {
+        properties.setMaxAttempts(1);
+        properties.setRetryDelays(List.of());
+        properties.setConnectTimeout(Duration.ofMillis(100));
+        properties.setReadTimeout(Duration.ofMillis(100));
+        properties.setCallTimeout(Duration.ofMillis(150));
+        server.enqueue(json(polygon("713848", "1572")).setBodyDelay(1, TimeUnit.SECONDS));
+        long start = System.nanoTime();
+        RgzParcelResult result = client().fetch("713848", "1572", () -> true);
+        assertThat(result.status()).isEqualTo(RgzParcelResult.Status.ERROR);
+        assertThat(result.cacheable()).isFalse();
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofSeconds(2));
+        assertThat(result.physicalAttempts()).isOne();
+    }
+
+    @Test
+    void sharedClientEnforcesConcurrencyWhileResponsesAreStillBeingRead() throws Exception {
+        RgzParcelClient shared = new RgzParcelClient(properties, new ObjectMapper(), RgzTiming.system(), true);
+        server.enqueue(json(polygon("713848", "1572")).setBodyDelay(400, TimeUnit.MILLISECONDS));
+        server.enqueue(json(polygon("713848", "1573")));
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var first = executor.submit(() -> shared.fetch("713848", "1572", () -> true));
+            assertThat(server.takeRequest(1, TimeUnit.SECONDS)).isNotNull();
+            var second = executor.submit(() -> shared.fetch("713848", "1573", () -> true));
+            assertThat(server.takeRequest(100, TimeUnit.MILLISECONDS)).isNull();
+            assertThat(first.get(2, TimeUnit.SECONDS).status()).isEqualTo(RgzParcelResult.Status.RESOLVED);
+            assertThat(second.get(2, TimeUnit.SECONDS).status()).isEqualTo(RgzParcelResult.Status.RESOLVED);
+            assertThat(server.getRequestCount()).isEqualTo(2);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private RgzParcelClient client() {
         return new RgzParcelClient(properties, new ObjectMapper(), timing, true);
     }

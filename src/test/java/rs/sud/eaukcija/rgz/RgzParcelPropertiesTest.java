@@ -79,9 +79,36 @@ class RgzParcelPropertiesTest {
     }
 
     @Test
+    void testTransportEscapeHatchIsLoopbackOnlyAndBuildingAccessCannotBeConfigured() {
+        RgzParcelProperties properties = new RgzParcelProperties();
+        properties.setAllowHttpLoopbackTest(true);
+        properties.setBaseUrl(URI.create("http://127.0.0.1:1234/regdkp/ows"));
+        properties.validate();
+        properties.setBaseUrl(URI.create("http://example.test/regdkp/ows"));
+        assertThatThrownBy(properties::validate).hasMessageContaining("HTTPS");
+        properties.setBaseUrl(URI.create("https://example.test/regdkp/ows"));
+        properties.setFeatureType("dkp:objekat");
+        assertThatThrownBy(properties::validate).hasMessageContaining("not authorized");
+    }
+
+    @Test
+    void danglingKillSwitchSymlinkFailsClosed() throws Exception {
+        RgzParcelProperties properties = new RgzParcelProperties();
+        properties.setEnabled(true);
+        Path switchPath = temporaryDirectory.resolve("rgz.disabled");
+        Files.createSymbolicLink(switchPath, temporaryDirectory.resolve("missing-target"));
+        properties.setKillSwitchPath(switchPath);
+        assertThat(properties.networkAllowed()).isFalse();
+        assertThat(properties.status().killSwitchEngaged()).isTrue();
+    }
+
+    @Test
     void killSwitchChangesWithoutRestart() throws Exception {
         RgzParcelProperties properties = new RgzParcelProperties();
         properties.setEnabled(true);
+        properties.setDatasetVersion("test-edition");
+        properties.setCapabilitiesSha256("a".repeat(64));
+        properties.setSchemaSha256("b".repeat(64));
         Path killSwitch = temporaryDirectory.resolve("rgz.disabled");
         properties.setKillSwitchPath(killSwitch);
 

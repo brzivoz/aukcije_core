@@ -25,7 +25,7 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 | Structured auction KO matching | working (auditable PostgreSQL results, #37) |
 | Coarse auction locations | working (KO/settlement/municipality/`NONE`, #38) |
 | Official Address Registry full snapshots | working (points + centroids, #22) |
-| Automatic parcel resolution | working (#21 under #41; bounded cache-first RGZ WFS, explicit pinned activation, exact current-#33 provenance) |
+| Automatic parcel resolution | working (#21/#41; auto-enabled private dev POC, metadata discovery, durable first-observation cache, background refinement, live polygon updates and kill switch) |
 | Address fallback resolution | planned (EPIC-04, #23) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
@@ -190,11 +190,21 @@ for the acceptance matrix and fresh Java, PostGIS, migration, and browser
 evidence.
 See [issue #41 automatic RGZ parcel access](documentation/2026-09-03-decision-41-rgz-automatic-geometry-access.md)
 for the owner-authorized private-local scope, fixed traffic/cache guardrails,
-explicit current-pin activation, dynamic kill switch, source caveat,
-building-contract review, and verification.
+the historical strict current-pin activation policy, dynamic kill switch, source
+caveat, building-contract review, and verification.
+The [owner-directed POC amendment](documentation/2026-09-08-decision-41-private-poc-auto-activation.md)
+auto-enables RGZ for `dev`, discovers and retains source metadata, uses an honest
+stable local cache epoch (not a publisher edition), and refines retained auctions
+in the background. The POC opens a national overview, refreshes locally every
+15 seconds, and zooms to a selected parcel. Explicit `RGZ_ENABLED=false` and the
+live kill switch remain available; common/production defaults remain off.
 See [the #41/#21 review corrections](documentation/2026-09-08-issue-41-fixes-verification.md)
 for ordinary retry discovery, disabled cache reuse, metadata-independent cache
 identity, the V21 upgrade, and fresh Java/browser regression evidence.
+See [RGZ parcel operations](documentation/RGZ_PARCEL_OPERATIONS.md) and
+[#21 verification](documentation/2026-09-08-issue-21-verification.md) for the
+complete local WFS → ordinary refresh → rendered polygon workflow, V22
+in-flight KO invalidation guards, safe export, and live operator control status.
 See [coarse location operations](documentation/COARSE_LOCATION_OPERATIONS.md)
 for the #37→#36 resolution ladder, transactional spatial persistence, retained
 tier reports, idempotent refreshes, precision-aware consumers, and recovery.
@@ -295,6 +305,9 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `RefreshRepositoryIntegrationTest` | real-PostgreSQL concurrent manual/scheduled claim winner, atomic stale-active reclaim, fail-closed missing-snapshot lineage, durable retry, and append-only terminal workflow evidence |
 | `EnrichmentControllerTest` | loopback-only idempotent trigger, typed bounded replay, durable pause/resume, payload-free backlog/status distribution, retained redacted item evidence, and no-store `400`/`403`/`409`/`503` problems |
 | `EnrichmentReprocessingIntegrationTest` | real-PostgreSQL state/work-key discovery, unchanged zero-work replay, exact parser/resolver/dataset bumps, every-stage failure isolation across 601 auctions, retry cap, durable pause, bounded replay, database overlap, shared #17 worker lock, and kill/startup recovery including never-started accepted work |
+| `RgzAutomaticEnrichmentIntegrationTest` / `RgzParcelClientTest` / `RgzParcelResolutionIntegrationTest` | local source + WFS → real extraction, KO matching, durable cache and tier-1 selection; three exact identities; all failure/fallback cases; unchanged zero-request replay; dataset refresh; standalone/in-flight #33 invalidation; whitelist, rate, concurrency, backoff, ceiling and kill-switch proofs |
+| `RgzAutomaticBootstrapIntegrationTest` / `RgzSourceContractVerifierTest` / `AutoEnabledRgzBrowserTest` | automatic metadata discovery and bounded background enrichment without supplied pins; stable honest local epoch; persisted contract/cache replay after restart; stop/pause/backoff; secure XML; incremental map refresh and parcel-fit behavior |
+| `AutomaticParcelBrowserTest` | ordinary refresh automatically renders verified Polygon/MultiPolygon geometry; generic centroid suppression; live operator kill-switch visibility; localhost-only network guard |
 | `EnrichmentPipelinePostgisIntegrationTest` | all five production stages over real PostGIS; byte-stable local replay with zero source-client interactions; verified-parcel non-downgrade; ambiguity preservation; and a measured single-thread 601-auction cold pass with one isolated real stage failure |
 | `AuctionRepositoryPostgisIntegrationTest` | fixture parity, exact facet ordering, controller-equivalent paged filters/search, concurrent upserts |
 | `SchemaNegativeControlTest` | migration/PostGIS/schema/checksum/credential/connectivity failures, including proof that missing PostGIS fails before the connector opens |

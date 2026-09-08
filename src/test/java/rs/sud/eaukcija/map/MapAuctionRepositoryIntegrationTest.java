@@ -208,7 +208,7 @@ class MapAuctionRepositoryIntegrationTest {
         assertThat(response.getHeaders().getContentType().toString()).isEqualTo("application/geo+json");
         assertThat(response.getHeaders().getFirst("X-Map-Feature-Count")).isEqualTo("1");
         assertThat(response.getHeaders().getFirst("Cache-Control"))
-                .contains("max-age=60", "public");
+                .contains("max-age=60", "private").doesNotContain("public");
         assertThat(response.getHeaders().getFirst("Vary")).contains("Accept");
         JsonNode body = json.readTree(response.getBody());
         assertThat(body.path("type").asText()).isEqualTo("FeatureCollection");

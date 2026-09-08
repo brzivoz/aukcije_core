@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import rs.sud.eaukcija.basemap.BasemapStatus;
+import rs.sud.eaukcija.rgz.RgzAccessStatus;
 
 /** Payload-safe operator view assembled entirely from retained local evidence. */
 public record PipelineStatus(
@@ -21,7 +22,8 @@ public record PipelineStatus(
         Sync sync,
         Enrichment enrichment,
         Imports imports,
-        Artifacts artifacts) {
+        Artifacts artifacts,
+        RgzAccessStatus rgz) {
 
     public PipelineStatus {
         readinessFailures = List.copyOf(readinessFailures);

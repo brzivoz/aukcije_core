@@ -141,7 +141,8 @@ class OperatorStatusControllerTest {
                         new rs.sud.eaukcija.basemap.BasemapStatus(
                                 true, "AVAILABLE", "serbia-v1", "serbia-v1",
                                 "a".repeat(64), 42L, Instant.parse("2026-08-25T07:00:00Z"),
-                                Instant.parse("2026-08-25T12:00:00Z"), null)));
+                                Instant.parse("2026-08-25T12:00:00Z"), null)),
+                new rs.sud.eaukcija.rgz.RgzParcelProperties().status());
     }
 
     private static RequestPostProcessor remoteAddress(String address) {

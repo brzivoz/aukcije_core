@@ -149,7 +149,7 @@
     </section>
 
     <section class="auction-map-panel" aria-labelledby="auction-map-heading"
-             th:attr="data-map-test-hooks=${mapBrowserTestHooks}">
+             th:attr="data-map-test-hooks=${mapBrowserTestHooks},data-auto-refresh-interval-ms=${mapAutoRefreshIntervalMs},data-initial-longitude=${mapInitialLongitude},data-initial-latitude=${mapInitialLatitude},data-initial-zoom=${mapInitialZoom},data-fit-parcels=${fitParcelsOnSelect}">
         <div class="auction-map-heading-row">
             <div>
                 <p class="map-eyebrow">Локална интерактивна карта</p>

@@ -80,7 +80,9 @@ class DatabaseLifecycleIntegrationTest {
                         "V18__extracted_ko_matching.sql",
                         "V19__automatic_rgz_parcel_resolution.sql",
                         "V20__durable_rgz_lookup_claims.sql",
-                        "V21__rgz_cache_identity_and_retry_discovery.sql");
+                        "V21__rgz_cache_identity_and_retry_discovery.sql",
+                        "V22__guard_current_rgz_parcel_selection.sql",
+                        "V23__rgz_observed_source_contracts.sql");
     }
 
     @Test

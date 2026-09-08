@@ -364,11 +364,75 @@ def verify_documentation() -> None:
     check((ROOT / "downstream-issue-42.md").is_file())
 
 
+def verify_poc_activation(poc: dict[str, Any], strict: dict[str, Any]) -> None:
+    check(poc["decision"] == "OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_POC")
+    check(poc["decision_id"] == "2026-09-08-issue-41-private-poc-v4")
+    check(poc["supersedes_activation_policy"] == strict["decision_id"])
+    check(strict["private_dev_activation_superseded_by"] == "private-poc-access-contract.json")
+    check(poc["publisher_automation_authority_confirmed"] is False)
+    check(poc["publisher_dataset_edition_established"] is False)
+    check(poc["other_profile_defaults_enabled"] is False)
+    check(poc["explicit_disable_and_live_kill_switch_preserved"] is True)
+    defaults = poc["dev_defaults"]
+    for name in ("rgz.enabled", "rgz.auto-configure", "rgz.warmup-enabled"):
+        check(defaults[name] is True)
+    check(defaults["server.address"] == "127.0.0.1")
+    check(defaults["rgz.warmup-batch-size"] == 100)
+    check(defaults["rgz.auto-retry-delay"] == "PT15M")
+    check(defaults["map.auto-refresh-interval-ms"] == 15000)
+    check(defaults["map.initial-zoom"] == 6)
+    cache = poc["cache"]
+    check(cache["default_epoch"] == "private-local-first-observation-v1")
+    check(cache["version_policy"] == "PRIVATE_FIRST_OBSERVATION")
+    for name in ("claims_publisher_edition", "automatically_rotates", "promises_weekly_freshness",
+                 "terminal_identity_refetched_on_restart", "retained_metadata_refetched_on_restart", "raw_xml_persisted"):
+        check(cache[name] is False)
+    check(cache["immutable_metadata_evidence"] is True)
+    metadata = poc["metadata"]
+    check(metadata["operations"] == ["GetCapabilities", "DescribeFeatureType"])
+    check(metadata["feature_type"] == strict["current"]["rgz.feature-type"])
+    check(metadata["logical_lookup_ceiling"] == 2)
+    check(metadata["physical_attempt_ceiling"] == 6)
+    for name in ("shares_physical_rate_concurrency_and_kill_gates", "external_xml_resources_prohibited",
+                 "requires_verified_contract_before_parcel_requests", "fail_closed_to_cache_and_coarse_tiers"):
+        check(metadata[name] is True)
+    traffic = poc["unchanged_traffic_contract"]
+    check(traffic == {
+        "requests_per_second": 0.2, "max_concurrency": 1,
+        "max_logical_parcel_lookups_per_run": 100, "max_attempts": 3,
+        "retry_delays_seconds": [5, 15], "max_retry_after_seconds": 60,
+        "connect_read_call_timeout_seconds": [5, 20, 25], "max_response_bytes": 5000000,
+    })
+    for name, value in poc["privacy"].items():
+        check(value is True and strict["fail_closed"][name] is True)
+    check(poc["fresh_preflight"]["hashes_are_runtime_defaults"] is False)
+    for name in ("capabilities_sha256", "schema_sha256"):
+        check(SHA256.fullmatch(poc["fresh_preflight"][name]) is not None)
+    dev = (REPOSITORY / "src/main/resources/application-dev.properties").read_text()
+    check("rgz.enabled=${RGZ_ENABLED:true}" in dev)
+    check("rgz.auto-configure=${RGZ_AUTO_CONFIGURE:true}" in dev)
+    check("rgz.warmup-enabled=${RGZ_WARMUP_ENABLED:true}" in dev)
+    check("server.address=${SERVER_ADDRESS:127.0.0.1}" in dev)
+    properties = (REPOSITORY / "src/main/java/rs/sud/eaukcija/rgz/RgzParcelProperties.java").read_text()
+    check(cache["default_epoch"] in properties)
+    check("metadataNetworkAllowed() && sourceContractReady()" in properties)
+    bootstrap = (REPOSITORY / "src/main/java/rs/sud/eaukcija/rgz/RgzAutomaticBootstrap.java").read_text()
+    check("retainedContract()" in bootstrap and "tryAcquireWorkerLock()" in bootstrap)
+    check("startScheduledBatch" in bootstrap and "getAutoRetryDelay()" in bootstrap)
+    migration = (REPOSITORY / "src/main/resources/db/migration/V23__rgz_observed_source_contracts.sql").read_text()
+    check("CREATE TABLE rgz_observed_source_contracts" in migration)
+    check("BEFORE UPDATE OR DELETE" in migration)
+    decision = (REPOSITORY / poc["decision_record"]).read_text()
+    check(poc["decision_id"] in decision and cache["default_epoch"] in decision)
+    check("not** a publisher" in decision)
+
+
 def main() -> None:
     source_review = read_json("reviewed-sources.json")
     wfs_evidence = read_json("sanitized-wfs-evidence.json")
     contract = read_json("automated-access-contract.json")
-    for fixture in (source_review, wfs_evidence, contract):
+    poc_contract = read_json("private-poc-access-contract.json")
+    for fixture in (source_review, wfs_evidence, contract, poc_contract):
         scan_redaction(fixture)
     verify_sources(source_review)
     verify_wfs(wfs_evidence)
@@ -379,9 +443,10 @@ def main() -> None:
         check(source["raw_sha256"] == latest[source_keys[source["id"]]]["raw_sha256"])
     verify_contract(contract)
     verify_documentation()
+    verify_poc_activation(poc_contract, contract)
     print(
-        "issue #41/#21 evidence OK: automatic parcel WFS capability with "
-        "explicit pinned activation; building contract pending; cache-first retry discovery"
+        "issue #41/#21 evidence OK: automatic private POC activation and stable first-observation epoch; "
+        "strict production opt-in retained; traffic/privacy gates unchanged; building contract pending"
     )
 
 

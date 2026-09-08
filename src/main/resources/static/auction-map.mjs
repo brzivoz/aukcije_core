@@ -144,6 +144,20 @@ window.addEventListener('eaukcija:refresh-complete', () => {
     refreshNow();
 });
 
+// Private POC refinement commits shapes incrementally. Refresh the local
+// viewport while visible/idle; never contact RGZ from the browser or interrupt
+// a pending request, camera gesture, or filter debounce. Other profiles opt out.
+const autoRefreshMs = Number(document.querySelector('.auction-map-panel')?.dataset.autoRefreshIntervalMs);
+if (Number.isFinite(autoRefreshMs) && autoRefreshMs >= 1000 && autoRefreshMs <= 300000) {
+    window.setInterval(() => {
+        if (!document.hidden && state.sourcesReady && state.map && !state.map.isMoving()
+                && !state.activeRequest && !state.debounceTimer && !state.pendingRefresh) {
+            requestRefresh();
+            replayPendingRefresh();
+        }
+    }, autoRefreshMs);
+}
+
 async function initialize() {
     if (state.initializationPromise) {
         return state.initializationPromise;
@@ -175,8 +189,9 @@ async function initializeMap() {
     try {
         const map = await createLocalBasemap({
             container: 'auction-map',
-            center: [20.46, 44.79],
-            zoom: 14,
+            center: [initialMapNumber('initialLongitude', 18, 24, 20.46),
+                initialMapNumber('initialLatitude', 41, 47, 44.79)],
+            zoom: initialMapNumber('initialZoom', 0, 20, 14),
             minZoom: 0,
             maxZoom: 20,
             bearing: 0,
@@ -943,7 +958,19 @@ function selectFeature(feature, options = {}) {
     updateResultSelection();
     const summaryLink = renderSelectedSummary(feature);
     showPopup(feature);
-    if (options.moveMap) {
+    if (options.moveMap && feature.properties.precision === 'PARCEL'
+            && document.querySelector('.auction-map-panel')?.dataset.fitParcels === 'true'
+            && ['Polygon', 'MultiPolygon'].includes(feature.geometry.type)) {
+        const pairs = [];
+        collectCoordinatePairs(feature.geometry.coordinates, pairs);
+        const bounds = pairs.reduce((box, point) => [
+            [Math.min(box[0][0], point[0]), Math.min(box[0][1], point[1])],
+            [Math.max(box[1][0], point[0]), Math.max(box[1][1], point[1])]
+        ], [[Infinity, Infinity], [-Infinity, -Infinity]]);
+        if (pairs.length) state.map.fitBounds(bounds, {
+            padding: 48, maxZoom: 17, duration: reducedMotion() ? 0 : 300
+        });
+    } else if (options.moveMap) {
         state.map.easeTo({
             center: representativeCoordinate(feature.geometry),
             duration: reducedMotion() ? 0 : 300
@@ -1094,6 +1121,11 @@ function allowlistedSourceUrl(value, auctionId) {
 function closePopup() {
     state.popup?.remove();
     state.popup = null;
+}
+
+function initialMapNumber(name, min, max, fallback) {
+    const value = Number(document.querySelector('.auction-map-panel')?.dataset[name]);
+    return Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
 
 function representativeCoordinate(geometry) {

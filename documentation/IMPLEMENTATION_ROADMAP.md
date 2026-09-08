@@ -15,7 +15,7 @@ dependencies, testable acceptance criteria, and required completion evidence.
 The external feasibility decisions now have committed outcomes:
 
 - **#13 — SUPERSEDED FOR AUTOMATION, manual option B retained:** the public WFS returned three exact parcel geometries. Access remains restricted to an occasional owner-initiated command and private local artifact.
-- **#41 decision / #21 runtime — LOCAL CORE, REVIEW FOLLOW-UP:** bounded cache-first private-local WFS fetching is implemented and becomes automatic after explicit activation with current source pins. The 2026-09-08 corrections restore ordinary retry discovery and metadata-independent cache reuse. Publisher billing/agreement work and operator monitoring are deferred; published sources do not independently confirm automation/cache authority. #42 stays open: a current building schema exposes join candidates, but its complete contract is not yet verified.
+- **#41 decision / #21 runtime — COMPLETE LOCALLY under the recorded parcel decision:** bounded cache-first private-local WFS fetching is now auto-enabled for the `dev` POC, including durable metadata discovery, an honest stable first-observation cache epoch, background refinement, and live map updates; see the [owner-directed amendment](2026-09-08-decision-41-private-poc-auto-activation.md). Strict/production configuration retains explicit activation. The full local WFS → normal refresh → rendered polygon workflow, safe export, stale/in-flight #33 invalidation, and live operator kill-switch status are covered by tests; see [#21 verification](2026-09-08-issue-21-verification.md). Publisher billing/agreement work remains deferred; published sources do not independently confirm automation/cache authority. #42 stays open: a current building schema exposes join candidates, but its complete contract is not yet verified.
 - **#32 — COMPLETE, feasible with a measured ceiling:** every measured auction reached some location tier, but only 16.3% reached address precision; no Address Registry point is promoted to parcel precision.
 
 Three milestones define completion:
@@ -132,15 +132,17 @@ answered the gate and changes their assumed outcome.
     now and defer billing/service-agreement work and monitoring. #41 records
     that distinction rather than presenting owner authorization as RGZ consent.
 
-29. **#21's automatic core is implemented and again gates the primary precision
-    path.** #29 now calls a bounded unauthenticated WFS client for current #33
+29. **#21's automatic resolver is implemented and verified through the rendered
+    map.** #29 now calls a bounded unauthenticated WFS client for current #33
     matches. It is cache-first, rate-limited to 0.2 requests/second and one
     concurrent call, capped at 100 logical misses per run, tied to the exact #33
-    fingerprint, and protected by a per-request kill switch. It defaults off and
-    requires explicit current dataset/capabilities/schema pins. The 2026-09-08
-    recheck succeeded, but did not establish a publisher dataset edition.
-    Once activated, manual and scheduled refreshes fetch automatically. Invalid, ambiguous, unavailable, or stale
-    inputs fail through to #23 without inventing precision.
+    fingerprint, and protected by a per-request kill switch. Strict/production
+    mode requires explicit current dataset/capabilities/schema pins. The private
+    `dev` POC now auto-discovers metadata and uses the owner-approved stable
+    first-observation epoch, not an invented publisher edition. Its background
+    worker and periodically refreshed national map make new shapes visible
+    without a parcel action. Invalid, ambiguous, unavailable, or stale inputs
+    fail through to #23 without inventing precision.
 
 30. **Amended 2026-09-08: #42 remains open for building-contract review.** The
     current `dkp:objekat` schema exposes `maticnibrojko` + `brparcele` join
@@ -240,7 +242,7 @@ flowchart TB
         I22["#22 Full Address Registry import"]
         I33["#33 Extracted KO matching"]
         I41["#41 Automatic RGZ parcel contract ✅"]
-        I21["#21 Automatic parcel resolver core ✅"]
+        I21["#21 Automatic parcel resolver + map ✅"]
         I42["#42 Footprint contract review pending"]
         I23["#23 Address/parcel resolver"]
 
@@ -328,7 +330,7 @@ Work inside a wave can run in parallel once its incoming dependencies are green.
 | 7 | #10, #22 | Snapshot replay/hash evidence; validated full GPKG import with atomic promotion and rollback |
 | 8 | #11, #18 | Lifecycle matrix at real population size; reviewed corpus and baseline metrics |
 | 9 | **#19 ✅** | Held-out parser thresholds met with versioned deterministic replacement, retained source/run evidence, and reviewed-correction preservation |
-| 10 | **#33 ✅, #41 ✅, #21 core ✅** | Zero exact-match false positives; bounded automatic parcel fetching, cache replay, PostGIS persistence, stale-#33 invalidation, and fallback behavior |
+| 10 | **#33 ✅, #41 parcel decision ✅, #21 ✅** | Zero exact-match false positives; bounded automatic parcel fetching, durable replay, standalone/in-flight #33 invalidation, fallback, operator kill-switch status, and rendered-polygon proof |
 | 11 | #23, **#29 coordinator ✅** | Held-out address-resolution results with zero false-positive exact matches; idempotent reprocessing proven by kill-and-restart test, with cold-reprocess duration recorded |
 | 12 | #30 | Persisted freshness/backlog/precision status |
 | 13 | #28 | Full daily-use browser flow with URL round-trip and DST boundaries |
@@ -339,10 +341,11 @@ measurement landed early on 2026-08-25. The #19 extracted-reference parser and
 V17 evidence ledger landed on 2026-09-02. #33 now supplies immutable V18
 per-reference KO matching and structured/text conflict evidence with zero
 held-out exact-match false positives. #41 now records owner-authorized automatic
-WFS parcel access, and this change implements #21's core resolver, cache,
-provenance, invalidation, and map consumption. #23 still owns official-address
-and coarse fallback resolution. Monitoring and publisher billing remain
-deferred. #42 remains open without a footprint implementation pending its contract review.
+WFS parcel access. #21 completes the resolver, cache, provenance, invalidation,
+operator control visibility, and full local-fixture map consumption proof.
+#23 still owns official-address and coarse fallback resolution. Additional
+monitoring and publisher billing remain deferred. #42 remains open without a
+footprint implementation pending its contract review.
 
 ## Definition of done for every issue
 

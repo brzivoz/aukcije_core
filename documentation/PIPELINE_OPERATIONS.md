@@ -3,7 +3,17 @@
 Issue #30 provides one local operator surface over the persisted evidence owned
 by synchronization, enrichment, Address Registry import, spatial resolution,
 and basemap activation. It does not scrape logs for counters and it does not
-call the external eAukcija source while answering a status request.
+call either the external eAukcija source or RGZ while answering a status request.
+
+#21 adds a live **RGZ parcel access** section and top-level `rgz` API object.
+It displays enabled/disabled state, `killSwitchEngaged`, `networkAllowed`,
+`datasetConfigured`, decision version, and rate/concurrency/run/retry limits.
+The file-based kill switch is checked on each status read, including during a
+database outage, without exposing its filesystem path or request headers.
+`RGZ_KILL_SWITCH_ENGAGED_CACHE_AND_FALLBACK_ONLY` is an informational notice:
+verified cache and coarse fallback remain usable. See
+[RGZ parcel operations](RGZ_PARCEL_OPERATIONS.md) for activation, live stop/resume,
+and the #41 cache/retry contract.
 
 ## Access and response contract
 

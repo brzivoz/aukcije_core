@@ -797,7 +797,8 @@ public class EnrichmentRunRepository {
                        )
                     OR snapshot.canonical_input ->> 'sourceSnapshotSha256'
                        = btrim(auction.current_source_snapshot_sha256)
-                 ORDER BY COALESCE(pending_rgz.last_lookup_at, observation.observed_at),
+                 ORDER BY (auction.end_date >= CURRENT_TIMESTAMP) DESC NULLS LAST,
+                          COALESCE(pending_rgz.last_lookup_at, observation.observed_at),
                           observation.observed_at, auction.id
                 """, (result, row) -> new CandidateRow(
                 result.getLong("auction_id"),

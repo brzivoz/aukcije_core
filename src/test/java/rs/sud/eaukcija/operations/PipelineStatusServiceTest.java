@@ -29,6 +29,7 @@ class PipelineStatusServiceTest {
     private final PipelineStatusRepository repository = mock(PipelineStatusRepository.class);
     private final BasemapArtifactRegistry basemap = mock(BasemapArtifactRegistry.class);
     private final PipelineStatusProperties properties = new PipelineStatusProperties();
+    private final rs.sud.eaukcija.rgz.RgzParcelProperties rgz = new rs.sud.eaukcija.rgz.RgzParcelProperties();
 
     @BeforeEach
     void healthyBasemap() {
@@ -201,9 +202,28 @@ class PipelineStatusServiceTest {
         assertThat(status.database().available()).isFalse();
     }
 
+    @Test
+    void liveRgzControlRemainsVisibleEvenWhenDatabaseIsUnavailable(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        rgz.setEnabled(true);
+        rgz.setDatasetVersion("test-edition");
+        rgz.setCapabilitiesSha256("a".repeat(64));
+        rgz.setSchemaSha256("b".repeat(64));
+        rgz.setKillSwitchPath(directory.resolve("private-operator-path"));
+        when(repository.read()).thenThrow(new CannotCreateTransactionException("credentials=secret"));
+        PipelineStatusService service = service();
+        assertThat(service.status().rgz().networkAllowed()).isTrue();
+        java.nio.file.Files.createFile(rgz.getKillSwitchPath());
+        assertThat(service.status().rgz().state()).isEqualTo("KILL_SWITCH_ENGAGED");
+        assertThat(service.status().rgz().networkAllowed()).isFalse();
+        java.nio.file.Files.delete(rgz.getKillSwitchPath());
+        assertThat(service.status().rgz().networkAllowed()).isTrue();
+        assertThat(service.status().toString()).doesNotContain("private-operator-path", "credentials=secret");
+    }
+
     private PipelineStatusService service() {
         return new PipelineStatusService(
-                repository, basemap, properties, Clock.fixed(NOW, ZoneOffset.UTC));
+                repository, basemap, properties, Clock.fixed(NOW, ZoneOffset.UTC), rgz);
     }
 
     private static PipelineStatus.RunMetric success(String status, Map<String, Long> errors) {

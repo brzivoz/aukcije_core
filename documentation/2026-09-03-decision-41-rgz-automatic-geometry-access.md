@@ -2,6 +2,11 @@
 
 **Issue:** [#41](https://github.com/brzivoz/aukcije_core/issues/41)
 
+**Activation policy superseded for the private `dev` POC:**
+[2026-09-08 owner-directed automatic activation / stable first-observation policy](2026-09-08-decision-41-private-poc-auto-activation.md).
+The historical explicit-pin policy below remains available for strict/production
+configuration. The source, billing, privacy, rate and building caveats remain.
+
 **Decision date:** 2026-09-03
 
 **Amended:** 2026-09-08 — fresh WFS evidence, building-contract review reopened,
@@ -214,6 +219,15 @@ The exact machine-readable contract is
   The fresh object schema establishes technical candidates only; no building
   feature type is authorized by this parcel decision. Object auctions can use
   an exact parcel boundary or #23 fallback.
+
+## #21 implementation follow-up
+
+The [#21 verification](2026-09-08-issue-21-verification.md) now covers the full
+local WFS → ordinary refresh → rendered-polygon workflow and live kill-switch
+visibility in #30's operator surface. V22 also guards selection writes against
+KO changes during HTTP and current-KO deletion. This completes those runtime
+items without changing this access decision, activating a live dataset, or
+extending permission to buildings. See [parcel operations](RGZ_PARCEL_OPERATIONS.md).
 
 ## Reproduction
 

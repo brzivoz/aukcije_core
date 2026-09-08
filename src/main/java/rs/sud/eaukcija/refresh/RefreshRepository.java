@@ -142,6 +142,12 @@ public class RefreshRepository {
                 + " WHERE status = 'SUCCEEDED' ORDER BY finished_at DESC, id DESC LIMIT 1");
     }
 
+    public void waitingForLocalWorker(UUID workflowId) {
+        requireRunningUpdate(jdbc.update("""
+                UPDATE refresh_runs SET heartbeat_at = ? WHERE id = ? AND status = 'RUNNING'
+                """, databaseTime(clock.instant()), workflowId), workflowId);
+    }
+
     public void linkSourceRun(UUID workflowId, UUID sourceRunId) {
         requireRunningUpdate(jdbc.update("""
                 UPDATE refresh_runs

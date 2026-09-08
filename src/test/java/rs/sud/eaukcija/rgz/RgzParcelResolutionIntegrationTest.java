@@ -245,6 +245,13 @@ class RgzParcelResolutionIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM spatial_resolution_geometries", Long.class))
                 .isOne();
         assertThat(viewport.findSelectedWithin(new BoundingBox(19, 43, 21, 45), 10)).isEmpty();
+        assertThat(jdbc.queryForObject("""
+                SELECT result.reconciliation_status FROM current_property_reference_ko_matches current_match
+                JOIN property_reference_ko_match_results result
+                  ON result.reference_id = current_match.reference_id
+                 AND result.input_fingerprint = current_match.input_fingerprint
+                WHERE current_match.reference_id = ?
+                """, String.class, referenceId)).isEqualTo("CONFLICT");
     }
 
     @Test
@@ -753,6 +760,86 @@ class RgzParcelResolutionIntegrationTest {
                 .containsEntry("used_cache_record_id", cacheId)
                 .containsEntry("resolver_version", "rgz-parcel-v1")
                 .containsEntry("source_dataset_sha256", "c".repeat(64));
+    }
+
+    @Test
+    void standaloneKoChangeWhileHttpIsInFlightCannotReinstallAStaleParcelOrKoCode() {
+        EnrichmentWorkItem item = seed(
+                41_114L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        koMatches.run();
+        UUID reference = parcelReference(item.auctionId());
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class))).thenAnswer(invocation -> {
+            jdbc.update("UPDATE property_references SET raw_ko = 'Урсуле', normalized_ko = 'URSULE' WHERE id = ?", reference);
+            koMatches.run();
+            return success("100001", "1572", "8".repeat(64));
+        });
+        assertThat(stage.process(item.forRun(insertEnrichmentRun())).disposition())
+                .isEqualTo(EnrichmentStageResult.Disposition.CONTINUE);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM current_location_resolutions", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT ko_code FROM property_references WHERE id = ?", String.class, reference)).isNull();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rgz_parcel_cache_keys", Long.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM location_resolution_attempts", Long.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM spatial_resolution_geometries", Long.class)).isOne();
+        assertThat(viewport.findSelectedWithin(new BoundingBox(19, 43, 21, 45), 10)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"AMBIGUOUS", "NOT_FOUND", "INVALID"})
+    void everyNonMatchedCurrentKoStatusRevokesThePointerWithoutDestroyingHistory(String expected) {
+        EnrichmentWorkItem item = seed(
+                41_115L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        koMatches.run();
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class)))
+                .thenReturn(success("100001", "1572", "9".repeat(64)));
+        UUID run = insertEnrichmentRun();
+        stage.process(item.forRun(run));
+        UUID reference = parcelReference(item.auctionId());
+        String raw = switch (expected) {
+            case "AMBIGUOUS" -> "URSULE";
+            case "NOT_FOUND" -> "XYZQNONEXISTENT";
+            default -> "";
+        };
+        jdbc.update("UPDATE property_references SET raw_ko = ?, normalized_ko = ? WHERE id = ?", raw, raw, reference);
+        koMatches.run();
+        assertThat(jdbc.queryForObject("""
+                SELECT result.status FROM current_property_reference_ko_matches current_match
+                JOIN property_reference_ko_match_results result
+                  ON result.reference_id = current_match.reference_id
+                 AND result.input_fingerprint = current_match.input_fingerprint
+                WHERE current_match.reference_id = ?
+                """, String.class, reference)).isEqualTo(expected);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM current_location_resolutions", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rgz_parcel_cache_keys", Long.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM location_resolution_attempts", Long.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM spatial_resolution_geometries", Long.class)).isOne();
+        stage.process(item.forRun(run));
+        verify(client).fetch(anyString(), anyString(), any(BooleanSupplier.class));
+    }
+
+    @Test
+    void deletingCurrentKoEvidenceRemovesTheSelectionAndCannotBeBypassedByCacheReplay() {
+        EnrichmentWorkItem item = seed(
+                41_116L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        koMatches.run();
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class)))
+                .thenReturn(success("100001", "1572", "a".repeat(64)));
+        UUID run = insertEnrichmentRun();
+        stage.process(item.forRun(run));
+        UUID reference = parcelReference(item.auctionId());
+        jdbc.update("DELETE FROM current_property_reference_ko_matches WHERE reference_id = ?", reference);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM current_location_resolutions", Long.class)).isZero();
+        assertThat(jdbc.update("""
+                INSERT INTO current_location_resolutions
+                    (property_reference_id, resolution_attempt_id, selected_at, selection_reason)
+                SELECT property_reference_id, id, CURRENT_TIMESTAMP, 'stale replay'
+                  FROM location_resolution_attempts WHERE property_reference_id = ?
+                """, reference)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM rgz_parcel_cache_keys", Long.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM location_resolution_attempts", Long.class)).isOne();
+        koMatches.run();
+        stage.process(item.forRun(run));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM current_location_resolutions", Long.class)).isOne();
+        verify(client).fetch(anyString(), anyString(), any(BooleanSupplier.class));
     }
 
     /** Extraction/matching are already seeded; exercise the real remaining stages and discovery ledger. */

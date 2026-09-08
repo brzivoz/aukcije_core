@@ -33,10 +33,10 @@ import rs.sud.eaukcija.spatial.ParcelIdentityNormalizer;
 public class RgzParcelResolutionService {
 
     public static final String RESOLVER = "RGZ_WFS_PARCEL";
-    public static final String RESOLVER_VERSION = "rgz-parcel-v2";
+    public static final String RESOLVER_VERSION = "rgz-parcel-v4";
     public static final String SOURCE_DATASET = "RGZ_REGDKP_WFS";
     public static final String DECISION_VERSION =
-            "2026-09-03-issue-41-explicit-activation-v3";
+            "2026-09-08-issue-41-private-poc-v4";
 
     private static final int MAX_TRACKED_RUNS = 128;
 
@@ -155,16 +155,14 @@ public class RgzParcelResolutionService {
                 attachParcelIdentity(candidate);
             }
             useCache(candidate, inputFingerprint, cached, item.enrichmentRunId());
-            return new LookupPreparation(new ReferenceResult(
-                    candidate.referenceId(), inputFingerprint, candidate.koMatchInputFingerprint(),
-                    cached.status(), true));
+            return new LookupPreparation(outcome(candidate, inputFingerprint, cached.status(), true));
         }
 
         if (!properties.networkAllowed()) {
             RgzParcelResult skipped = error(properties.isEnabled() ? "KILL_SWITCH_ENGAGED" : "RGZ_DISABLED");
             // Disabled configurations may omit source pins. There was no request
             // whose provenance could justify an attempt with those missing pins.
-            if (properties.isEnabled()) {
+            if (properties.sourceContractReady()) {
                 createAttempt(candidate, inputFingerprint, null, skipped, item.enrichmentRunId());
             }
             return new LookupPreparation(new ReferenceResult(
@@ -197,17 +195,32 @@ public class RgzParcelResolutionService {
                 attachParcelIdentity(candidate);
             }
             useCache(candidate, inputFingerprint, cached, item.enrichmentRunId());
-            return new ReferenceResult(
-                    candidate.referenceId(), inputFingerprint, candidate.koMatchInputFingerprint(),
-                    cached.status(), true);
+            return outcome(candidate, inputFingerprint, cached.status(), true);
         }
         CacheRecord persisted = fetched.cacheable()
                 ? persistCache(inputFingerprint, candidate, fetched)
                 : null;
         createAttempt(candidate, inputFingerprint, persisted, fetched, item.enrichmentRunId());
-        return new ReferenceResult(
-                candidate.referenceId(), inputFingerprint, candidate.koMatchInputFingerprint(),
-                fetched.status(), false);
+        return outcome(candidate, inputFingerprint, fetched.status(), false);
+    }
+
+    private ReferenceResult outcome(
+            Candidate candidate, String fingerprint, RgzParcelResult.Status status, boolean cacheHit) {
+        if (status == RgzParcelResult.Status.RESOLVED && !Boolean.TRUE.equals(jdbc.queryForObject("""
+                SELECT EXISTS (
+                    SELECT 1 FROM current_location_resolutions selection
+                    JOIN location_resolution_attempts attempt ON attempt.id = selection.resolution_attempt_id
+                    WHERE selection.property_reference_id = ? AND attempt.input_fingerprint = ?
+                      AND attempt.upstream_ko_match_input_fingerprint = ?
+                      AND attempt.resolver = 'RGZ_WFS_PARCEL'
+                )
+                """, Boolean.class, candidate.referenceId(), fingerprint, candidate.koMatchInputFingerprint()))) {
+            // A valid late response remains cached evidence, not a resolution
+            // of an auction whose current KO premise has already been revoked.
+            status = RgzParcelResult.Status.ERROR;
+        }
+        return new ReferenceResult(candidate.referenceId(), fingerprint,
+                candidate.koMatchInputFingerprint(), status, cacheHit);
     }
 
     private List<Candidate> candidates(long auctionId) {
@@ -293,7 +306,7 @@ public class RgzParcelResolutionService {
                     """, geometryId, fetched.geometryJson(), fetched.geometryJson());
         }
 
-        String evidenceJson = evidenceJson(fetched);
+        String evidenceJson = evidenceJson(fetched, candidate);
         UUID cacheId = UUID.nameUUIDFromBytes(
                 ("rgz-cache:" + inputFingerprint).getBytes(StandardCharsets.UTF_8));
         jdbc.update("""
@@ -328,6 +341,22 @@ public class RgzParcelResolutionService {
     }
 
     private void attachParcelIdentity(Candidate candidate) {
+        // #33 can run independently while HTTP is in flight. Lock its current
+        // pointer until the attach/selection transaction commits; do not restore
+        // an obsolete KO merely because valid geometry arrived late.
+        if (jdbc.queryForList("""
+                SELECT current_match.reference_id
+                  FROM current_property_reference_ko_matches current_match
+                  JOIN property_reference_ko_match_results result
+                    ON result.reference_id = current_match.reference_id
+                   AND result.input_fingerprint = current_match.input_fingerprint
+                 WHERE current_match.reference_id = ? AND current_match.input_fingerprint = ?
+                   AND result.status = 'MATCHED'
+                   AND result.reconciliation_status <> 'STRUCTURED_ONLY'
+                 FOR SHARE OF current_match
+                """, UUID.class, candidate.referenceId(), candidate.koMatchInputFingerprint()).isEmpty()) {
+            return;
+        }
         String koCode = ParcelIdentityNormalizer.canonicalKoCode(candidate.koCode());
         String parcelNumber = ParcelIdentityNormalizer.canonicalParcelNumber(candidate.parcelNumber());
         List<Long> inserted = jdbc.query("""
@@ -364,7 +393,7 @@ public class RgzParcelResolutionService {
         String reason = cached != null ? cached.reason() : fetched.reason();
         String evidence = cached != null
                 ? cached.evidenceJson()
-                : evidenceJson(fetched);
+                : evidenceJson(fetched, candidate);
         UUID attemptId = UUID.randomUUID();
         UUID geometryId = cached == null ? null : cached.geometryId();
         jdbc.update("""
@@ -491,12 +520,26 @@ public class RgzParcelResolutionService {
         return result;
     }
 
-    private String evidenceJson(RgzParcelResult result) {
-        Map<String, Object> evidence = new LinkedHashMap<>(result.evidence());
+    private String evidenceJson(RgzParcelResult result, Candidate candidate) {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        for (String key : List.of("schemaVersion", "reason", "returnedKoCode", "returnedParcelNumber",
+                "geometryType", "areaSquareMetres", "sourceProjection", "scale",
+                "rawResponseSha256", "physicalAttempts", "retrievedAt")) {
+            if (result.evidence().containsKey(key)) {
+                evidence.put(key, result.evidence().get(key));
+            }
+        }
+        evidence.put("requestedKoCode", candidate.koCode());
+        evidence.put("requestedParcelNumber", candidate.parcelNumber());
+        evidence.put("wfsVersion", "2.0.0");
         evidence.put("decisionVersion", DECISION_VERSION);
         evidence.put("accessMode", properties.getAccessMode());
         evidence.put("featureType", properties.getFeatureType());
         evidence.put("datasetVersion", properties.getDatasetVersion());
+        evidence.put("datasetVersionPolicy", properties.datasetVersionPolicy());
+        if (properties.discoveredContract() != null) {
+            evidence.put("sourceContractObservedAt", properties.discoveredContract().observedAt().toString());
+        }
         evidence.put("capabilitiesSha256", properties.getCapabilitiesSha256());
         evidence.put("schemaSha256", properties.getSchemaSha256());
         evidence.put("propertyWhitelistVersion", "issue-41-rgz-parcel-v1");

@@ -87,7 +87,7 @@ The response repeats result-size state in headers for clients and operators:
 X-Map-Feature-Count: 1
 X-Map-Feature-Limit: 1000
 X-Map-Truncated: false
-Cache-Control: max-age=60, public
+Cache-Control: max-age=60, private
 Vary: Accept
 ```
 
@@ -97,11 +97,11 @@ client should narrow the viewport or filters; the sentinel is never returned.
 Normal HTTP access logs or client tooling can additionally record transferred
 byte size without changing the public JSON contract.
 
-The data is anonymous, read-only, and sourced from the public auction portal, so
-responses permit browser/proxy reuse for 60 seconds. That bounds staleness for
-an auction crossing its end time while avoiding another database query when a
-map client revisits the same viewport. Query parameters remain part of the HTTP
-cache key.
+Responses permit private browser reuse for 60 seconds, never shared-proxy
+caching: automatic RGZ parcel geometry is governed by #41's private-local,
+non-redistribution scope. This bounds staleness for an auction crossing its end
+time while avoiding another database query when a map client revisits the same
+viewport. Query parameters remain part of the HTTP cache key.
 
 ## Map-data version and freshness
 
@@ -152,6 +152,13 @@ reported as a property count. Distinct canonical properties remain distinct
 features with stable feature ids even when
 they belong to the same auction or share a coarse representative point. The
 numeric `auctionId` is stable across all of that auction's features.
+
+A generic `STRUCTURED_LOCATION` centroid is an auction-level fallback, not a
+second property. It is hidden whenever that auction has an eligible selected
+`PARCEL`, even if the parcel lies outside the requested viewport. Distinct
+property references remain distinct. Revoking the parcel's current #33 premise
+immediately makes the retained structured fallback visible again; neither
+geometry nor attempt history is deleted.
 
 The map and `/api/locations/{id}` selectors share one enum-generated order:
 strongest declared `LocationPrecision`, then lowest source reference order,

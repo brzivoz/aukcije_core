@@ -3,6 +3,7 @@ package rs.sud.eaukcija.rgz;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.LinkOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +18,17 @@ public class RgzParcelProperties {
 
     static final long MAX_CONFIGURED_RESPONSE_BYTES = 16L * 1024L * 1024L;
 
+    public static final String LOCAL_CACHE_EPOCH = "private-local-first-observation-v1";
+
     private boolean enabled;
+    private boolean autoConfigure;
+    private boolean warmupEnabled;
+    private int warmupBatchSize = 100;
+    private Duration autoRetryDelay = Duration.ofMinutes(15);
+    private volatile RgzSourceContract discoveredContract;
+    private volatile String activationFailure;
+    private volatile String warmupState = "IDLE";
+    private boolean allowHttpLoopbackTest;
     private String accessMode = "OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_EXPLICIT_ACTIVATION";
     private URI baseUrl = URI.create("https://ogc-tmp.geosrbija.rs/regdkp/ows");
     private String featureType = "dkp:dkp_parcels_weekly_only_utm";
@@ -72,15 +83,60 @@ public class RgzParcelProperties {
     }
 
     public String getDatasetVersion() {
-        return datasetVersion;
+        return autoConfigure && (datasetVersion == null || datasetVersion.isBlank())
+                ? LOCAL_CACHE_EPOCH : datasetVersion;
+    }
+
+    public String datasetVersionPolicy() {
+        return LOCAL_CACHE_EPOCH.equals(getDatasetVersion()) ? "PRIVATE_FIRST_OBSERVATION" : "OPERATOR_PINNED";
+    }
+
+    public boolean isAutoConfigure() { return autoConfigure; }
+    public void setAutoConfigure(boolean value) { autoConfigure = value; }
+    public boolean isWarmupEnabled() { return warmupEnabled; }
+    public void setWarmupEnabled(boolean value) { warmupEnabled = value; }
+    public int getWarmupBatchSize() { return warmupBatchSize; }
+    public void setWarmupBatchSize(int value) { warmupBatchSize = value; }
+    public Duration getAutoRetryDelay() { return autoRetryDelay; }
+    public void setAutoRetryDelay(Duration value) { autoRetryDelay = value; }
+
+    public String sourceContractKey() {
+        return rs.sud.eaukcija.enrichment.EnrichmentHashing.sha256(
+                baseUrl.toString(), featureType, getDatasetVersion(), "rgz-source-contract-v1");
+    }
+
+    public RgzSourceContract discoveredContract() {
+        RgzSourceContract contract = discoveredContract;
+        return contract != null && sourceContractKey().equals(contract.sourceKey()) ? contract : null;
+    }
+
+    void installContract(RgzSourceContract contract) {
+        if (!sourceContractKey().equals(contract.sourceKey())) {
+            throw new IllegalArgumentException("RGZ source contract does not match configuration");
+        }
+        discoveredContract = contract;
+        activationFailure = null;
+    }
+
+    void activationFailed(String code) { activationFailure = code; }
+    void warmupState(String value) { warmupState = value; }
+
+    public boolean sourceContractReady() {
+        return getDatasetVersion() != null && !getDatasetVersion().isBlank()
+                && getCapabilitiesSha256() != null && getCapabilitiesSha256().matches("[0-9a-f]{64}")
+                && getSchemaSha256() != null && getSchemaSha256().matches("[0-9a-f]{64}");
     }
 
     public void setDatasetVersion(String datasetVersion) {
         this.datasetVersion = datasetVersion;
+        this.discoveredContract = null;
+        this.activationFailure = null;
     }
 
     public String getCapabilitiesSha256() {
-        return capabilitiesSha256;
+        RgzSourceContract contract = discoveredContract();
+        return contract != null && (capabilitiesSha256 == null || capabilitiesSha256.isBlank())
+                ? contract.capabilitiesSha256() : capabilitiesSha256;
     }
 
     public void setCapabilitiesSha256(String capabilitiesSha256) {
@@ -88,7 +144,9 @@ public class RgzParcelProperties {
     }
 
     public String getSchemaSha256() {
-        return schemaSha256;
+        RgzSourceContract contract = discoveredContract();
+        return contract != null && (schemaSha256 == null || schemaSha256.isBlank())
+                ? contract.schemaSha256() : schemaSha256;
     }
 
     public void setSchemaSha256(String schemaSha256) {
@@ -199,8 +257,44 @@ public class RgzParcelProperties {
         this.killSwitchPath = killSwitchPath;
     }
 
+    public boolean isAllowHttpLoopbackTest() {
+        return allowHttpLoopbackTest;
+    }
+
+    public void setAllowHttpLoopbackTest(boolean allowHttpLoopbackTest) {
+        this.allowHttpLoopbackTest = allowHttpLoopbackTest;
+    }
+
+    public boolean killSwitchEngaged() {
+        try {
+            // Unknown/inaccessible state and dangling symlinks must also stop requests.
+            return !Files.notExists(killSwitchPath.toAbsolutePath().normalize(), LinkOption.NOFOLLOW_LINKS);
+        } catch (SecurityException denied) {
+            return true;
+        }
+    }
+
+    public boolean metadataNetworkAllowed() {
+        return enabled && !killSwitchEngaged();
+    }
+
     public boolean networkAllowed() {
-        return enabled && !Files.exists(killSwitchPath.toAbsolutePath().normalize());
+        return metadataNetworkAllowed() && sourceContractReady();
+    }
+
+    public RgzAccessStatus status() {
+        boolean killed = killSwitchEngaged();
+        boolean ready = sourceContractReady();
+        RgzSourceContract contract = discoveredContract();
+        return new RgzAccessStatus(
+                killed ? "KILL_SWITCH_ENGAGED" : !enabled ? "DISABLED" : ready ? "ENABLED"
+                        : activationFailure == null ? "AWAITING_SOURCE_CONTRACT" : activationFailure,
+                enabled, killed, enabled && ready && !killed,
+                getDatasetVersion() != null && !getDatasetVersion().isBlank(),
+                RgzParcelResolutionService.DECISION_VERSION,
+                requestsPerSecond, maxConcurrency, maxLogicalLookupsPerRun, maxAttempts,
+                autoConfigure, ready, getDatasetVersion(), datasetVersionPolicy(),
+                contract == null ? null : contract.observedAt(), warmupEnabled, warmupState);
     }
 
     String requestUserAgent() {
@@ -212,11 +306,14 @@ public class RgzParcelProperties {
     }
 
     void validate(boolean allowLoopbackHttp) {
-        requireToken(accessMode, "access-mode", 128);
+        if (!"OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_EXPLICIT_ACTIVATION".equals(accessMode)
+                && !"OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_POC".equals(accessMode)) {
+            throw invalid("access-mode must be the recorded issue-41 decision");
+        }
         if (baseUrl == null || baseUrl.getScheme() == null || baseUrl.getHost() == null) {
             throw invalid("base-url must be an absolute HTTPS URI");
         }
-        boolean loopback = allowLoopbackHttp
+        boolean loopback = (allowLoopbackHttp || allowHttpLoopbackTest)
                 && "http".equalsIgnoreCase(baseUrl.getScheme())
                 && ("127.0.0.1".equals(baseUrl.getHost()) || "localhost".equals(baseUrl.getHost()));
         if (!"https".equalsIgnoreCase(baseUrl.getScheme()) && !loopback) {
@@ -225,10 +322,22 @@ public class RgzParcelProperties {
         if (baseUrl.getUserInfo() != null || baseUrl.getQuery() != null || baseUrl.getFragment() != null) {
             throw invalid("base-url must not contain credentials, query, or fragment");
         }
-        if (featureType == null || !featureType.matches("[A-Za-z0-9_]+:[A-Za-z0-9_]+")) {
-            throw invalid("feature-type must be a qualified WFS name");
+        if (!"dkp:dkp_parcels_weekly_only_utm".equals(featureType)) {
+            throw invalid("feature-type is not authorized by issue-41; building fetching is prohibited");
         }
-        if (enabled) {
+        if (warmupBatchSize < 1 || warmupBatchSize > 1000) {
+            throw invalid("warmup-batch-size must be between 1 and 1000");
+        }
+        requireDuration(autoRetryDelay, Duration.ofDays(1), "auto-retry-delay");
+        if (enabled && autoConfigure) {
+            requireToken(getDatasetVersion(), "dataset-version", 256);
+            validateOptionalSha256(capabilitiesSha256, "capabilities-sha256");
+            validateOptionalSha256(schemaSha256, "schema-sha256");
+            if ((capabilitiesSha256 == null || capabilitiesSha256.isBlank())
+                    != (schemaSha256 == null || schemaSha256.isBlank())) {
+                throw invalid("provide both source pins or let auto-configure discover both");
+            }
+        } else if (enabled) {
             requireToken(datasetVersion, "dataset-version", 256);
             requireSha256(capabilitiesSha256, "capabilities-sha256");
             requireSha256(schemaSha256, "schema-sha256");

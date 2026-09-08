@@ -16,6 +16,7 @@ import java.util.concurrent.RejectedExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -35,6 +36,7 @@ import rs.sud.eaukcija.enrichment.EnrichmentVersions;
 import rs.sud.eaukcija.map.MapDataStatus;
 import rs.sud.eaukcija.map.MapDataStatusService;
 import rs.sud.eaukcija.service.SyncService;
+import rs.sud.eaukcija.rgz.RgzAutomaticBootstrap;
 import rs.sud.eaukcija.sync.persistence.SyncAlreadyRunningException;
 import rs.sud.eaukcija.sync.persistence.SyncRunClaimResult;
 import rs.sud.eaukcija.sync.persistence.SyncRunStage;
@@ -57,6 +59,9 @@ public class RefreshCoordinator {
     private final TaskExecutor executor;
     private final Clock clock;
     private final Set<UUID> executingWorkflows = ConcurrentHashMap.newKeySet();
+
+    @Autowired
+    private ObjectProvider<RgzAutomaticBootstrap> rgzBootstrap;
 
     @Autowired
     public RefreshCoordinator(
@@ -236,6 +241,16 @@ public class RefreshCoordinator {
     private SyncRunView source(RefreshRunView workflow) {
         UUID sourceRunId = workflow.sourceSyncRunId();
         if (sourceRunId == null) {
+            // Automatic refinement must not make the normal refresh button fail
+            // with EXECUTOR_REJECTED. Its current bounded batch finishes first;
+            // this workflow's active row prevents another background batch.
+            RgzAutomaticBootstrap background = rgzBootstrap == null ? null : rgzBootstrap.getIfAvailable();
+            long deadline = System.nanoTime() + properties.getRunningStaleAfter().toNanos();
+            while (background != null && background.backgroundWorkInProgress()) {
+                if (System.nanoTime() > deadline) throw new RefreshStageStalled("ENRICHMENT_BUSY");
+                repository.waitingForLocalWorker(workflow.workflowId());
+                pause();
+            }
             SyncRunClaimResult claim = workflow.triggerKind() == RefreshTriggerKind.SCHEDULED
                     ? syncService.startScheduled(stageKey(workflow.workflowId(), "source"))
                     : syncService.startManual(stageKey(workflow.workflowId(), "source"));

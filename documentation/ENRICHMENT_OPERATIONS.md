@@ -83,13 +83,17 @@ replace a retained address or verified parcel result.
 All stages except the private parcel path read local snapshots or artifacts.
 The parcel path automatically queries only the owner-authorized RGZ feature
 type under the bounded issue-#41 contract, then continues to local fallback.
-It is disabled by default and dated source hashes are not runtime defaults.
-The 2026-09-08 recheck succeeded; dataset identity and source pins still require
-explicit operator configuration. Activation
-requires `RGZ_ENABLED=true`, `RGZ_DATASET_VERSION`,
-`RGZ_CAPABILITIES_SHA256`, and `RGZ_SCHEMA_SHA256`. Once the application starts
-with those values, both a scheduled refresh and the refresh-start button run
-the same automatic `PARCEL_PATH` behavior.
+The owner-directed [POC amendment](2026-09-08-decision-41-private-poc-auto-activation.md)
+auto-enables this path in `dev`, discovering source metadata into the immutable
+V23 contract table and using the explicitly labelled stable local cache epoch
+`private-local-first-observation-v1`. No publisher edition is fabricated.
+Common/production defaults remain off and retain strict manual-pin activation.
+
+The POC additionally starts bounded background enrichment of retained auctions,
+with unended auctions first, batches of 100, the same worker/ledger/traffic
+limits, respect for pause/active refresh/sync, and a 15-minute no-progress outage
+backoff. Completed/empty populations do not create repeated empty runs. Normal
+manual/scheduled refreshes still use the same automatic `PARCEL_PATH`.
 
 As of resolver `rgz-parcel-v2`, ordinary discovery also includes unhandled RGZ
 `ERROR` attempts for current eligible #33 references in the configured dataset,
@@ -108,6 +112,14 @@ resolver implementation version. Legacy duplicate records remain retained.
 Cache reuse keeps the original fetch provenance and works with `RGZ_ENABLED=false`
 when the dataset identity is configured, without consuming network quota.
 Changing the dataset version, not merely a metadata pin, permits a new fetch.
+
+Resolver `rgz-parcel-v3` also guards late selection writes against standalone
+#33 changes during HTTP, strips GeoJSON foreign members, prohibits redirects
+and hidden HTTP-library retries, and exposes the live kill switch on #30's
+operator surface. V22 preserves immutable evidence while rejecting stale
+current pointers, including after a current KO pointer is deleted. See
+[RGZ parcel operations](RGZ_PARCEL_OPERATIONS.md) and the
+[#21 full workflow verification](2026-09-08-issue-21-verification.md).
 
 ## Property-reference extraction
 

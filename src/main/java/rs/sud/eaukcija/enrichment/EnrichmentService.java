@@ -60,6 +60,13 @@ public class EnrichmentService {
                 properties.getMaxItemsPerRun());
     }
 
+    /** Bounded background refinement; uses the same ledger, worker and current-source discovery. */
+    public EnrichmentRunClaim startScheduledBatch(UUID idempotencyKey, int maxItems) {
+        if (maxItems < 1 || maxItems > 1000) throw new IllegalArgumentException("invalid batch size");
+        return start(idempotencyKey.toString(), EnrichmentTriggerKind.SCHEDULED,
+                EnrichmentSelector.none(), Math.min(maxItems, properties.getMaxItemsPerRun()));
+    }
+
     /** Starts version-pinned work for one successful source-sync observation set. */
     public EnrichmentRunClaim startForSource(
             UUID idempotencyKey,
@@ -120,6 +127,12 @@ public class EnrichmentService {
 
     public boolean isEnabled() {
         return properties.isEnabled();
+    }
+
+    /** Includes the short interval after ledger completion while the worker releases its lease. */
+    public boolean workerOccupied() {
+        return executor instanceof org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor pool
+                && pool.getActiveCount() > 0;
     }
 
     public EnrichmentBacklogStatus status() {

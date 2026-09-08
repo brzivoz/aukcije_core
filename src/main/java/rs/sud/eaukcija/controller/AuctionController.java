@@ -34,6 +34,13 @@ public class AuctionController {
     private final boolean mapBrowserTestHooks;
     private final boolean refreshEnabled;
 
+    @Value("${map.auto-refresh-interval-ms:0}")
+    private long mapAutoRefreshIntervalMs;
+    @Value("${map.initial-longitude:20.46}") private double mapInitialLongitude;
+    @Value("${map.initial-latitude:44.79}") private double mapInitialLatitude;
+    @Value("${map.initial-zoom:14}") private double mapInitialZoom;
+    @Value("${map.fit-parcels-on-select:false}") private boolean fitParcelsOnSelect;
+
     public AuctionController(
             AuctionRepository repo,
             SyncService syncService,
@@ -87,6 +94,11 @@ public class AuctionController {
         model.addAttribute("mapKindOptions", MapAuctionFilterOptions.kinds());
         model.addAttribute("mapPrecisionOptions", MapAuctionFilterOptions.precisions());
         model.addAttribute("mapBrowserTestHooks", mapBrowserTestHooks);
+        model.addAttribute("mapAutoRefreshIntervalMs", mapAutoRefreshIntervalMs);
+        model.addAttribute("mapInitialLongitude", mapInitialLongitude);
+        model.addAttribute("mapInitialLatitude", mapInitialLatitude);
+        model.addAttribute("mapInitialZoom", mapInitialZoom);
+        model.addAttribute("fitParcelsOnSelect", fitParcelsOnSelect);
 
         // Preserve filter params
         model.addAttribute("selectedMunicipality", municipality);

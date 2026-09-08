@@ -69,6 +69,23 @@ public class MapAuctionRepository {
                  WHERE a.end_date IS NOT NULL
                    AND %s
                    AND %s
+                   AND (
+                       pr.reference_type <> 'STRUCTURED_LOCATION'
+                       OR attempt.location_precision NOT IN ('CADASTRAL_MUNICIPALITY', 'SETTLEMENT', 'MUNICIPALITY')
+                       OR NOT EXISTS (
+                           SELECT 1 FROM property_references parcel_reference
+                           JOIN current_location_resolutions parcel_selection
+                             ON parcel_selection.property_reference_id = parcel_reference.id
+                           JOIN location_resolution_attempts parcel_attempt
+                             ON parcel_attempt.id = parcel_selection.resolution_attempt_id
+                            AND parcel_attempt.property_reference_id = parcel_reference.id
+                           WHERE parcel_reference.auction_id = a.id
+                             AND parcel_attempt.location_precision = 'PARCEL'
+                             AND parcel_attempt.resolution_status = 'RESOLVED'
+                             AND %s
+                             AND %s
+                       )
+                   )
                    AND a.end_date >= ?
                    AND (?::timestamptz IS NULL OR a.end_date < ?)
                    AND (?::text IS NULL OR a.status = ?)
@@ -95,7 +112,10 @@ public class MapAuctionRepository {
                AND (?::text IS NULL OR location_precision = ?)
              ORDER BY auction_id, md5(property_key)
              LIMIT ?
-            """.formatted(PUBLISHABLE_REFERENCE, CURRENT_PARCEL, BEST_SELECTION_ORDER);
+            """.formatted(PUBLISHABLE_REFERENCE, CURRENT_PARCEL,
+                    LocationSelectionSql.publishableReferencePredicate("parcel_reference.extraction_status"),
+                    LocationSelectionSql.currentParcelEligibilityPredicate("parcel_attempt"),
+                    BEST_SELECTION_ORDER);
 
     private final JdbcTemplate jdbc;
 

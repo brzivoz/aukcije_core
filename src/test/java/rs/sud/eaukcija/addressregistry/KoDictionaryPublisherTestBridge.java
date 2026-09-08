@@ -21,6 +21,23 @@ public final class KoDictionaryPublisherTestBridge {
         return publish(root, objectMapper, AddressRegistryGpkgFixture.Fault.PARENT_CONFLICT);
     }
 
+    public static Path publishFromCentroids(Path root, Path centroids, ObjectMapper mapper) throws Exception {
+        Files.createDirectories(root);
+        Path aliases = root.resolve("aliases.json");
+        Files.writeString(aliases, """
+                {"formatVersion":2,"datasetVersion":"parcel-fixture-v1",
+                 "koAliases":[],"municipalityAliases":[]}
+                """);
+        KoDictionaryProperties properties = new KoDictionaryProperties();
+        properties.setCentroidDirectory(centroids);
+        properties.setPublishDirectory(root.resolve("dictionary"));
+        properties.setAliasOverrides(aliases);
+        properties.setMinimumKoEntries(1);
+        properties.setMaximumKoEntries(10);
+        new KoDictionaryPublisher(mapper).build(properties);
+        return properties.getPublishDirectory();
+    }
+
     private static Path publish(
             Path root,
             ObjectMapper objectMapper,

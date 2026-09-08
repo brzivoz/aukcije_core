@@ -69,7 +69,11 @@ current local auction population; no full-dataset verification is claimed.
 No live RGZ calls, source downloads, credentials, runtime configuration changes,
 or GitHub edits were needed for these corrections.
 
-## Remaining scope
+## Remaining scope at this review
+
+Follow-up: [#21 verification](2026-09-08-issue-21-verification.md) subsequently
+covers the full fixture workflow and operator kill-switch visibility described
+below. The access/billing/building caveats remain unchanged.
 
 This does not close #41/#21/#42. GitHub scope reconciliation, a complete building
 contract decision, current dataset activation policy, and #21's full fixture

@@ -23,8 +23,9 @@ import rs.sud.eaukcija.map.MapGeoJsonResponse;
 @Profile("!local-h2")
 public class MapAuctionController {
 
+    // Parcel access is private-local under #41; never authorize shared proxy caching.
     private static final CacheControl VIEWPORT_CACHE =
-            CacheControl.maxAge(Duration.ofSeconds(60)).cachePublic();
+            CacheControl.maxAge(Duration.ofSeconds(60)).cachePrivate();
 
     private final MapAuctionRequestParser parser;
     private final MapAuctionService service;

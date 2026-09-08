@@ -1,5 +1,7 @@
 {
   "decision": "OWNER_AUTHORIZED_AUTOMATIC_PRIVATE_LOCAL_EXPLICIT_ACTIVATION",
+  "activation_policy_scope": "HISTORICAL_V3_AND_CURRENT_STRICT_CONFIGURATION",
+  "private_dev_activation_superseded_by": "private-poc-access-contract.json",
   "decision_id": "2026-09-03-issue-41-explicit-activation-v3",
   "publisher_automation_authority_confirmed": false,
   "operator_direction": "Implement automatic fetching now; add monitoring and billing later.",

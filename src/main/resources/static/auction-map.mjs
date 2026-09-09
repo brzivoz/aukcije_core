@@ -62,7 +62,7 @@ const PRECISIONS = Object.freeze({
 });
 
 const FILTER_FIELDS = Object.freeze(['municipality', 'placeName', 'category', 'status',
-    'minPrice', 'maxPrice', 'firstSale', 'search', 'precision', 'from', 'to', 'timeScope']);
+    'minPrice', 'maxPrice', 'firstSale', 'search', 'precision', 'parcelSize', 'from', 'to', 'timeScope']);
 
 const elements = {
     filterForm: document.getElementById('shared-filters'),

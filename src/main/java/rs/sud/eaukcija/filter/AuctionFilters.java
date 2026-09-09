@@ -16,7 +16,7 @@ import rs.sud.eaukcija.spatial.LocationPrecision;
 public record AuctionFilters(
         List<String> municipalities, String placeName, String category, String status,
         BigDecimal minPrice, BigDecimal maxPrice, Boolean firstSale, String search,
-        LocationPrecision precision, LocalDate from, LocalDate to, String timeScope,
+        LocationPrecision precision, ParcelSize parcelSize, LocalDate from, LocalDate to, String timeScope,
         String sortBy, String sortDir, int page, Long auction, Instant asOf) {
 
     public AuctionFilters {
@@ -45,7 +45,8 @@ public record AuctionFilters(
         put(values, "category", category); put(values, "status", status);
         put(values, "minPrice", minPrice); put(values, "maxPrice", maxPrice);
         put(values, "firstSale", firstSale); put(values, "search", search);
-        put(values, "precision", precision); put(values, "from", from); put(values, "to", to);
+        put(values, "precision", precision); put(values, "parcelSize", parcelSize == null ? null : parcelSize.value());
+        put(values, "from", from); put(values, "to", to);
         put(values, "timeScope", timeScope); put(values, "sortBy", sortBy); put(values, "sortDir", sortDir);
         put(values, "page", page); put(values, "auction", auction);
         return values;
@@ -57,13 +58,15 @@ public record AuctionFilters(
                 Map.entry("category", "Изворна категорија"), Map.entry("status", "Изворни статус"),
                 Map.entry("minPrice", "Мин. РСД"), Map.entry("maxPrice", "Макс. РСД"),
                 Map.entry("firstSale", "Прва продаја"), Map.entry("search", "Претрага"),
-                Map.entry("precision", "Прецизност"), Map.entry("from", "Завршетак од"), Map.entry("to", "Завршетак до"));
+                Map.entry("precision", "Прецизност"), Map.entry("parcelSize", "Површина парцеле"),
+                Map.entry("from", "Завршетак од"), Map.entry("to", "Завршетак до"));
         Map<String, String> active = new LinkedHashMap<>();
         parameters().forEach((key, entries) -> {
             String value = String.join(", ", entries);
             if (labels.containsKey(key)) active.put(labels.get(key), key.equals("firstSale")
                     ? (value.equals("true") ? "Да" : "Не") : key.equals("precision")
-                    ? rs.sud.eaukcija.spatial.LocationPrecisionPresentation.labelSr(precision) : value);
+                    ? rs.sud.eaukcija.spatial.LocationPrecisionPresentation.labelSr(precision)
+                    : key.equals("parcelSize") ? parcelSize.label() : value);
         });
         return active;
     }

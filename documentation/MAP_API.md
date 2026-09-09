@@ -17,7 +17,7 @@ GET /api/map/auctions?bbox=18,41,24,47&category=Викендица&timeScope=end
 ```
 
 Shared fields: `municipality`, `placeName`, `category`, `status`, `search`,
-`minPrice`, `maxPrice`, `firstSale`, `precision`, `timeScope`, `from`, `to`,
+`minPrice`, `maxPrice`, `firstSale`, `precision`, `parcelSize`, `timeScope`, `from`, `to`,
 `sortBy`, `sortDir`, `page`, `auction`. Sort/page never limit map membership.
 `municipality` alone can repeat: `municipality=Ада&municipality=Чачак` matches
 any selected municipality (case-insensitive), intersected with other criteria.
@@ -54,6 +54,41 @@ aliases only. Date-bearing legacy links without an explicit scope normalize to
 `all`; links without dates/scope now default **both** views to `not-ended`.
 Conflicting canonical/aliased values are errors. `asOf` is server response
 metadata, not a bookmark parameter; every refresh evaluates relative time anew.
+
+### Parcel size (#57)
+
+`parcelSize=under-8|8-15|over-15` filters **individual whole cadastral parcel area
+reported by RGZ**. Absent/blank means All sizes. Values are case-sensitive and
+trimmed; unsupported/repeated values return `INVALID_MAP_REQUEST` with
+`field: "parcelSize"` on all three shared routes, including `/`.
+
+| Preset | Exact comparison (1 ar = 100 m²) |
+|---|---|
+| `under-8` | `area < 800 m²` |
+| `8-15` | `800 m² <= area <= 1500 m²` |
+| `over-15` | `area > 1500 m²` |
+
+Fractional square metres are compared without rounding; both boundary values
+belong to the middle band. Area is **not** floor area, building footprint,
+ownership-share-adjusted area or the total of multiple parcels. Category remains
+independent, including for house/apartment auctions. Text search remains literal,
+so `search=< 8ar` is not a size expression.
+
+An auction qualifies once if **any current canonical-property winner** matches.
+Only matching properties are returned on the map and counted as viewport features;
+duplicate references do not inflate counts, genuine parcels remain separate.
+Combined size/precision predicates must match the **same winning property**.
+Missing, invalid, non-positive or stale area is unknown, not zero. All sizes keeps
+otherwise eligible unknown-area auctions/properties; bands exclude them. Coverage
+is incomplete. `precision=NONE` plus a size band yields no auctions or features.
+Selection explanations and limits use these same predicates; map panning never
+restricts the global table.
+
+Example (houses with any parcel above 15 ar, not houses above 1,500 m² floor area):
+
+```text
+GET /api/auctions/view?bbox=20.2,44.6,20.8,44.9&category=Кућа&parcelSize=over-15&timeScope=not-ended
+```
 
 ## GeoJSON response
 
@@ -111,7 +146,7 @@ intersection instead. A boundary vertex is the numerical fallback for extremely
 narrow shapes. This also preserves inclusive edge touches and disjoint parts
 without multiple pins per property. Marker coordinates can change with the
 viewport; the canonical geometry and feature ID do not. Derivation runs only on
-the already eligible, bounded returned rows, after winner/bbox/precision/limit
+the already eligible, bounded returned rows, after winner/size/bbox/precision/limit
 selection. No new query, geometry buffer, source acquisition or pin for NONE is
 introduced. Markers, popup anchors and location links use the same on-geometry
 coordinate; a parcel boundary is not necessarily an auctioned building footprint.
@@ -175,13 +210,25 @@ Canonical parcel identities/non-parcel keys collapse duplicates; genuine
 properties retain distinct stable IDs. Winners use enum precision rank, source
 reference order, latest completion, then attempt UUID.
 
-**Winners are chosen before bbox and precision filtering**, including when a
-winning parcel is outside the viewport and a lower-tier duplicate is inside.
+**Winners are chosen before size, bbox and precision filtering**, including when a
+winning parcel is outside the viewport or fails the size band and a lower-tier
+duplicate would match. A replacement with unknown area cannot borrow a losing
+attempt's area.
 Generic `STRUCTURED_LOCATION` centroids remain auction-level fallbacks, hidden
 while an eligible parcel exists anywhere. Revoking the #33 premise makes a
 retained fallback available again; filtering never fetches external geometry or
 changes selection/history. A table precision predicate uses any eligible
 canonical-property winner, not the evidence/detail endpoint's best attempt.
+`AuctionFilterSql.propertyPredicate` supplies the same size/precision intersection
+for membership, map features, counts, selection explanations and table tier labels.
+
+Area comes only from the selected `RGZ_WFS_PARCEL` attempt's
+`candidate_evidence.areaSquareMetres`: a JSON-number type guard followed by a
+positive-value check projects exact PostgreSQL `numeric`, otherwise null. No
+floating-point conversion or rounding is used. JSON strings, arrays, objects and
+missing/null/non-positive values are unknown. Existing current extraction/KO
+eligibility applies before publication; cache/history is not joined to find a
+convenient matching area. Filtering makes no source requests or evidence writes.
 
 Spatial reads keep `&&`, `ST_Intersects`, canonical SRID protections, stable
 auction/property ordering and sentinel `LIMIT`. The winner CTE is not a global
@@ -191,6 +238,19 @@ catalogue or export it to the browser. V24 adds immutable Serbian search
 functions, a `pg_trgm` GIN index and a lowercase-status index. V25 adds a
 lowercase-municipality B-tree index for multi-selection. All values are bound
 parameters and sort expressions are allowlisted with an ID tie-break.
+
+#57 reuses JSON evidence without a generated/typed column or new index. The real
+PostGIS plan fixture has 20,000 background geometries, 100,000 historical attempts
+and 60 current sized RGZ properties. All three bands retain geometry GiST and
+attempt-geometry index access for the map, auction-local winner lookups and a
+`limit + 1` sentinel; table reads hydrate at most 25 auctions. Global aggregates
+necessarily inspect current eligibility, not a bounded viewport, but export only
+counts. `EXPLAIN (ANALYZE, BUFFERS)` evidence for map/table/global-count reads is
+written to `build/reports/parcel-size-plans/`. This fixture's dominant global cost
+is winner/eligibility lookup, not numeric JSON conversion; an area column/index is
+not justified for v1. Re-evaluate with larger current populations before adding
+one, without weakening winner-before-filter semantics. See
+[#57 verification](2026-09-09-issue-57-verification.md).
 
 GeoJSON never contains descriptions, raw reference/candidate evidence or source
 payloads. Display strings have control/format characters removed, whitespace

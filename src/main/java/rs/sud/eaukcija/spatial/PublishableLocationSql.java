@@ -1,8 +1,10 @@
 package rs.sud.eaukcija.spatial;
 
-/** Shared publication and canonical-property winner relation, independent of viewport/precision.
+/** Shared publication and canonical-property winner relation, independent of viewport/precision/size.
  * NOT MATERIALIZED permits the outer spatial read to start at the geometry GiST index.
  * The correlated competitor read is bounded by an auction, and never by the viewport.
+ * Area is a projection, not eligibility: unknown area must not remove a competitor.
+ * JSONB numbers are already valid PostgreSQL numerics; CASE guards the cast of all other types.
  */
 public final class PublishableLocationSql {
     private PublishableLocationSql() {}
@@ -13,7 +15,13 @@ public final class PublishableLocationSql {
                        CASE WHEN pr.parcel_identity_id IS NOT NULL THEN 'parcel:' || pr.parcel_identity_id::text
                             ELSE pr.reference_type || ':' || pr.canonical_key END AS property_key,
                        attempt.id AS resolution_attempt_id, attempt.location_precision,
-                       attempt.completed_at, attempt.geometry_id
+                       attempt.completed_at, attempt.geometry_id,
+                       CASE WHEN attempt.resolver = 'RGZ_WFS_PARCEL'
+                                  AND attempt.location_precision = 'PARCEL'
+                                  AND jsonb_typeof(attempt.candidate_evidence -> 'areaSquareMetres') = 'number'
+                            THEN CASE WHEN (attempt.candidate_evidence ->> 'areaSquareMetres')::numeric > 0
+                                      THEN (attempt.candidate_evidence ->> 'areaSquareMetres')::numeric END
+                       END AS parcel_area_square_metres
                   FROM property_references pr
                   JOIN current_location_resolutions current_resolution ON current_resolution.property_reference_id = pr.id
                   JOIN location_resolution_attempts attempt

@@ -1,4 +1,4 @@
-# Shared auction filters (#44)
+# Shared auction filters (#44, #57)
 
 ## Using the page
 
@@ -45,18 +45,40 @@ Reload/back-forward restore applied controls; unsaved drafts are not persisted.
   not #12's normalized property kind or sale scope, and not `ImmovableProperties`.
   Source workflow status (including retained `Closed` and stale `InPrediction`)
   is separate from the time scope. Filtering never changes stored status.
+- **Површина парцеле** (parcel size, #57) defaults to **Све површине** (All sizes).
+  Presets compare exact square metres, without rounding: **< 8 ar** is `< 800 m²`,
+  **8–15 ar** is `800 ≤ area ≤ 1,500 m²`, and **> 15 ar** is `> 1,500 m²`.
+  **1 ar = 100 m²**; exactly 8 and 15 ar belong to the middle band.
+  This is the **whole individual cadastral parcel area reported by RGZ**, not
+  apartment/building floor area, a building footprint, the ownership share sold,
+  or a summed auction lot. An auction appears once if **any** eligible individual
+  parcel matches; the map shows only matching properties. Duplicate references
+  to one parcel collapse, while genuine parcels keep their identity. Parcels in
+  different bands can make the same auction match different presets.
+  Category remains independent: a house or apartment auction can reference a
+  large parcel. Combine the category control explicitly if desired.
+  Coverage is incomplete. Missing, malformed, non-positive or stale area is
+  **unknown, never zero**: All sizes keeps otherwise eligible auctions/properties,
+  while numeric presets exclude unknown areas. No Unknown-size control, custom
+  ranges, area sorting, acquisition or backfill is introduced.
 - Starting-price bounds are inclusive **RSD**, with at most two decimal places.
   Blank first-sale means any; yes/no mean true/false, not presence/absence.
 - Text search covers auction number, short description and description only.
   Cyrillic and Serbian Latin share a case/diacritic-insensitive search spelling
   (`Љ`/`lj`, `Њ`/`nj`, `Ђ`/`đ`/`dj`, `Џ`/`dž`/`dz`). `%`, `_`, and `\` are
   literal input, not SQL wildcards. Display/source text is never rewritten;
-  descriptions never enter GeoJSON.
+  descriptions never enter GeoJSON. Typing `< 8ar` here still searches that
+  literal substring; use **Површина парцеле** for numeric area comparisons.
 - Precision matches eligible **canonical-property winners**, not previous
   attempts. The table includes an auction if any winning property has that
   precision; the map includes only those matching properties. `NONE` means
   **no publishable location for the auction**, including missing/unknown
   location evidence: these rows remain in the table and there are no pins.
+  When combined with parcel size, **both predicates must hold on the same
+  winner**, not two different properties of the auction. `NONE` plus a size
+  band is therefore empty. Winners and suppression of coarse fallbacks are
+  determined **before** size, precision and viewport filters: a nonmatching
+  replacement never revives a historical/losing attempt or hidden centroid.
 
 **Ресетуј** clears shared criteria, restores `not-ended` and page 1, and retains
 sorting and selection. Sorting retains the current page. Pagination, selection,
@@ -156,6 +178,7 @@ are the same:
 | `search` | Optional literal substring, up to 200 characters. |
 | `minPrice`, `maxPrice` | Non-negative decimal RSD; up to 17 integer and 2 fractional digits; min <= max. No exponent notation. |
 | `firstSale` | Blank/absent, `true`, or `false`. |
+| `parcelSize` | Absent/blank: unrestricted. Otherwise exactly `under-8`, `8-15`, or `over-15` (case-sensitive, surrounding spaces trimmed). Unsupported or repeated values, even identical/blanks, return a field-specific 400. |
 | `precision` | Case-insensitive `PARCEL`, `ADDRESS`, `STREET`, `CADASTRAL_MUNICIPALITY`, `SETTLEMENT`, `MUNICIPALITY`, `NONE`. |
 | `timeScope` | `not-ended` (default), `ended`, `all`. |
 | `from`, `to` | ISO local dates, years 0001..9998; inclusive start and exclusive next-day start, converted to UTC. |
@@ -201,6 +224,26 @@ unsafe labels (control/format characters or angle brackets) are never options.
 Raw labels are rendered as text. The existing `INVALID_MAP_REQUEST` problem
 code/title remains on all three routes for compatibility; `field` identifies
 the specific shared or spatial parameter. See [MAP_API.md](MAP_API.md).
+
+## Retained parcel-area evidence (#57)
+
+`PublishableLocationSql` projects a nullable PostgreSQL `numeric` area from the
+**current selected RGZ attempt's** `candidate_evidence.areaSquareMetres`, then
+selects canonical-property winners without size restrictions. Only positive
+JSON **numbers** on resolved RGZ parcel attempts qualify; strings (even numeric
+strings), objects, arrays, null and missing keys are unknown. The guarded cast
+cannot interpret malformed evidence as zero or throw a numeric parsing error.
+Current extraction membership, publishable reference status and the exact current
+KO-match premise remain mandatory. Unrelated or historical cache rows do not
+establish auction membership; retained provenance is neither rewritten nor sent
+to the browser. There is no new freshness TTL or description-area extraction.
+
+`AuctionFilterSql.propertyPredicate` is shared by auction membership, map features,
+counts/selection and table precision labels. Filtering is parameterized and local;
+no filter request invokes RGZ, source clients, enrichment or synchronous backfill.
+The initial implementation reuses JSON evidence without a schema migration. See
+[the API's query-plan discussion](MAP_API.md#publication-deduplication-spatial-bounds-and-privacy)
+and [#57 verification](2026-09-09-issue-57-verification.md).
 
 ## Ownership and non-goals
 

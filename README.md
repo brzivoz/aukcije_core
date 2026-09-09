@@ -18,7 +18,7 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 |---|---|
 | eAukcija ingest (complete durable runs) | working (#17) |
 | Deterministic enrichment reprocessing | working (single-threaded, restart-safe, #29) |
-| Shared table/map filters | working (#44; explicit Not ended / Ended / All, retained raw categories, unified search/precision/counts/URL) |
+| Shared table/map filters | working (#44/#57; explicit Not ended / Ended / All, retained raw categories, individual RGZ parcel-size presets, unified search/precision/counts/URL) |
 | Property reference extraction | working (#19/#55; full-description v3, independent quality evaluation pending) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
@@ -166,6 +166,14 @@ to **Нису завршене** (`endDate > asOf`); choose **Завршене**
 history without losing category, dates, search, RSD prices or precision.
 `Викендица` is a raw category in both views. Unknown end dates belong only to
 All without date criteria. Raw source status is independent of time scope.
+**Површина парцеле** offers All sizes, **< 8 ar**, **8–15 ar**, **> 15 ar**
+(`parcelSize=under-8|8-15|over-15`). One ar is 100 m²; exactly 800 and 1,500 m²
+belong to the middle band. This filters each **whole RGZ cadastral parcel**, not
+floor area, ownership shares or summed lots. Any qualifying parcel includes its
+auction once; only qualifying parcels appear on the map. Category is independent.
+Unknown/stale/invalid areas are not zero and remain available only with All sizes;
+coverage is incomplete. Filtering uses retained local evidence, never a new RGZ
+request. Text search such as `< 8ar` remains literal.
 
 Map transports additionally require `bbox=minLon,minLat,maxLon,maxLat` and
 optionally `limit`. Panning only changes the mapped subset, not table criteria;

@@ -5,7 +5,8 @@ export function createFilterPresentation({form, fields, appliedQuery, removeCrit
     const labels = {
         municipality: 'Општина', placeName: 'Место', category: 'Категорија', status: 'Изворни статус',
         minPrice: 'Мин. РСД', maxPrice: 'Макс. РСД', firstSale: 'Прва продаја', search: 'Претрага',
-        precision: 'Прецизност', from: 'Завршетак од', to: 'Завршетак до', timeScope: 'Временски опсег'
+        precision: 'Прецизност', parcelSize: 'Површина парцеле',
+        from: 'Завршетак од', to: 'Завршетак до', timeScope: 'Временски опсег'
     };
     let rendered = null;
     function values(query, name) {

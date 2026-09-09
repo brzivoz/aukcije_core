@@ -315,6 +315,28 @@ frontend dependency or external service was added. No separate zoom-in
 cutoff/disappearance cause is asserted; the known overview gap was the absence
 of polygon markers.
 
+## Parcel-size control (#57)
+
+**Површина парцеле** is one native select in the existing GET form, not another
+filter model. `ParcelSize` supplies its canonical values and captions; adding
+`parcelSize` to `FILTER_FIELDS` and the chip labels reuses Apply/draft handling,
+page reset, sorting, selection, copied URLs/history and refresh. A visible note
+warns that the whole RGZ parcel is not floor area and coverage is incomplete;
+associated help explains **1 ar = 100 m²**, exact inclusive 800/1,500 m² middle
+boundaries, any-individual-parcel semantics, no sums/share adjustment and unknown
+areas (All sizes only). Category is never forced. The API, not the browser,
+filters matching current winners and returns only qualifying features.
+
+`ParcelSizeFiltersBrowserTest` uses real retained RGZ/extraction/KO fixtures and
+the local basemap. It covers all presets/All sizes, native select keyboard
+access and Enter Apply, chip captions/removal/reset, unsaved area/search drafts
+through periodic/source-completion refresh, sort/page/selection preservation,
+copied links, reload/back-forward, panning vs global table and 390px help/control
+layout. `UnenhancedWorkspaceBrowserTest` exercises the same presets via native
+GET with JavaScript disabled, including page reset and unknown-area inclusion.
+No new asset/dependency or external lookup is added. See
+[#57 verification](2026-09-09-issue-57-verification.md).
+
 ## Shared-filter evidence
 
 `SharedAuctionFiltersBrowserTest` uses real PostGIS, the local basemap and the

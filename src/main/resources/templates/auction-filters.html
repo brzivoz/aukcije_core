@@ -47,6 +47,14 @@
                 <option th:each="v : ${categories}" th:value="${v}" th:text="${v}" th:selected="${v == filters.category}"></option>
             </select>
         </div>
+        <div class="filter-group"><label for="parcel-size-filter">Површина парцеле</label>
+            <select id="parcel-size-filter" name="parcelSize" aria-describedby="parcel-size-note parcel-size-help">
+                <option value="">Све површине</option>
+                <option th:each="v : ${parcelSizeOptions}" th:value="${v.value()}" th:text="${v.label()}"
+                        th:selected="${v == filters.parcelSize}"></option>
+            </select>
+            <small id="parcel-size-note">Цела парцела по РГЗ-у, не површина објекта. Подаци су непотпуни.</small>
+        </div>
         <div class="filter-group"><label for="min-price-filter">Мин. почетна цена (РСД)</label>
             <input id="min-price-filter" name="minPrice" type="number" min="0" step="0.01" th:value="${filters.minPrice}"/>
         </div>
@@ -85,6 +93,13 @@
     <input type="hidden" name="sortBy" th:value="${filters.sortBy}"/>
     <input type="hidden" name="sortDir" th:value="${filters.sortDir}"/>
     <input type="hidden" name="auction" th:value="${filters.auction}"/>
+    <details id="parcel-size-details"><summary>Како се примењује површина парцеле?</summary>
+        <p id="parcel-size-help">1 ar = 100 m². Опсег 8–15 ar укључује тачно 800 и 1.500 m², без заокруживања.
+            Користи се цела појединачна катастарска парцела по РГЗ-у: не стан, објекат, његов обрис,
+            власнички удео који се продаје нити збир парцела. Довољна је једна одговарајућа парцела;
+            на карти су само одговарајуће парцеле. Непознате површине остају само под „Све површине”.
+            Категорија се бира независно — и кућа или стан могу имати парцелу.</p>
+    </details>
     <details id="filter-help"><summary>Како се примењују датуми и временски опсег?</summary>
     <p id="map-default-time-note" class="map-default-note">Подразумевано: нису завршене (познат завршетак после тренутка провере),
         не нужно отворене за лицитирање. Датуми завршетка и временски опсег се укрштају.

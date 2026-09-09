@@ -1,9 +1,11 @@
 package rs.sud.eaukcija.filter;
 
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import rs.sud.eaukcija.spatial.LocationPrecision;
 
 /** One parameterized predicate for list, map and counts. Trusted aliases only. */
 public final class AuctionFilterSql {
@@ -36,13 +38,33 @@ public final class AuctionFilterSql {
             clauses.add("auction_search_text(a.auction_number, a.short_description, a.description) LIKE '%' || auction_search_normalize(:search) || '%' ESCAPE '\\'");
             p.addValue("search", f.search().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_"));
         }
-        if (f.precision() != null) {
-            if (f.precision().name().equals("NONE")) {
-                clauses.add("NOT EXISTS (SELECT 1 FROM winners w WHERE w.auction_id = a.id)");
-            } else {
-                clauses.add("EXISTS (SELECT 1 FROM winners w WHERE w.auction_id = a.id AND w.location_precision = :precision)");
-                p.addValue("precision", f.precision().name());
+        if (f.precision() == LocationPrecision.NONE) {
+            clauses.add("NOT EXISTS (SELECT 1 FROM winners w WHERE w.auction_id = a.id)");
+        }
+        if (f.parcelSize() != null || (f.precision() != null
+                && f.precision() != LocationPrecision.NONE)) {
+            var property = propertyPredicate(f);
+            // All property-level criteria must hold on ONE already selected canonical winner.
+            clauses.add("EXISTS (SELECT 1 FROM winners w WHERE w.auction_id = a.id AND " + property.sql() + ")");
+            p.addValues(property.parameters().getValues());
+        }
+        return new Predicate(clauses.isEmpty() ? "TRUE" : String.join(" AND ", clauses), p);
+    }
+
+    /** Matching map features, table tiers, auction membership and selection use the same w alias. */
+    public static Predicate propertyPredicate(AuctionFilters f) {
+        List<String> clauses = new ArrayList<>();
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        equal(clauses, p, "precision", "w.location_precision", f.precision() == null ? null : f.precision().name());
+        if (f.parcelSize() != null) {
+            // 1 ar = 100 m². Exact NUMERIC, with both boundaries in the middle band.
+            switch (f.parcelSize()) {
+                case UNDER_8 -> clauses.add("w.parcel_area_square_metres < :parcelArea8");
+                case BETWEEN_8_AND_15 -> clauses.add("w.parcel_area_square_metres BETWEEN :parcelArea8 AND :parcelArea15");
+                case OVER_15 -> clauses.add("w.parcel_area_square_metres > :parcelArea15");
             }
+            p.addValue("parcelArea8", new BigDecimal("800"));
+            p.addValue("parcelArea15", new BigDecimal("1500"));
         }
         return new Predicate(clauses.isEmpty() ? "TRUE" : String.join(" AND ", clauses), p);
     }

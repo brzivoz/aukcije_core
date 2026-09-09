@@ -79,6 +79,29 @@ class SharedAuctionFilterParserTest {
         assertThat(parse("municipality=Београд&municipality=чачак").filters().municipalities()).containsExactly("Београд", "Чачак");
     }
 
+    @Test void parcelSizesAreCanonicalOptionalScalarCriteriaAcrossNavigation() {
+        assertThat(parse("").filters().parcelSize()).isNull();
+        assertThat(parse("parcelSize=%20").filters().query()).doesNotContain("parcelSize");
+        for (var size : rs.sud.eaukcija.filter.ParcelSize.values()) {
+            var filters = parse("parcelSize=" + size.value() + "&category=Кућа&page=2&auction=179415&sortDir=desc").filters();
+            assertThat(filters.parcelSize()).isEqualTo(size);
+            assertThat(filters.activeCriteria()).containsEntry("Површина парцеле", size.label());
+            assertThat(parse(filters.query()).filters()).isEqualTo(filters);
+            assertThat(parse(filters.pageUrl(3).substring(2)).filters().parcelSize()).isEqualTo(size);
+            assertThat(parse(filters.sortUrl("endDate").substring(2)).filters().parcelSize()).isEqualTo(size);
+            var reset = parse(filters.resetUrl().substring(2)).filters();
+            assertThat(reset.parcelSize()).isNull();
+            assertThat(reset.page()).isZero();
+            assertThat(reset.auction()).isEqualTo(179415);
+            assertThat(reset.sortDir()).isEqualTo("desc");
+        }
+        for (String value : List.of("all", "unknown", "UNDER-8", "8", "8ar", "8–15", "under-8&parcelSize=under-8",
+                "&parcelSize=", "under-8&parcelSize=over-15")) invalid("parcelSize=" + value, "parcelSize");
+        // Search remains literal, not a second numeric syntax.
+        assertThat(parse("search=%3C%208ar").filters().parcelSize()).isNull();
+        assertThat(parse("search=%3C%208ar").filters().search()).isEqualTo("< 8ar");
+    }
+
     @Test void bothBelgradeDstDaysAndSameDayRangesHaveTheCorrectExclusiveUtcBoundary() {
         var spring = parse("timeScope=all&from=2026-03-29&to=2026-03-29");
         assertThat(spring.endsAtOrAfter()).isEqualTo("2026-03-28T23:00:00Z");

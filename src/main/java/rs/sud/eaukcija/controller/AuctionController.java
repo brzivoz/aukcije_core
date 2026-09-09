@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import rs.sud.eaukcija.filter.AuctionFilterParser;
 import rs.sud.eaukcija.filter.AuctionResultsService;
+import rs.sud.eaukcija.filter.ParcelSize;
 import rs.sud.eaukcija.map.MapAuctionFilterOptions;
 import rs.sud.eaukcija.repository.AuctionRepository;
 import rs.sud.eaukcija.service.SyncService;
@@ -72,6 +73,7 @@ public class AuctionController {
         model.addAttribute("totalCount", repo.count());
         model.addAttribute("detailsCount", repo.countByDetailsFetched(true));
         model.addAttribute("mapPrecisionOptions", MapAuctionFilterOptions.precisions());
+        model.addAttribute("parcelSizeOptions", ParcelSize.values());
         model.addAttribute("mapBrowserTestHooks", mapBrowserTestHooks);
         model.addAttribute("mapAutoRefreshIntervalMs", mapAutoRefreshIntervalMs);
         model.addAttribute("mapInitialLongitude", mapInitialLongitude);

@@ -36,7 +36,7 @@ public class MapAuctionRepository {
                 JOIN auctions a ON a.id = w.auction_id
                 WHERE %s
                 """.formatted(AuctionFilterSql.predicate(request.filters()).sql())
-                + (request.precision() == null ? "" : " AND w.location_precision = :mapPrecision");
+                + " AND " + AuctionFilterSql.propertyPredicate(request.filters()).sql();
     }
     static String query(MapAuctionRequest request) {
         return "WITH " + PublishableLocationSql.CTES + ", viewport AS (" + VIEWPORT + ") " + """
@@ -48,16 +48,16 @@ public class MapAuctionRepository {
     }
     private static org.springframework.jdbc.core.namedparam.MapSqlParameterSource arguments(MapAuctionRequest request) {
         return AuctionFilterSql.predicate(request.filters()).parameters()
+                .addValues(AuctionFilterSql.propertyPredicate(request.filters()).parameters().getValues())
                 .addValue("west", request.boundingBox().minLongitude()).addValue("south", request.boundingBox().minLatitude())
                 .addValue("east", request.boundingBox().maxLongitude()).addValue("north", request.boundingBox().maxLatitude())
-                .addValue("mapPrecision", request.precision() == null ? null : request.precision().name())
                 .addValue("featureLimit", request.limit() + 1);
     }
     public List<MapAuctionRow> findWithin(MapAuctionRequest request) {
         return jdbc.query(query(request), arguments(request), MapAuctionRepository::mapRow);
     }
     List<String> explain(MapAuctionRequest request) {
-        return jdbc.query("EXPLAIN (COSTS OFF) " + query(request), arguments(request), (rs, n) -> rs.getString(1));
+        return jdbc.query("EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) " + query(request), arguments(request), (rs, n) -> rs.getString(1));
     }
     public Counts counts(MapAuctionRequest request) {
         String sql = "WITH " + PublishableLocationSql.CTES + ", viewport AS (" + VIEWPORT + "), population AS ("

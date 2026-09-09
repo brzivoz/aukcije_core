@@ -23,7 +23,7 @@ import rs.sud.eaukcija.spatial.LocationPrecision;
 public class AuctionFilterParser {
     public static final int MAX_MUNICIPALITIES = 256;
     private static final Set<String> FIELDS = Set.of("municipality", "placeName", "category", "status",
-            "minPrice", "maxPrice", "firstSale", "search", "precision", "from", "to", "timeScope",
+            "minPrice", "maxPrice", "firstSale", "search", "precision", "parcelSize", "from", "to", "timeScope",
             "sortBy", "sortDir", "page", "auction");
     private static final Map<String, String> ALIASES = Map.of(
             "mapKind", "category", "kind", "category", "mapStatus", "status",
@@ -111,6 +111,12 @@ public class AuctionFilterParser {
             try { precision = LocationPrecision.valueOf(values.get("precision")); }
             catch (IllegalArgumentException e) { throw invalid("precision", "precision must be one of " + MapAuctionFilterOptions.precisionValues()); }
         }
+        ParcelSize parcelSize = null;
+        if (values.get("parcelSize") != null) {
+            parcelSize = java.util.Arrays.stream(ParcelSize.values())
+                    .filter(size -> size.value().equals(values.get("parcelSize"))).findFirst()
+                    .orElseThrow(() -> invalid("parcelSize", "parcelSize must be under-8, 8-15 or over-15"));
+        }
         LocalDate from = date("from", values.get("from"));
         LocalDate to = date("to", values.get("to"));
         if (from != null && to != null && to.isBefore(from))
@@ -128,7 +134,7 @@ public class AuctionFilterParser {
         Long selected = values.get("auction") == null ? null
                 : integer("auction", values.get("auction"), 1, Long.MAX_VALUE, 0);
         return new AuctionFilters(municipalities, values.get("placeName"), category, status,
-                min, max, first, values.get("search"), precision, from, to, scope, sort, dir, page, selected, clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+                min, max, first, values.get("search"), precision, parcelSize, from, to, scope, sort, dir, page, selected, clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
     }
 
     private List<String> parseMunicipalities(List<String> rawValues) {

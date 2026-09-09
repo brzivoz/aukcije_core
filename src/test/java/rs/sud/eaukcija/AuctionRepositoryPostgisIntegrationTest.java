@@ -115,7 +115,7 @@ class AuctionRepositoryPostgisIntegrationTest {
 
         var filters = new AuctionFilters(List.of("Кањижа"), null, null, "Verified",
                 new BigDecimal("160000.00"), new BigDecimal("170000.00"), true, "МАРТОНОШ",
-                null, null, null, "all", "startingPrice", "asc", 0, null, java.time.Instant.now());
+                null, null, null, null, "all", "startingPrice", "asc", 0, null, java.time.Instant.now());
         var search = new AuctionSearchRepository(jdbc, repository);
         Page<Auction> page = search.page(filters, search.count(filters));
 

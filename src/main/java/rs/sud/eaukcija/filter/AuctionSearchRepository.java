@@ -46,12 +46,11 @@ public class AuctionSearchRepository {
     /** Only honest public winning tiers in the table; evidence remains in /api/locations. */
     public Map<Long, List<String>> precisions(List<Long> ids, AuctionFilters filters) {
         if (ids.isEmpty()) return Map.of();
+        var property = AuctionFilterSql.propertyPredicate(filters);
         var rows = jdbc.query("WITH " + PublishableLocationSql.CTES
-                        + " SELECT DISTINCT auction_id, location_precision FROM winners WHERE auction_id IN (:ids)"
-                        + (filters.precision() == null ? "" : " AND location_precision = :precision")
-                        + " ORDER BY auction_id, location_precision",
-                new org.springframework.jdbc.core.namedparam.MapSqlParameterSource("ids", ids)
-                        .addValue("precision", filters.precision() == null ? null : filters.precision().name()),
+                        + " SELECT DISTINCT auction_id, location_precision FROM winners w WHERE auction_id IN (:ids)"
+                        + " AND " + property.sql() + " ORDER BY auction_id, location_precision",
+                property.parameters().addValue("ids", ids),
                 (rs, n) -> Map.entry(rs.getLong(1), rs.getString(2)));
         return rows.stream().collect(Collectors.groupingBy(Map.Entry::getKey,
                 Collectors.mapping(Map.Entry::getValue, Collectors.toList())));

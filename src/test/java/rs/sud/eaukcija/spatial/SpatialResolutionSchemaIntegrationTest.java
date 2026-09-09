@@ -265,7 +265,7 @@ class SpatialResolutionSchemaIntegrationTest {
     }
 
     @Test
-    void boundedRepositoryReturnsStableSelectedPolygonMultiPolygonAndPointResultsUsingGist() {
+    void boundedRepositoryReturnsStableSelectedPolygonMultiPolygonAndPointResultsUsingGist() throws Exception {
         UUID polygon = selectedLocation(
                 10, 0, "polygon",
                 "SRID=4326;POLYGON((20.40 44.70,20.60 44.70,20.60 44.85,20.40 44.85,20.40 44.70))",
@@ -327,6 +327,16 @@ class SpatialResolutionSchemaIntegrationTest {
                  WHERE id >= 1000001
                 """);
         jdbc.execute("ANALYZE auctions");
+        // A sized subset among 20,000 geometries / 100,000 historical attempts, using real RGZ premises.
+        try (var areas = new rs.sud.eaukcija.testsupport.ParcelAreaFixture(jdbc)) {
+            for (int i = 0; i < 60; i++) {
+                areas.auction(57000 + i);
+                var ref = areas.parcel(57000 + i, 0, Integer.toString(57000 + i));
+                areas.publish(57000 + i);
+                areas.rgz(ref, i % 3 == 0 ? "799.99" : i % 3 == 1 ? "800" : "1500.01");
+            }
+        }
+        jdbc.execute("ANALYZE");
         List<String> mapPlan = MapAuctionRepositoryTestAccess.explain(mapAuctionRepository, MapAuctionRepositoryTestAccess.request(
                 belgrade, null, null, null,
                 Instant.parse("2026-08-23T00:00:00Z"), null, 100));
@@ -335,6 +345,37 @@ class SpatialResolutionSchemaIntegrationTest {
                 .contains("idx_location_resolution_attempts_geometry")
                 .contains("st_intersects")
                 .doesNotContain("Seq Scan on location_resolution_attempts");
+        verifyParcelSizePlans();
+    }
+
+    private void verifyParcelSizePlans() throws Exception {
+        var output = java.nio.file.Path.of("build/reports/parcel-size-plans");
+        java.nio.file.Files.createDirectories(output);
+        var named = new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc);
+        for (String band : List.of("under-8", "8-15", "over-15")) {
+            var params = new org.springframework.util.LinkedMultiValueMap<String, String>();
+            params.set("bbox", "20.2,44.6,20.8,44.9"); params.set("timeScope", "all");
+            params.set("parcelSize", band); params.set("precision", "PARCEL"); params.set("limit", "10");
+            var request = new rs.sud.eaukcija.map.MapAuctionRequestParser(
+                    new rs.sud.eaukcija.filter.AuctionFilterParser(null)).parse(params);
+            var plan = MapAuctionRepositoryTestAccess.explain(mapAuctionRepository, request);
+            assertThat(String.join("\n", plan)).contains("Limit", "idx_spatial_resolution_geometries_canonical",
+                    "idx_location_resolution_attempts_geometry", "st_intersects", "Execution Time")
+                    .doesNotContain("Seq Scan on location_resolution_attempts");
+            assertThat(mapAuctionRepository.findWithin(request)).hasSize(11); // Only limit + sentinel is hydrated.
+            java.nio.file.Files.write(output.resolve(band + "-map.txt"), plan);
+            var predicate = rs.sud.eaukcija.filter.AuctionFilterSql.predicate(request.filters());
+            String population = "WITH " + PublishableLocationSql.CTES;
+            for (String projection : List.of("count(*)", "a.id")) {
+                String query = population + " SELECT " + projection + " FROM auctions a WHERE " + predicate.sql()
+                        + (projection.equals("a.id") ? " ORDER BY a.starting_price, a.id LIMIT 25" : "");
+                var tablePlan = named.query("EXPLAIN (ANALYZE, BUFFERS, COSTS OFF) " + query,
+                        predicate.parameters(), (rs, n) -> rs.getString(1));
+                assertThat(String.join("\n", tablePlan)).contains("Execution Time").doesNotContain("CTE Scan on eligible", "CTE Scan on winners");
+                java.nio.file.Files.write(output.resolve(band + (projection.equals("a.id") ? "-table.txt" : "-count.txt")), tablePlan);
+            }
+            assertThat(mapAuctionRepository.counts(request)).isEqualTo(new rs.sud.eaukcija.map.MapAuctionRepository.Counts(20, 0, 20, 20));
+        }
     }
 
     @Test

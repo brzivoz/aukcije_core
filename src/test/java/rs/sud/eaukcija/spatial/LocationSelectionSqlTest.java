@@ -49,7 +49,7 @@ class LocationSelectionSqlTest {
         String predicate = LocationSelectionSql.currentParcelEligibilityPredicate("attempt");
 
         assertThat(predicate)
-                .contains("attempt.resolver <> 'RGZ_WFS_PARCEL'")
+                .contains("attempt.resolver NOT IN ('RGZ_WFS_PARCEL', 'OFFICIAL_ADDRESS_REGISTRY')")
                 .contains("attempt.upstream_ko_match_input_fingerprint = current_ko.input_fingerprint")
                 .contains("current_property_reference_extractions")
                 .contains("property_reference_extraction_memberships")

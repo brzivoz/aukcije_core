@@ -11,14 +11,17 @@ import rs.sud.eaukcija.enrichment.EnrichmentStageResult;
 import rs.sud.eaukcija.enrichment.EnrichmentVersionPin;
 import rs.sud.eaukcija.enrichment.EnrichmentWorkItem;
 
-/** Per-auction local fallback through KO, settlement, municipality, then NONE. */
+/** Precise official registry fallback followed by honest coarse tiers. */
 @Component
 public class CoarseLocationEnrichmentStage implements EnrichmentStage {
 
     private final CoarseLocationResolutionService service;
+    private final rs.sud.eaukcija.addressregistry.AddressRegistryResolutionService addresses;
 
-    public CoarseLocationEnrichmentStage(CoarseLocationResolutionService service) {
+    public CoarseLocationEnrichmentStage(CoarseLocationResolutionService service,
+            rs.sud.eaukcija.addressregistry.AddressRegistryResolutionService addresses) {
         this.service = service;
+        this.addresses = addresses;
     }
 
     @Override
@@ -28,27 +31,36 @@ public class CoarseLocationEnrichmentStage implements EnrichmentStage {
 
     @Override
     public String implementationVersion() {
-        return CoarseLocationResolver.RESOLVER_VERSION;
+        return CoarseLocationResolver.RESOLVER_VERSION + ":" + rs.sud.eaukcija.addressregistry.AddressRegistryResolutionService.VERSION;
     }
 
     @Override
     public String activeDatasetVersion() {
         CoarseLocationResolutionService.ActiveVersion active = service.activeVersion();
-        return active.version() + ":" + active.sourceSha256();
+        return active.version() + ":" + active.sourceSha256() + ":" + addresses.activeVersion();
     }
 
     @Override
     public EnrichmentVersionPin pinActiveVersion() {
-        return service.pinActiveVersion();
+        EnrichmentVersionPin coarse = service.pinActiveVersion();
+        try {
+            EnrichmentVersionPin registry = addresses.pinActiveVersion();
+            return () -> { try { registry.close(); } finally { coarse.close(); } };
+        } catch (RuntimeException | Error failure) {
+            coarse.close();
+            throw failure;
+        }
     }
 
     @Override
     public EnrichmentStageResult process(EnrichmentWorkItem item) {
         try {
+            String addressEvidence = addresses.resolveAuction(item);
             CoarseLocationResolutionService.AuctionResult result =
                     service.resolveAuction(item.auctionId());
             return EnrichmentStageResult.continuing(EnrichmentHashing.sha256(
                     implementationVersion(),
+                    addressEvidence,
                     result.status(),
                     result.precision(),
                     result.inputFingerprint(),

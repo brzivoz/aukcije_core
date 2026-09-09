@@ -146,6 +146,21 @@ class RgzParcelClientTest {
     }
 
     @Test
+    void emptyCollectionsDoNotRequireCoordinateMetadataButMustHaveConsistentCounts() {
+        for (String crs : List.of("", "\"crs\":null,", "\"crs\":{\"type\":\"name\",\"properties\":{\"name\":\"EPSG:3857\"}},")) {
+            server.enqueue(json("{\"type\":\"FeatureCollection\"," + crs
+                    + "\"numberMatched\":0,\"numberReturned\":0,\"features\":[]}"));
+            var result = client().fetch("713848", "1572", () -> true);
+            assertThat(result.reason()).isEqualTo("AUTHORITATIVE_NOT_FOUND");
+            assertThat(result.cacheable()).isTrue();
+        }
+        server.enqueue(json("{\"type\":\"FeatureCollection\",\"numberMatched\":1,\"features\":[]}"));
+        assertThat(client().fetch("713848", "1572", () -> true).reason()).isEqualTo("INCONSISTENT_FEATURE_COUNT");
+        server.enqueue(json("{\"type\":\"FeatureCollection\",\"numberMatched\":2,\"features\":[]}"));
+        assertThat(client().fetch("713848", "1572", () -> true).status()).isEqualTo(RgzParcelResult.Status.AMBIGUOUS);
+    }
+
+    @Test
     void enforcesContentTypeAndBodySizeBeforeParsing() {
         server.enqueue(new MockResponse().setHeader("Content-Type", "text/html").setBody("<html/>"));
         RgzParcelResult invalidContentType = client().fetch("713848", "1572", () -> true);

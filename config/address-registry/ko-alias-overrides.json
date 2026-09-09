@@ -1,7 +1,68 @@
 {
   "formatVersion": 2,
-  "datasetVersion": "2026-08-22.3",
-  "koAliases": [],
+  "datasetVersion": "2026-09-09.1",
+  "koAliases": [
+    {
+      "recordKind": "KO_ALIAS",
+      "id": "velika-plana-arabic-one-2026-09-09",
+      "koCode": "708585",
+      "name": "Велика Плана 1",
+      "normalizedName": "VELIKA PLANA 1",
+      "kind": "ORTHOGRAPHIC",
+      "provenance": "Issue #55 agent review: the official dictionary names code 708585 ВЕЛИКА ПЛАНА I; the numbered spelling in the reported property description denotes that identity. This is an explicit reviewed equivalence, not a global Roman/Arabic numeral rewrite.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/55; https://eaukcija.sud.rs/#/aukcije/181104",
+      "reviewer": "Issue #55 coding-agent evidence review (not independent human review)",
+      "reviewedAt": "2026-09-09"
+    },
+    {
+      "recordKind": "KO_ALIAS",
+      "id": "velika-plaan-transposition-2026-09-09",
+      "koCode": "708585",
+      "name": "Велика Плаан 1",
+      "normalizedName": "VELIKA PLAAN 1",
+      "kind": "ORTHOGRAPHIC",
+      "provenance": "Issue #55 agent review: transposed letters in the reported description, alongside correctly spelled ВЕЛИКА ПЛАНА I and the same municipality. Target 708585 is verified against the official dictionary. No general fuzzy auto-selection is authorized.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/55; https://eaukcija.sud.rs/#/aukcije/181104",
+      "reviewer": "Issue #55 coding-agent evidence review (not independent human review)",
+      "reviewedAt": "2026-09-09"
+    },
+    {
+      "recordKind": "KO_ALIAS",
+      "id": "novi-sad-arabic-one-2026-09-09",
+      "koCode": "802158",
+      "name": "Нови Сад 1",
+      "normalizedName": "NOVI SAD 1",
+      "kind": "ORTHOGRAPHIC",
+      "provenance": "Issue #55 agent review: official KO 802158 is НОВИ САД I in the pinned RGZ-derived dictionary. The numeric suffix in current advertisements is its orthographic variant, not a fuzzy name match.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/55; https://eaukcija.sud.rs/#/aukcije/182440",
+      "reviewer": "Issue #55 coding-agent evidence review (not independent human review)",
+      "reviewedAt": "2026-09-09"
+    },
+    {
+      "recordKind": "KO_ALIAS",
+      "id": "kragujevac-arabic-three-2026-09-09",
+      "koCode": "745103",
+      "name": "Крагујевац 3",
+      "normalizedName": "KRAGUJEVAC 3",
+      "kind": "ORTHOGRAPHIC",
+      "provenance": "Issue #55 agent review: official KO 745103 is КРАГУЈЕВАЦ III in the pinned RGZ-derived dictionary; the structured and textual premises in the reported population use Roman III and Arabic 3 respectively.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/55; https://eaukcija.sud.rs/#/aukcije/182453",
+      "reviewer": "Issue #55 coding-agent evidence review (not independent human review)",
+      "reviewedAt": "2026-09-09"
+    },
+    {
+      "recordKind": "KO_ALIAS",
+      "id": "zrenjanin-arabic-one-2026-09-09",
+      "koCode": "805742",
+      "name": "Зрењанин 1",
+      "normalizedName": "ZRENJANIN 1",
+      "kind": "ORTHOGRAPHIC",
+      "provenance": "Issue #55 agent review: official KO 805742 is ЗРЕЊАНИН I in the pinned RGZ-derived dictionary. The numeric suffix variant is explicitly reviewed; other numerals and arbitrary typos are not automatically equated.",
+      "sourceReference": "https://github.com/brzivoz/aukcije_core/issues/55; https://eaukcija.sud.rs/#/aukcije/183320",
+      "reviewer": "Issue #55 coding-agent evidence review (not independent human review)",
+      "reviewedAt": "2026-09-09"
+    }
+  ],
   "municipalityAliases": [
     {
       "recordKind": "MUNICIPALITY_ALIAS",

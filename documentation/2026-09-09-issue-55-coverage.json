@@ -1,0 +1,178 @@
+{
+  "dictionaryVersion" : "2026-08-22-ce983232d50cf445f0c71d45381e1d1d537450135b0b4be237c11c045229d3b3-aliases-5720026c2414d8b8d6539f86906c5495e913806b5dfc8e1133c7952ca9825730",
+  "inputFrameSha256" : "c3b587bcb576292c039db4cf4b5642fa6934f6509a6b901c349ea4464699cffc",
+  "measurement" : "same-input pipeline eligibility, not independent accuracy or verified geometry coverage",
+  "parsers" : {
+    "property-reference-v1" : {
+      "references" : {
+        "ADDRESS" : 240,
+        "CADASTRAL_MUNICIPALITY" : 454,
+        "LAND_REGISTER" : 231,
+        "PARCEL" : 593
+      },
+      "eligibility" : {
+        "ADDRESS:ELIGIBLE" : 228,
+        "ADDRESS:NEEDS_REVIEW:AMBIGUOUS:CONFLICT" : 2,
+        "ADDRESS:NEEDS_REVIEW:INVALID:STRUCTURED_ONLY" : 5,
+        "ADDRESS:NEEDS_REVIEW:MATCHED:AGREES" : 3,
+        "ADDRESS:NEEDS_REVIEW:NOT_FOUND:STRUCTURED_ONLY" : 2,
+        "PARCEL:ELIGIBLE" : 555,
+        "PARCEL:EXTRACTED:AMBIGUOUS:BOTH_UNRESOLVED" : 1,
+        "PARCEL:NEEDS_REVIEW:AMBIGUOUS:CONFLICT" : 8,
+        "PARCEL:NEEDS_REVIEW:INVALID:STRUCTURED_ONLY" : 17,
+        "PARCEL:NEEDS_REVIEW:MATCHED:AGREES" : 5,
+        "PARCEL:NEEDS_REVIEW:NOT_FOUND:STRUCTURED_ONLY" : 7
+      },
+      "auctionsWithParcels" : 508,
+      "auctionsWithEligibleParcel" : 474
+    },
+    "property-reference-v2" : {
+      "references" : {
+        "ADDRESS" : 240,
+        "CADASTRAL_MUNICIPALITY" : 450,
+        "LAND_REGISTER" : 231,
+        "PARCEL" : 597
+      },
+      "eligibility" : {
+        "ADDRESS:ELIGIBLE" : 236,
+        "ADDRESS:EXTRACTED:AMBIGUOUS:CONFLICT" : 2,
+        "ADDRESS:EXTRACTED:NOT_FOUND:STRUCTURED_ONLY" : 2,
+        "PARCEL:ELIGIBLE" : 580,
+        "PARCEL:EXTRACTED:AMBIGUOUS:BOTH_UNRESOLVED" : 1,
+        "PARCEL:EXTRACTED:AMBIGUOUS:CONFLICT" : 8,
+        "PARCEL:EXTRACTED:NOT_FOUND:STRUCTURED_ONLY" : 8
+      },
+      "auctionsWithParcels" : 508,
+      "auctionsWithEligibleParcel" : 495
+    }
+  },
+  "population" : 570,
+  "schemaVersion" : "location-coverage-audit-v1",
+  "unresolvedV2" : [ {
+    "auctionId" : 180289,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "d42c7bf09d174706e322d481f7051597d4a7897b3a6212f386525f78f88e3749",
+    "sourceSnapshotSha256" : "4d55237b3ea1ab0ca70582c7a448d527b0e777c222f9f9747062c3da11f5f30f",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 180290,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "d69fcbad29a85b1ccc0f648c01dbc33e3db2b5078dbc37969b14cf1e9ab66763",
+    "sourceSnapshotSha256" : "ede3a339adaf2a14ade8c998ebe420d63a28ebfe987f62f3b1183a0955db85b5",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 181332,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "ea4fd7a11e904dd66bbe75b86ad3b4aef3c8140fb1eb86c1ec4d5d853dad2f3d",
+    "sourceSnapshotSha256" : "7a7324b5a76b35e064fadb328cda2d232f1068cb716ead8af32cc625e9d91613",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 181468,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "770ef0036adc99dd96ba0aeb4911c459791a4ede9d59788ee70ea7a235e90686",
+    "sourceSnapshotSha256" : "535def4d162be1215ac64846cab088897c5123fedb817dc5bb388b6b9ee82b5b",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 181725,
+    "reason" : "EXTRACTED:AMBIGUOUS:BOTH_UNRESOLVED",
+    "referenceKeySha256" : "a34237549fcc80f9cd0cadef6901f330f1ec553e2ad4b8a7f350575e5976884e",
+    "sourceSnapshotSha256" : "11fe4627d9c66d67732b12ff08468d569b41775841d843ab36950035afd0eed6",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182048,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "c516c0d96dff8eb626967b74ea8484ec685f9f04ad24a18c95782dc337acc4a7",
+    "sourceSnapshotSha256" : "2cb84324d40aa718f80055af8bea4bc1985818b58d7dfda161c91b582c1a348e",
+    "type" : "ADDRESS"
+  }, {
+    "auctionId" : 182048,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "926f4a18560466dfb77808b19d8e082531bd6b915238b1cb7ab07194c284bc74",
+    "sourceSnapshotSha256" : "2cb84324d40aa718f80055af8bea4bc1985818b58d7dfda161c91b582c1a348e",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182250,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "c279c237beebfc85c75e11a693ee98c98329da456357050e2aefc61164e4712c",
+    "sourceSnapshotSha256" : "f95e56d1e26cf20cdf3ca2bb38023de965472a9c84e544cf4e0391a07430045c",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182250,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "65e3cac6fad521cc8a598596a8afc8fe3e27d8fd426d9c3256a497a75570d9ad",
+    "sourceSnapshotSha256" : "f95e56d1e26cf20cdf3ca2bb38023de965472a9c84e544cf4e0391a07430045c",
+    "type" : "ADDRESS"
+  }, {
+    "auctionId" : 182395,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "6847212a4c915ce8edd7149af25b40d9b012cf9672056e4555c96b4b287800c9",
+    "sourceSnapshotSha256" : "cd527a040985ae2f98ad1daa3eb81925e8a374d69e6a33ec237e83e50fc0f73e",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182541,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "fe63503e3826eb2eb1553f9b9f2d325fe3ca7b7eca6ac02b15be9fa83ce9a9d3",
+    "sourceSnapshotSha256" : "813d213f22a6b2cfa278585305f3a7a59d9b54203264ec11e47f24ad3211fe6e",
+    "type" : "ADDRESS"
+  }, {
+    "auctionId" : 182541,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "3f1b820c4dbed53078e5572b4eb752fdcce78e5eef0d2b1ac9abb7bcdc890a62",
+    "sourceSnapshotSha256" : "813d213f22a6b2cfa278585305f3a7a59d9b54203264ec11e47f24ad3211fe6e",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182633,
+    "reason" : "EXTRACTED:NOT_FOUND:STRUCTURED_ONLY",
+    "referenceKeySha256" : "232ee7ea707d1188338038211a306cc4b3ca1835296976c9e2d801e54cfa7bc7",
+    "sourceSnapshotSha256" : "a26c93be44134878f73aa536c3c5164ac0d264501f5f9af932c4c60715a1735f",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182682,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "d4179ed3d433b22126f80d9a3e9fbd20f90fa083a942a053d4a37e95f5132897",
+    "sourceSnapshotSha256" : "04e6c2f01c94a175d75dd991dd27f2a86764e3e4dbfa16aaac42c79a3f4695ae",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182797,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "34cbfb24a14888f444b8109b27a5c2c7cba7e81d2893d27b7e7a2b43e60fa608",
+    "sourceSnapshotSha256" : "32abb6414d89ea02de8ca6eeea73903dcc15ee20d0c0baa7243f686662fb64db",
+    "type" : "ADDRESS"
+  }, {
+    "auctionId" : 182797,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "ffea62256d1f6386e4cb205c847f6661436812d9ce69abae47b18da5f5186d42",
+    "sourceSnapshotSha256" : "32abb6414d89ea02de8ca6eeea73903dcc15ee20d0c0baa7243f686662fb64db",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 182925,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "114716af6b6d26d9b1a99762c4e9ae4b2d334a48542ef60eff3dce98fa67d8f0",
+    "sourceSnapshotSha256" : "74fc650ce48e517b733b62b0c669d0fed67015f588ce55745205d91315a0d07c",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 183031,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "121d92a6936401e5b698daeb9031774a391884af713756830ed51aeb6ca3d978",
+    "sourceSnapshotSha256" : "4b0ba38e4a8d13642a072321104227186d3a970879ebe516c1b0f98273c5cea1",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 183052,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "6845b8756107f1df977a108ca5719fe64627fcf34ff348ea9b29ac061019cd1a",
+    "sourceSnapshotSha256" : "e6238f8e8cb66a65efe7350519a83e847721e8e06f8a997adc9c1876532678e4",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 183112,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "c702881a90db6632d45f5bddcd80ac03cf89a5f1620ee7ec3216990eb4de4a77",
+    "sourceSnapshotSha256" : "f4243f87a11c683d6ad1484be0baa42cdaaf2e9d05ea12604d1376c0d6fbeb72",
+    "type" : "PARCEL"
+  }, {
+    "auctionId" : 183188,
+    "reason" : "EXTRACTED:AMBIGUOUS:CONFLICT",
+    "referenceKeySha256" : "ac9c5603d81ccc47b0088077a91d196690b9ca76a6eb94a0cb954e2495f3e9b9",
+    "sourceSnapshotSha256" : "fcd7cd863c3dfa07dce9c833fefd24daef1d50e9f96385ccdb8831f638800edf",
+    "type" : "PARCEL"
+  } ]
+}

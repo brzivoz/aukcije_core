@@ -30,7 +30,8 @@ public final class PublishableLocationSql {
                              AND parcel_attempt.property_reference_id = parcel_reference.id
                             WHERE parcel_reference.auction_id = pr.auction_id
                               AND parcel_attempt.resolution_status = 'RESOLVED'
-                              AND parcel_attempt.geometry_id IS NOT NULL AND parcel_attempt.location_precision = 'PARCEL'
+                              AND parcel_attempt.geometry_id IS NOT NULL
+                              AND parcel_attempt.location_precision IN ('PARCEL', 'ADDRESS', 'STREET')
                               AND %s AND %s
                         ))
             ), winners AS NOT MATERIALIZED (

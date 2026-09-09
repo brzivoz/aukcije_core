@@ -39,13 +39,21 @@ public final class RgzWorkflowFixture implements AutoCloseable {
     public volatile String metadataFailure;
     public volatile List<Example> population = SUCCESSES;
     public volatile String overrideScenario;
+    public volatile String descriptionOverride;
+    public volatile String shortDescriptionOverride;
+    public volatile String placeOverride;
+    public final List<Example> additionalLookups = new CopyOnWriteArrayList<>();
 
     public RgzWorkflowFixture() {
+        this(SUCCESSES, List.of());
+    }
+
+    public RgzWorkflowFixture(List<Example> catalogue, List<?> aliases) {
         try {
             root = Files.createTempDirectory("issue-21-workflow-");
             killSwitch = root.resolve("rgz.disabled");
-            centroids = createCentroids(root.resolve("centroids"));
-            dictionary = KoDictionaryPublisherTestBridge.publishFromCentroids(root, centroids, JSON);
+            centroids = createCentroids(root.resolve("centroids"), catalogue);
+            dictionary = KoDictionaryPublisherTestBridge.publishFromCentroids(root, centroids, JSON, aliases);
             server.setDispatcher(new Dispatcher() {
                 @Override public MockResponse dispatch(RecordedRequest request) {
                     try {
@@ -61,7 +69,8 @@ public final class RgzWorkflowFixture implements AutoCloseable {
                             }
                             String filter = request.getRequestUrl().queryParameter("cql_filter");
                             parcelRequests.add(filter);
-                            Example example = population.stream().filter(e -> e.filter().equals(filter))
+                            Example example = java.util.stream.Stream.concat(population.stream(), additionalLookups.stream())
+                                    .filter(e -> e.filter().equals(filter))
                                     .findFirst().orElseThrow();
                             return wfs(example, overrideScenario == null ? example.scenario() : overrideScenario);
                         }
@@ -127,17 +136,20 @@ public final class RgzWorkflowFixture implements AutoCloseable {
         return JSON.createObjectNode().put("ResultCode", "0").put("ResultMessage", "OK").set("Data", data);
     }
 
-    private static ObjectNode detailData(Example example) throws Exception {
+    private ObjectNode detailData(Example example) throws Exception {
         ObjectNode data = (ObjectNode) JSON.readTree(Fixtures.read("eaukcija/immovable-property-detail.json")).get("Data");
         data.put("Id", example.id()).put("AuctionNumber", "Н21-" + example.id());
         data.put("StartDate", "2026-01-01T08:00:00Z").put("EndDate", "2099-09-10T12:00:00Z");
         String ko = "structured-only".equals(example.scenario()) ? "Непостојећа" : example.name();
         String description = "invalid-input".equals(example.scenario()) ? "Без података о парцели."
                 : "КО " + ko + "; катастарска парцела број " + example.parcel() + ".";
-        data.put("Description", description).put("ShortDescription", description);
+        if (descriptionOverride != null) description = descriptionOverride;
+        data.put("Description", description).put("ShortDescription",
+                shortDescriptionOverride == null ? description : shortDescriptionOverride);
         data.remove(List.of("ExecutorName", "Images"));
         ObjectNode place = (ObjectNode) data.get("Place");
-        place.put("Name", example.name()).put("Municipality", example.name()).put("Cadastral", example.name());
+        String sourcePlace = placeOverride == null ? example.name() : placeOverride;
+        place.put("Name", sourcePlace).put("Municipality", sourcePlace).put("Cadastral", example.name());
         return data;
     }
 
@@ -183,7 +195,7 @@ public final class RgzWorkflowFixture implements AutoCloseable {
         return new MockResponse().setHeader("Content-Type", "application/json").setBody(body);
     }
 
-    private static Path createCentroids(Path root) throws Exception {
+    private static Path createCentroids(Path root, List<Example> catalogue) throws Exception {
         String sha = "c".repeat(64);
         String version = "2026-09-08-" + sha;
         Path directory = root.resolve("versions").resolve(version);
@@ -191,7 +203,7 @@ public final class RgzWorkflowFixture implements AutoCloseable {
         Files.writeString(root.resolve("ACTIVE"), version + "\n");
         Files.writeString(root.resolve(".publish.lock"), "");
         List<Map<String, Object>> rows = new ArrayList<>();
-        for (Example example : SUCCESSES) {
+        for (Example example : catalogue) {
             for (String level : List.of("KO", "SETTLEMENT", "MUNICIPALITY")) {
                 rows.add(Map.ofEntries(
                         Map.entry("extractVersion", version), Map.entry("sourceDate", "2026-09-08"),
@@ -208,7 +220,7 @@ public final class RgzWorkflowFixture implements AutoCloseable {
         Files.writeString(directory.resolve("centroids.ndjson"), ndjson);
         Files.writeString(directory.resolve("report.json"), JSON.writeValueAsString(Map.of(
                 "extractVersion", version, "sourceGpkgSha256", sha,
-                "sourceRows", Map.of("total", 3, "active", 3, "rejected", 0, "rejectedByReason", Map.of()))));
+                "sourceRows", Map.of("total", catalogue.size(), "active", catalogue.size(), "rejected", 0, "rejectedByReason", Map.of()))));
         Files.writeString(directory.resolve("ATTRIBUTION.md"), "Synthetic issue-21 fixture; not official boundaries.\n");
         List<Map<String, Object>> evidence = new ArrayList<>();
         for (String name : List.of("centroids.ndjson", "report.json", "ATTRIBUTION.md")) {
@@ -218,9 +230,9 @@ public final class RgzWorkflowFixture implements AutoCloseable {
         Files.writeString(directory.resolve("manifest.json"), JSON.writeValueAsString(Map.of(
                 "formatVersion", 1, "extractVersion", version,
                 "source", Map.of("datasetDate", "2026-09-08", "gpkgSha256", sha, "targetCrs", 4326,
-                        "rowCount", 3, "canonicalUrl", "https://fixture.invalid/synthetic", "sourceSha256", sha, "schemaSha256", sha),
-                "content", Map.of("activeSourceRows", 3, "rejectedSourceRows", 0,
-                        "centroidCounts", Map.of("KO", 3, "SETTLEMENT", 3, "MUNICIPALITY", 3)),
+                        "rowCount", catalogue.size(), "canonicalUrl", "https://fixture.invalid/synthetic", "sourceSha256", sha, "schemaSha256", sha),
+                "content", Map.of("activeSourceRows", catalogue.size(), "rejectedSourceRows", 0,
+                        "centroidCounts", Map.of("KO", catalogue.size(), "SETTLEMENT", catalogue.size(), "MUNICIPALITY", catalogue.size())),
                 "files", evidence)));
         return root;
     }

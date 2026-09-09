@@ -38,6 +38,10 @@
                 Verified cached parcels remain usable; misses use fallback tiers.</p>
         </section>
     </div>
+    <section><h2>Location refinement (not-ended auctions)</h2>
+        <p>Processing success is not proof of precise geolocation. Counts below separate the two.</p>
+        <pre id="refinement-evidence">Loading…</pre>
+    </section>
     <section><h2>Failures, warnings, and notices</h2><ul id="signals"></ul></section>
     <details><summary>Complete retained status response</summary><pre id="evidence"></pre></details>
     <button id="refresh" type="button">Refresh now</button>
@@ -114,6 +118,13 @@
             const item = document.createElement('li'); item.textContent = 'No active signals'; signals.append(item);
         }
         byId('evidence').textContent = JSON.stringify(data, null, 2);
+        try {
+            const refinement = await fetch('/api/operator/location-refinement', {cache: 'no-store'});
+            if (!refinement.ok) throw new Error('unavailable');
+            byId('refinement-evidence').textContent = JSON.stringify(await refinement.json(), null, 2);
+        } catch {
+            byId('refinement-evidence').textContent = 'Location refinement evidence is temporarily unavailable.';
+        }
     }
     function guardedRefresh() {
         refresh().catch(error => {

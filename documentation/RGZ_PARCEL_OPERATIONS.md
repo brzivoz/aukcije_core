@@ -1,5 +1,15 @@
 # Automatic parcel geometry (#21)
 
+## #55 validator/recovery update
+
+`rgz-parcel-v5` classifies a consistent empty feature collection before checking
+coordinate CRS; nonempty geometries retain the strict CRS/topology/identity
+gates. `RGZ_INVALID_RESULT_RECHECK_VERSION` is an opt-in, bounded re-evaluation
+epoch for cached `INVALID` outcomes only, with immutable history and V28 guarded
+pointer replacement. Successful and authoritative not-found cache entries are
+unchanged. See [location refinement operations](LOCATION_REFINEMENT_OPERATIONS.md)
+for the exact activation/recovery procedure, registry fallback and diagnostics.
+
 ## Access and activation
 
 The application implements the owner-directed [#41 private POC amendment](2026-09-08-decision-41-private-poc-auto-activation.md),

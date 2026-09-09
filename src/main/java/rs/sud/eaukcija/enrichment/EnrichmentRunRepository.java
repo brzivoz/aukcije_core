@@ -769,6 +769,8 @@ public class EnrichmentRunRepository {
                               AND handled.input_fingerprint = attempt.input_fingerprint
                               AND handled.upstream_ko_match_input_fingerprint = current_match.input_fingerprint
                               AND handled.used_cache_record_id IS NOT NULL
+                              AND (handled.resolution_status <> 'INVALID' OR ? = ''
+                                   OR handled.candidate_evidence ->> 'invalidResultRecheckVersion' = ?)
                        )
                      GROUP BY reference.auction_id
                 )
@@ -812,7 +814,8 @@ public class EnrichmentRunRepository {
                 result.getInt("retryable_failure_count"),
                 instant(result, "state_pending_since"),
                 result.getBoolean("parcel_retry_pending")),
-                rgz.networkAllowed(), rgz.getDatasetVersion(), rgz.getFeatureType());
+                rgz.networkAllowed(), rgz.getDatasetVersion(), rgz.getFeatureType(),
+                rgz.getInvalidResultRecheckVersion(), rgz.getInvalidResultRecheckVersion());
     }
 
     private Set<Long> selectedAuctionIds(EnrichmentSelector selector) {

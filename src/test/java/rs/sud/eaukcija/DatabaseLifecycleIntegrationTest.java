@@ -84,7 +84,10 @@ class DatabaseLifecycleIntegrationTest {
                         "V22__guard_current_rgz_parcel_selection.sql",
                         "V23__rgz_observed_source_contracts.sql",
                         "V24__shared_auction_search.sql",
-                        "V25__municipality_filter_index.sql");
+                        "V25__municipality_filter_index.sql",
+                        "V26__honest_parser_quality_evidence.sql",
+                        "V27__registry_precise_selection_guards.sql",
+                        "V28__versioned_invalid_cache_reevaluation.sql");
     }
 
     @Test

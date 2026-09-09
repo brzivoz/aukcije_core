@@ -61,15 +61,15 @@ class PropertyReferenceParserTest {
     }
 
     @Test
-    void retainsStructuredDefaultButFlagsARealTextKoConflictForReview() {
+    void retainsBothStructuredAndTextEvidenceAndDefersIdentityConflictToKoMatcher() {
         PropertyReferenceParseResult result = parser.parse(input(
                 "СЈЕНИЦА", null, "Сјеница",
                 "КО Урсуле, парцела број 1553/7", null));
 
-        assertThat(result.koConflictCount()).isOne();
+        assertThat(result.koConflictCount()).isZero();
         assertThat(result.references()).allSatisfy(reference -> {
-            assertThat(reference.koConflict()).isTrue();
-            assertThat(reference.status()).isEqualTo(PropertyReferenceExtractionStatus.NEEDS_REVIEW);
+            assertThat(reference.koConflict()).isFalse();
+            assertThat(reference.status()).isEqualTo(PropertyReferenceExtractionStatus.EXTRACTED);
             assertThat(reference.koCode()).isNull();
         });
         ParsedPropertyReference parcel = reference(result, PropertyReferenceType.PARCEL);

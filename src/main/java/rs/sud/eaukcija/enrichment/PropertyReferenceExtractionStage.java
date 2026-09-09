@@ -32,7 +32,7 @@ public final class PropertyReferenceExtractionStage implements EnrichmentStage {
 
     @Override
     public String activeDatasetVersion() {
-        return "property-reference-corpus-2026-09-02.2";
+        return "full-description-v2-evaluation-pending";
     }
 
     @Override

@@ -33,7 +33,7 @@ import rs.sud.eaukcija.spatial.ParcelIdentityNormalizer;
 public class RgzParcelResolutionService {
 
     public static final String RESOLVER = "RGZ_WFS_PARCEL";
-    public static final String RESOLVER_VERSION = "rgz-parcel-v4";
+    public static final String RESOLVER_VERSION = "rgz-parcel-v5";
     public static final String SOURCE_DATASET = "RGZ_REGDKP_WFS";
     public static final String DECISION_VERSION =
             "2026-09-08-issue-41-private-poc-v4";
@@ -82,7 +82,8 @@ public class RgzParcelResolutionService {
                 properties.getDatasetVersion(),
                 properties.getCapabilitiesSha256(),
                 properties.getSchemaSha256(),
-                Boolean.toString(properties.isEnabled()));
+                Boolean.toString(properties.isEnabled()),
+                properties.getInvalidResultRecheckVersion());
     }
 
     public AuctionResult resolveAuction(EnrichmentWorkItem item) {
@@ -270,6 +271,8 @@ public class RgzParcelResolutionService {
                  WHERE cache_key.input_fingerprint = ?
                    AND cache.resolver = ? AND cache.source_dataset = ?
                    AND cache.source_dataset_version = ?
+                   AND (cache.resolution_status <> 'INVALID' OR ? = ''
+                        OR cache.candidate_evidence ->> 'invalidResultRecheckVersion' = ?)
                 """, (result, row) -> new CacheRecord(
                 result.getObject("id", UUID.class),
                 RgzParcelResult.Status.valueOf(result.getString("resolution_status")),
@@ -279,7 +282,8 @@ public class RgzParcelResolutionService {
                 result.getString("candidate_evidence"),
                 result.getString("resolver_version"),
                 result.getString("source_dataset_sha256").trim()),
-                inputFingerprint, RESOLVER, SOURCE_DATASET, properties.getDatasetVersion());
+                inputFingerprint, RESOLVER, SOURCE_DATASET, properties.getDatasetVersion(),
+                properties.getInvalidResultRecheckVersion(), properties.getInvalidResultRecheckVersion());
         return rows.isEmpty() ? null : rows.get(0);
     }
 
@@ -308,7 +312,9 @@ public class RgzParcelResolutionService {
 
         String evidenceJson = evidenceJson(fetched, candidate);
         UUID cacheId = UUID.nameUUIDFromBytes(
-                ("rgz-cache:" + inputFingerprint).getBytes(StandardCharsets.UTF_8));
+                ("rgz-cache:" + inputFingerprint + (properties.getInvalidResultRecheckVersion().isEmpty()
+                        ? "" : ":recheck:" + properties.getInvalidResultRecheckVersion()))
+                        .getBytes(StandardCharsets.UTF_8));
         jdbc.update("""
                 INSERT INTO location_resolution_cache_records (
                     id, resolver, resolver_version, input_fingerprint,
@@ -328,8 +334,15 @@ public class RgzParcelResolutionService {
         jdbc.update("""
                 INSERT INTO rgz_parcel_cache_keys (input_fingerprint, cache_record_id)
                 VALUES (?, ?)
-                ON CONFLICT (input_fingerprint) DO NOTHING
-                """, inputFingerprint, cacheId);
+                ON CONFLICT (input_fingerprint) DO UPDATE SET cache_record_id = EXCLUDED.cache_record_id
+                WHERE ? <> '' AND EXISTS (
+                    SELECT 1 FROM location_resolution_cache_records old_cache
+                     WHERE old_cache.id = rgz_parcel_cache_keys.cache_record_id
+                       AND old_cache.resolution_status = 'INVALID'
+                       AND old_cache.candidate_evidence ->> 'invalidResultRecheckVersion' IS DISTINCT FROM ?
+                )
+                """, inputFingerprint, cacheId,
+                properties.getInvalidResultRecheckVersion(), properties.getInvalidResultRecheckVersion());
         CacheRecord persisted = cache(inputFingerprint);
         if (persisted == null) {
             throw new IllegalStateException("RGZ cache result was not persisted");
@@ -537,6 +550,7 @@ public class RgzParcelResolutionService {
         evidence.put("featureType", properties.getFeatureType());
         evidence.put("datasetVersion", properties.getDatasetVersion());
         evidence.put("datasetVersionPolicy", properties.datasetVersionPolicy());
+        evidence.put("invalidResultRecheckVersion", properties.getInvalidResultRecheckVersion());
         if (properties.discoveredContract() != null) {
             evidence.put("sourceContractObservedAt", properties.discoveredContract().observedAt().toString());
         }

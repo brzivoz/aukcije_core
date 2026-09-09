@@ -1414,8 +1414,12 @@ function showPopup(feature) {
         const status = appendDetail(details, 'Статус', '');
         const precision = appendDetail(details, 'Прецизност', '');
         const explanation = document.createElement('p');
-        content.append(title, details, explanation);
-        state.popupView = {content, title, amount, end, status, precision, explanation, sourceLink: null, mapsLink: null};
+        const refinement = document.createElement('p');
+        refinement.className = 'location-refinement';
+        refinement.setAttribute('role', 'status');
+        content.append(title, details, explanation, refinement);
+        state.popupView = {content, title, amount, end, status, precision, explanation, refinement,
+            sourceLink: null, mapsLink: null};
     }
     const rail = document.getElementById('rail-details');
     const inRail = document.getElementById('workspace').dataset.mode === 'results';
@@ -1466,10 +1470,37 @@ function showPopup(feature) {
     view.status.textContent = statusLabel(feature.properties.sourceStatus);
     view.precision.textContent = precisionLabel(feature);
     view.explanation.textContent = precisionExplanation(feature);
+    refreshRefinementExplanation(view, feature);
     view.sourceLink = updateSourceLink(view.content, view.sourceLink, feature, 'Отвори на порталу еАукција');
     view.mapsLink = updateMapsLink(view.content, view.mapsLink, feature);
     state.popup?.setLngLat(representativeCoordinate(feature));
     updateDetailsControl();
+}
+
+async function refreshRefinementExplanation(view, feature) {
+    const auctionId = String(feature.properties.auctionId);
+    if (!/^[0-9]{1,19}$/.test(auctionId)) return;
+    if (view.refinementAuctionId === auctionId && view.refinementPrecision === feature.properties.precision
+            && Date.now() - view.refinementAt < 15000) return;
+    view.refinementAbort?.abort();
+    const request = new AbortController();
+    view.refinementAbort = request;
+    if (view.refinementAuctionId !== auctionId) view.refinement.textContent = 'Провера разлога за изабрану локацију…';
+    view.refinementAuctionId = auctionId;
+    view.refinementPrecision = feature.properties.precision;
+    view.refinementAt = Date.now();
+    try {
+        const response = await fetch(`/api/locations/${auctionId}/refinement`, {
+            signal: request.signal, cache: 'no-store', headers: {Accept: 'application/json'}
+        });
+        if (!response.ok) throw new Error('refinement unavailable');
+        const report = await response.json();
+        if (view !== state.popupView || view.refinementAbort !== request || !view.content.isConnected) return;
+        view.refinement.textContent = typeof report.summarySr === 'string' ? report.summarySr : '';
+    } catch (error) {
+        if (error.name === 'AbortError' || view !== state.popupView || view.refinementAbort !== request) return;
+        view.refinement.textContent = 'Објашњење прецизности тренутно није доступно.';
+    }
 }
 
 function updateSourceLink(container, link, feature, text) {

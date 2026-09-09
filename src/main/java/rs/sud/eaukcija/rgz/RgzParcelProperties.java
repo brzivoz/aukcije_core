@@ -33,6 +33,7 @@ public class RgzParcelProperties {
     private URI baseUrl = URI.create("https://ogc-tmp.geosrbija.rs/regdkp/ows");
     private String featureType = "dkp:dkp_parcels_weekly_only_utm";
     private String datasetVersion = "";
+    private String invalidResultRecheckVersion = "";
     private String capabilitiesSha256 = "";
     private String schemaSha256 = "";
     private double requestsPerSecond = 0.2;
@@ -85,6 +86,15 @@ public class RgzParcelProperties {
     public String getDatasetVersion() {
         return autoConfigure && (datasetVersion == null || datasetVersion.isBlank())
                 ? LOCAL_CACHE_EPOCH : datasetVersion;
+    }
+
+    /** Explicit operator epoch; only INVALID cache entries may be retried once per epoch. */
+    public String getInvalidResultRecheckVersion() { return invalidResultRecheckVersion; }
+    public void setInvalidResultRecheckVersion(String value) {
+        if (value == null || !value.matches("[A-Za-z0-9._-]{0,80}")) {
+            throw new IllegalArgumentException("invalid-result-recheck-version must be a bounded version token");
+        }
+        invalidResultRecheckVersion = value;
     }
 
     public String datasetVersionPolicy() {

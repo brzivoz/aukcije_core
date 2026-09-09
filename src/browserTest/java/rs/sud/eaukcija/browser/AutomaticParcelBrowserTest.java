@@ -40,11 +40,15 @@ class AutomaticParcelBrowserTest extends PostgisBrowserFixture {
     @BeforeEach @AfterEach void resetPopulation() throws Exception {
         jdbc.execute("""
                 TRUNCATE refresh_runs, enrichment_runs, sync_runs, auctions, eaukcija_taxonomies,
-                    location_resolution_cache_records, spatial_resolution_geometries, parcel_identities
-                RESTART IDENTITY CASCADE
+                    location_resolution_cache_records, spatial_resolution_geometries, parcel_identities,
+                    address_registry_snapshots RESTART IDENTITY CASCADE
                 """);
         jdbc.update("UPDATE enrichment_control SET paused = FALSE WHERE singleton");
         FIXTURE.parcelRequests.clear();
+        FIXTURE.population = RgzWorkflowFixture.SUCCESSES;
+        FIXTURE.descriptionOverride = null;
+        FIXTURE.placeOverride = null;
+        FIXTURE.overrideScenario = null;
         Files.deleteIfExists(FIXTURE.killSwitch);
     }
 
@@ -75,6 +79,37 @@ class AutomaticParcelBrowserTest extends PostgisBrowserFixture {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM rgz_parcel_cache_keys", Long.class)).isEqualTo(3);
         assertThat(FIXTURE.parcelRequests).containsExactlyInAnyOrderElementsOf(
                 RgzWorkflowFixture.SUCCESSES.stream().map(RgzWorkflowFixture.Example::filter).toList());
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test void registryImportUpgradesCoarseSelectionAndExplainsPrecisionWithoutReopeningDetails() {
+        FIXTURE.population = java.util.List.of(RgzWorkflowFixture.DIMITROVGRAD);
+        FIXTURE.overrideScenario = "not-found";
+        FIXTURE.descriptionOverride = "ул. Тестна бр. 23, парцела 1572 КО Димитровград";
+        Page page = browser.page();
+        page.navigate(applicationUri().toString());
+        page.locator("#refresh-start").click();
+        page.waitForFunction("document.querySelector('#refresh-status')?.textContent.includes('Карта је спремна')");
+        page.waitForFunction("window.__auctionMap?.ready === true");
+        page.evaluate("() => { window.__auctionMap.map.jumpTo({center: [20.495,44.775], zoom: 14}); }");
+        page.waitForSelector("#map-result-list li[data-precision='CADASTRAL_MUNICIPALITY']");
+        page.locator(".map-result-button").first().click();
+        page.waitForFunction("document.querySelector('.location-refinement')?.textContent.includes('Адресни регистар није увезен')");
+        var snapshot = rs.sud.eaukcija.testsupport.RegistryResolutionFixture.snapshot(jdbc);
+        rs.sud.eaukcija.testsupport.RegistryResolutionFixture.point(jdbc, snapshot, 1, "713848", "Димитровград",
+                "Тестна", "23", "9999", "ST1");
+        page.locator("#refresh-start").click();
+        page.waitForSelector("#map-result-list li[data-precision='ADDRESS']");
+        assertThat(page.locator("#map-result-list li[data-precision='CADASTRAL_MUNICIPALITY']").count()).isZero();
+        // Header action may dismiss details under #46; refresh must not reopen them.
+        page.locator(".map-result-button").first().click();
+        page.waitForFunction("document.querySelector('.location-refinement')?.textContent.includes('званична адресна тачка')");
+        assertThat(FIXTURE.parcelRequests).hasSize(1);
+        page.keyboard().press("Escape");
+        page.waitForFunction("!document.querySelector('#rail-details:not([hidden])') && !document.querySelector('.maplibregl-popup')");
+        page.locator("#refresh-start").click();
+        page.waitForFunction("document.querySelector('#refresh-status')?.textContent.includes('Карта је спремна')");
+        assertThat(page.locator("#rail-details").isVisible()).isFalse();
         browser.network().assertOnlyLocalhostRequests();
     }
 

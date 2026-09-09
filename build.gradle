@@ -174,6 +174,17 @@ tasks.register('propertyReferenceCorpusSourceCheck', JavaExec) {
 def propertyReferenceParserMetrics = layout.buildDirectory.file(
         'reports/property-reference-parser/metrics.json')
 
+tasks.register('auditLocationCoverage', JavaExec) {
+    group = 'verification'
+    description = 'Compare frozen v1 and current full-description eligibility over one private NDJSON snapshot frame (offline)'
+    dependsOn tasks.named('classes')
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'rs.sud.eaukcija.komatching.LocationCoverageAuditCli'
+    args = [providers.gradleProperty('auditInput').orElse('tmp/location-coverage-input.ndjson').get(),
+            providers.gradleProperty('auditDictionary').orElse('data/address-registry-ko-dictionary').get(),
+            providers.gradleProperty('auditOutput').orElse('build/reports/location-coverage.json').get()]
+}
+
 tasks.register('propertyReferenceParserDevelopmentCheck', JavaExec) {
     group = 'verification'
     description = 'Evaluate the frozen parser on development labels without opening held-out labels'

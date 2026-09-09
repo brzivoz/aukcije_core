@@ -43,7 +43,7 @@ public final class PropertyReferenceQualityCli {
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT);
-    private final PropertyReferenceParser parser = new PropertyReferenceParser();
+    private final PropertyReferenceParser parser = PropertyReferenceParser.legacyV1();
 
     public static void main(String[] args) throws Exception {
         new PropertyReferenceQualityCli().run(Arguments.parse(args));
@@ -79,7 +79,7 @@ public final class PropertyReferenceQualityCli {
                 DEFAULT_CATEGORY_RECALL);
         Metrics report = new Metrics(
                 SCHEMA_VERSION,
-                PropertyReferenceParser.VERSION,
+                PropertyReferenceParser.LEGACY_VERSION,
                 manifest.corpusVersion(),
                 EVALUATION_SURFACE,
                 thresholds,
@@ -111,7 +111,7 @@ public final class PropertyReferenceQualityCli {
         }
         System.out.printf(Locale.ROOT,
                 "Property-reference parser %s: development precision=%s recall=%s%s%n",
-                PropertyReferenceParser.VERSION,
+                PropertyReferenceParser.LEGACY_VERSION,
                 developmentMetrics.precision(),
                 developmentMetrics.recall(),
                 heldOutMetrics == null ? " (held-out sealed)"
@@ -146,7 +146,7 @@ public final class PropertyReferenceQualityCli {
             profile = objectMapper.readValue(
                     input, PropertyReferenceQualityProfile.Profile.class);
         }
-        require(PropertyReferenceParser.VERSION.equals(profile.parserVersion()),
+        require(PropertyReferenceParser.LEGACY_VERSION.equals(profile.parserVersion()),
                 "quality profile parser version has drifted");
         require(corpusVersion.equals(profile.corpusVersion()),
                 "quality profile corpus version has drifted");

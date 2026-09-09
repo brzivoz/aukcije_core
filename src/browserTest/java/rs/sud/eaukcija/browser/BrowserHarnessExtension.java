@@ -11,11 +11,12 @@ import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.Tracing;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
+import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.TestWatcher;
 
 /** Creates an isolated browser and retains a screenshot and trace on failure. */
-public final class BrowserHarnessExtension implements BeforeEachCallback, TestWatcher {
+public final class BrowserHarnessExtension implements BeforeEachCallback, AfterTestExecutionCallback, TestWatcher {
 
     private Playwright playwright;
     private Browser browser;
@@ -45,6 +46,15 @@ public final class BrowserHarnessExtension implements BeforeEachCallback, TestWa
                 .setSnapshots(true)
                 .setSources(true));
         page = context.newPage();
+    }
+
+    @Override
+    public void afterTestExecution(ExtensionContext extensionContext) {
+        // Stop UI polling before @AfterEach truncates the shared PostGIS graph.
+        // Otherwise a live details request and TRUNCATE CASCADE can deadlock.
+        // TestWatcher still closes/records browsers for failures during setup.
+        Throwable failure = extensionContext.getExecutionException().orElse(null);
+        close(failure != null, extensionContext, failure);
     }
 
     @Override

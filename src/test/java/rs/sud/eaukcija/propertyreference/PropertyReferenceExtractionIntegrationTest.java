@@ -179,7 +179,10 @@ class PropertyReferenceExtractionIntegrationTest {
 
         assertThat(jdbc.queryForObject(
                 "SELECT ko_code FROM property_references WHERE id = ?",
-                String.class, structured)).isNull();
+                String.class, structured)).isEqualTo("K100");
+        // The structured name did not change. Text/structured disagreement is
+        // reconciled by official identity in #33, not by clearing this default
+        // during lexical extraction; parcel lookup still requires #33 MATCHED.
     }
 
     @Test
@@ -243,7 +246,7 @@ class PropertyReferenceExtractionIntegrationTest {
     }
 
     @Test
-    void productionObservationAddsPerRunCountsAndFrozenQualityEvidenceExactlyOnce() {
+    void productionObservationCountsOnceWithoutBorrowingFrozenV1ScoresForV2() {
         UUID enrichmentRunId = seedEnrichmentRun(19L, INPUT_SHA);
         EnrichmentWorkItem item = item(
                 19L, sourceRunId, SOURCE_SHA, INPUT_SHA, enrichmentRunId);
@@ -269,9 +272,8 @@ class PropertyReferenceExtractionIntegrationTest {
                 .containsEntry("text_reference_count", (long) parsed.textReferenceCount())
                 .containsEntry("no_structured_reference_count", 0L)
                 .containsEntry("ko_conflict_count", 0L)
-                .containsEntry("property_reference_quality_corpus_version", "2026-09-02.2")
-                .containsEntry("metrics_sha256",
-                        "8468d6efe54cc3623c3eb3d161d583737e653a68ac854a924e82d5f4b90d3473");
+                .containsEntry("property_reference_quality_corpus_version", null)
+                .containsEntry("metrics_sha256", null);
         assertThat(jdbc.queryForObject("""
                 SELECT COUNT(*) FROM property_reference_extraction_observations
                  WHERE enrichment_run_id = ?

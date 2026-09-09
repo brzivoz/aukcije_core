@@ -57,8 +57,7 @@ public final class LocationSelectionSql {
      * The alias is a trusted compile-time identifier supplied by repository code.
      */
     public static String currentParcelEligibilityPredicate(String attemptAlias) {
-        return "(" + attemptAlias + ".location_precision <> 'PARCEL' "
-                + "OR " + attemptAlias + ".resolver <> 'RGZ_WFS_PARCEL' OR EXISTS ("
+        return "(" + attemptAlias + ".resolver NOT IN ('RGZ_WFS_PARCEL', 'OFFICIAL_ADDRESS_REGISTRY') OR EXISTS ("
                 + "SELECT 1 FROM current_property_reference_ko_matches current_ko "
                 + "JOIN property_reference_ko_match_results ko_result "
                 + "ON ko_result.reference_id = current_ko.reference_id "

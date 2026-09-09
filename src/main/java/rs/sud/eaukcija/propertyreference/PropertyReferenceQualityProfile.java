@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
-/** Frozen held-out evidence attached to every production extraction run. */
+/** Frozen v1 evidence is never attributed to a different, unevaluated parser. */
 @Component
 public final class PropertyReferenceQualityProfile {
 
@@ -32,9 +32,15 @@ public final class PropertyReferenceQualityProfile {
         return profile;
     }
 
+    public Profile profile(String parserVersion) {
+        if (profile.parserVersion().equals(parserVersion)) return profile;
+        return new Profile("property-reference-parser-quality-v1", parserVersion,
+                null, null, null, null, null);
+    }
+
     private static void validate(Profile value) {
         if (!"property-reference-parser-quality-v1".equals(value.schemaVersion())
-                || !PropertyReferenceParser.VERSION.equals(value.parserVersion())
+                || !PropertyReferenceParser.LEGACY_VERSION.equals(value.parserVersion())
                 || value.corpusVersion() == null || value.corpusVersion().isBlank()
                 || value.metricsSha256() == null
                 || !value.metricsSha256().matches("[0-9a-f]{64}")
@@ -55,6 +61,6 @@ public final class PropertyReferenceQualityProfile {
             String metricsSha256,
             BigDecimal heldOutPrecision,
             BigDecimal heldOutRecall,
-            int heldOutNegativeFalsePositives) {
+            Integer heldOutNegativeFalsePositives) {
     }
 }

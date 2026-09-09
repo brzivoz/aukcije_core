@@ -357,9 +357,6 @@ public class RgzParcelClient {
                     RgzParcelResult.Status.ERROR,
                     "INVALID_FEATURE_COLLECTION", rawSha256, physicalAttempts);
         }
-        if (!validCrs(payload.path("crs"))) {
-            return terminal(RgzParcelResult.Status.ERROR, "INVALID_CRS", rawSha256, physicalAttempts);
-        }
         JsonNode features = payload.path("features");
         if (!features.isArray()) {
             return terminal(
@@ -394,6 +391,12 @@ public class RgzParcelClient {
             return terminal(
                     RgzParcelResult.Status.NOT_FOUND,
                     "AUTHORITATIVE_NOT_FOUND", rawSha256, physicalAttempts);
+        }
+        // An internally consistent empty collection has no coordinates whose
+        // CRS could be wrong. GeoServer may omit/null CRS on zero matches.
+        // Nonempty geometry still requires the explicit reviewed CRS contract.
+        if (!validCrs(payload.path("crs"))) {
+            return terminal(RgzParcelResult.Status.ERROR, "INVALID_CRS", rawSha256, physicalAttempts);
         }
         JsonNode feature = features.get(0);
         JsonNode values = feature.path("properties");

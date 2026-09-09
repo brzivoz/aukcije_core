@@ -22,12 +22,16 @@ public final class KoDictionaryPublisherTestBridge {
     }
 
     public static Path publishFromCentroids(Path root, Path centroids, ObjectMapper mapper) throws Exception {
+        return publishFromCentroids(root, centroids, mapper, java.util.List.of());
+    }
+
+    public static Path publishFromCentroids(Path root, Path centroids, ObjectMapper mapper,
+                                           java.util.List<?> koAliases) throws Exception {
         Files.createDirectories(root);
         Path aliases = root.resolve("aliases.json");
-        Files.writeString(aliases, """
-                {"formatVersion":2,"datasetVersion":"parcel-fixture-v1",
-                 "koAliases":[],"municipalityAliases":[]}
-                """);
+        Files.writeString(aliases, mapper.writeValueAsString(java.util.Map.of(
+                "formatVersion", 2, "datasetVersion", "parcel-fixture-v1",
+                "koAliases", koAliases, "municipalityAliases", java.util.List.of())));
         KoDictionaryProperties properties = new KoDictionaryProperties();
         properties.setCentroidDirectory(centroids);
         properties.setPublishDirectory(root.resolve("dictionary"));

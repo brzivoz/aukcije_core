@@ -73,10 +73,12 @@ persists the result in another short transaction:
 5. `SELECTED_RESOLUTION` — retain the best lawful result and classify
    resolved, not-found, or ambiguous.
 
-The current fallback includes the shipped #38 KO/settlement/municipality/`NONE`
-resolver. Issue #19 now supplies the versioned extracted-reference parser;
-#21/#23 plug private parcel and higher-precision resolution into the same
-persisted boundaries. Parser, resolver, dataset, or parcel-evidence changes
+The current fallback tries exact registry parcel/address points and one
+unambiguous official street before the #38 KO/settlement/municipality/`NONE`
+resolver. It requires an active full #22 snapshot and records an explicit
+unavailable outcome when only the centroid artifact is installed. See
+[location refinement operations](LOCATION_REFINEMENT_OPERATIONS.md) for #55/#23
+activation and diagnostics. Parser, resolver, dataset, or parcel-evidence changes
 alter the work key and select only affected auctions. A coarse result can never
 replace a retained address or verified parcel result.
 
@@ -112,6 +114,8 @@ resolver implementation version. Legacy duplicate records remain retained.
 Cache reuse keeps the original fetch provenance and works with `RGZ_ENABLED=false`
 when the dataset identity is configured, without consuming network quota.
 Changing the dataset version, not merely a metadata pin, permits a new fetch.
+V28 additionally permits a guarded opt-in epoch to re-evaluate only a cached
+`INVALID` result; successful/not-found/ambiguous identities remain reusable.
 
 Resolver `rgz-parcel-v3` also guards late selection writes against standalone
 #33 changes during HTTP, strips GeoJSON foreign members, prohibits redirects
@@ -123,7 +127,8 @@ current pointers, including after a current KO pointer is deleted. See
 
 ## Property-reference extraction
 
-The production parser version is `property-reference-v1`. It is bounded to
+The production parser version is `property-reference-v2`; the frozen v1 parser
+remains available only for its historical snippet evaluation. It is bounded to
 32,768 characters per field, 65,536 characters across the accepted input, and
 256 references per auction. It treats markup as inert text and rejects unsafe
 control characters. Extraction order is stable: structured `Place`, then
@@ -138,8 +143,11 @@ raw evidence. Multiple references are emitted and identical canonical keys are
 deduplicated. Folio, area, object-part, and subparcel contexts are not promoted
 to parcel identities.
 
-`Place.Cadastral` is the default KO context. A disagreeing free-text KO or
-multiple distinct text KOs set `NEEDS_REVIEW`; no KO code is guessed.
+`Place.Cadastral` is the default KO context when no text KO is present. V2 keeps
+explicit property-clause/postfix associations and defers spelling disagreements
+to #33's official-code reconciliation. Ambiguous lexical associations still set
+`NEEDS_REVIEW`; no KO code is guessed. V26 leaves quality columns null for an
+unevaluated parser: frozen v1 snippet scores are not attributed to v2.
 `NO_STRUCTURED_REFERENCE` means only that the `Place` structure was absent.
 It is independent of geospatial not-found/ambiguity and does not prevent valid
 free-text references from being `EXTRACTED`. The #38 resolver reuses the

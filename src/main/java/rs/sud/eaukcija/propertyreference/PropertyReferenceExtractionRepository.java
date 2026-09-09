@@ -110,7 +110,7 @@ public class PropertyReferenceExtractionRepository {
             }
         }
         evidence.set("selectedReferences", selectedEvidence);
-        PropertyReferenceQualityProfile.Profile profile = quality.profile();
+        PropertyReferenceQualityProfile.Profile profile = quality.profile(result.parserVersion());
         jdbc.update("""
                 INSERT INTO property_reference_extraction_runs (
                     id, auction_id, source_sync_run_id, source_snapshot_sha256,
@@ -270,7 +270,10 @@ public class PropertyReferenceExtractionRepository {
                 ON CONFLICT (enrichment_run_id, auction_id) DO NOTHING
                 """, item.enrichmentRunId(), item.auctionId(), extraction.extractionRunId());
         if (inserted == 1) {
-            PropertyReferenceQualityProfile.Profile profile = quality.profile();
+            String parserVersion = jdbc.queryForObject(
+                    "SELECT parser_version FROM property_reference_extraction_runs WHERE id = ?",
+                    String.class, extraction.extractionRunId());
+            PropertyReferenceQualityProfile.Profile profile = quality.profile(parserVersion);
             int updated = jdbc.update("""
                     UPDATE enrichment_runs
                        SET property_reference_extraction_success_count =

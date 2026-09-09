@@ -395,8 +395,8 @@ final class KoDictionaryPublisher {
                         + SerbianNameNormalizer.CONTRACT_VERSION);
             }
             String kind = requiredText(entry, "kind", "ALIAS_DATA_INVALID");
-            if (!Set.of("HISTORICAL", "COLLOQUIAL").contains(kind)) {
-                throw aliasInvalid("alias " + id + " kind must be HISTORICAL or COLLOQUIAL");
+            if (!Set.of("HISTORICAL", "COLLOQUIAL", "ORTHOGRAPHIC").contains(kind)) {
+                throw aliasInvalid("alias " + id + " kind must be HISTORICAL, COLLOQUIAL, or ORTHOGRAPHIC");
             }
             String provenance = requiredText(entry, "provenance", "ALIAS_DATA_INVALID");
             String sourceReference = requiredText(entry, "sourceReference", "ALIAS_DATA_INVALID");

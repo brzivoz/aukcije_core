@@ -19,14 +19,14 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 | eAukcija ingest (complete durable runs) | working (#17) |
 | Deterministic enrichment reprocessing | working (single-threaded, restart-safe, #29) |
 | Shared table/map filters | working (#44; explicit Not ended / Ended / All, retained raw categories, unified search/precision/counts/URL) |
-| Property reference extraction | planned (EPIC-02) |
+| Property reference extraction | working (#19/#55; full-description v2, independent v2 quality evaluation pending) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
 | Structured auction KO matching | working (auditable PostgreSQL results, #37) |
 | Coarse auction locations | working (KO/settlement/municipality/`NONE`, #38) |
 | Official Address Registry full snapshots | working (points + centroids, #22) |
 | Automatic parcel resolution | working (#21/#41; auto-enabled private dev POC, metadata discovery, durable first-observation cache, background refinement, live polygon updates and kill switch) |
-| Address fallback resolution | planned (EPIC-04, #23) |
+| Address fallback resolution | working (#55/#23; exact registry point and unambiguous street tiers; requires an imported full snapshot) |
 | PostgreSQL/PostGIS + Flyway foundation | working |
 | Spatial auction schema | working (canonical references, provenance, WGS84 geometry, #20) |
 | Bounded GeoJSON viewport API | working (indexed and precision-aware, #26) |
@@ -125,6 +125,8 @@ GET  /api/operator/refresh/{workflowId} persisted workflow state and correlation
 GET  /api/enrichment/status  active versions, backlog/age/gaps/distribution, active run
 GET  /api/enrichment/runs/{runId} retained redacted run and item evidence
 GET  /api/locations/{id}    best selected location with explicit precision
+GET  /api/locations/{id}/refinement per-reference finer-tier reasons and Serbian explanations
+GET  /api/operator/location-refinement loopback-only processing/precision/fallback counts
 GET  /api/map/auctions      shared-filter GeoJSON subset for one WGS84 viewport
 GET  /api/auctions/view     atomic table/map/count/options refresh at one temporal cutoff
 GET  /api/map/status        retained map-data version and freshness state
@@ -241,6 +243,10 @@ live kill switch remain available; common/production defaults remain off.
 See [the #41/#21 review corrections](documentation/2026-09-08-issue-41-fixes-verification.md)
 for ordinary retry discovery, disabled cache reuse, metadata-independent cache
 identity, the V21 upgrade, and fresh Java/browser regression evidence.
+See [location refinement operations](documentation/LOCATION_REFINEMENT_OPERATIONS.md)
+for #55's full-description parser, reviewed KO spelling reconciliation, exact
+registry address/street fallbacks, cache-recheck control, activation steps,
+per-reference diagnostics, and honest limits of the new quality evaluation.
 See [RGZ parcel operations](documentation/RGZ_PARCEL_OPERATIONS.md) and
 [#21 verification](documentation/2026-09-08-issue-21-verification.md) for the
 complete local WFS → ordinary refresh → rendered polygon workflow, V22

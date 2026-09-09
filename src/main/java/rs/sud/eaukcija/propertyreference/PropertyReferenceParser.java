@@ -29,7 +29,23 @@ import rs.sud.eaukcija.spatial.ParcelIdentityNormalizer;
 @Component
 public final class PropertyReferenceParser {
 
-    public static final String VERSION = "property-reference-v1";
+    public static final String VERSION = "property-reference-v2";
+    public static final String LEGACY_VERSION = "property-reference-v1";
+
+    private final boolean legacy;
+
+    public PropertyReferenceParser() {
+        this(false);
+    }
+
+    private PropertyReferenceParser(boolean legacy) {
+        this.legacy = legacy;
+    }
+
+    /** Frozen snippet evaluation only; never wired into production enrichment. */
+    public static PropertyReferenceParser legacyV1() {
+        return new PropertyReferenceParser(true);
+    }
     public static final int MAX_FIELD_CHARACTERS = 32_768;
     public static final int MAX_TOTAL_CHARACTERS = 65_536;
     public static final int MAX_REFERENCES = 256;
@@ -82,6 +98,30 @@ public final class PropertyReferenceParser {
             "(?iuU)^(.*?)(?:\\s+(?:br\\.?|broj|бр\\.?|број)\\s*)?"
                     + "([0-9]{1,4}[\\p{L}]?)$");
     private static final Pattern CONTROL = Pattern.compile("[\\u0000\\u000B\\u000C]");
+    // Stop at property prose, not at an arbitrary word count or a nearest-name guess.
+    // The conjunction must introduce a property noun: a terminal Roman I remains a name.
+    private static final String PROPERTY_PROSE_BOUNDARY =
+            "parcel\\p{L}*|парц\\p{L}*|k\\.?\\s*p\\.?|к\\.?\\s*п\\.?|"
+            + "list\\p{L}*|лист\\p{L}*|ln|лн|adresa|адреса|ul(?=\\.)|ул(?=\\.)|"
+            + "(?:и|i|а|a)\\s+(?:кат\\p{L}*|kat\\p{L}*|parcel\\p{L}*|парц\\p{L}*|"
+            + "грађевин\\p{L}*|građevin\\p{L}*|gradjevin\\p{L}*|земљ\\p{L}*|zemlj\\p{L}*|"
+            + "објек\\p{L}*|objek\\p{L}*|породичн\\p{L}*|porodicn\\p{L}*|к\\.?\\s*о\\.?|k\\.?\\s*o\\.?)|"
+            + "(?:[-–—]\\s*)?(?:грађевин\\p{L}*|građevin\\p{L}*|gradjevin\\p{L}*|градско|gradsko)|"
+            + "уписан\\p{L}*|upisan\\p{L}*|површин\\p{L}*|povrsin\\p{L}*|укупн[аеоу]|ukupn[aeou]|"
+            + "РГЗ|RGZ|СКН|SKN|број|broj|на\\s+кој\\p{L}*|na\\s+koj\\p{L}*|"
+            + "(?:која|који|које|koja|koji|koje)\\s+(?:је|су|je|su)|налази\\s+се|nalazi\\s+se|"
+            + "(?:са|sa)\\s+(?:свим|svim|индустријским|industrijskim|објектом|objektom)|"
+            + "у\\s+приватној\\s+својини|u\\s+privatnoj\\s+svojini";
+    private static final Pattern KO_PROSE = Pattern.compile(
+            "(?iuU)(?<!\\p{L})(?:katastarsk\\p{L}*\\s+opstina|катастарск\\p{L}*\\s+општина|"
+            + "k\\s*\\.?\\s*o|к\\s*\\.?\\s*о)(?:\\s+|\\s*[:.–-]\\s*)"
+            + "(?<name>[\\p{L}][\\p{L}0-9 '\u201e\u201c\"-]{0,80}?)"
+            + "(?=\\s*(?:[,;\\n\\r]|\\.(?:\\s|$)|(?:" + PROPERTY_PROSE_BOUNDARY + ")\\b|$))");
+    private static final Pattern HOUSE_SUFFIX = Pattern.compile(
+            "(?iuU)^(.*?)(?:\\s+(?:br\\.?|broj|бр\\.?|број)\\s*|\\s+)"
+                    + "([0-9]{1,4}(?:\\s*[-/]?\\s*\\p{L})?)$");
+    private static final Pattern POSTFIX_KO_GAP = Pattern.compile("(?iuU)^[\\s,]*(?:u|у)?\\s*$");
+    private static final Pattern ENUMERATION_GAP = Pattern.compile("(?iuU)^[\\s,]*(?:(?:и|i)\\s*)?$");
 
     public PropertyReferenceParseResult parse(JsonNode canonicalInput) {
         if (canonicalInput == null || !canonicalInput.isObject()) {
@@ -144,7 +184,7 @@ public final class PropertyReferenceParser {
         List<ParsedPropertyReference> ordered = new ArrayList<>();
         PropertyReferenceExtractionStatus structuredStatus = noStructuredFields(input)
                 ? PropertyReferenceExtractionStatus.NO_STRUCTURED_REFERENCE
-                : koConflict ? PropertyReferenceExtractionStatus.NEEDS_REVIEW
+                : legacy && koConflict ? PropertyReferenceExtractionStatus.NEEDS_REVIEW
                 : PropertyReferenceExtractionStatus.EXTRACTED;
         ordered.add(new ParsedPropertyReference(
                 0,
@@ -165,11 +205,13 @@ public final class PropertyReferenceParser {
                 structuredEvidence(input),
                 structuredStatus,
                 "structured-place",
-                koConflict));
+                legacy && koConflict));
 
         LinkedHashMap<String, ParsedPropertyReference> deduplicated = new LinkedHashMap<>();
         for (TextMatch match : matches) {
-            KoContext context = koContext(match, selectedTextKo, structuredNormalizedKo, input.cadastral(), koConflict);
+            KoContext context = legacy
+                    ? koContext(match, selectedTextKo, structuredNormalizedKo, input.cadastral(), koConflict)
+                    : scopedKoContext(match, matches, input, selectedTextKo, structuredNormalizedKo);
             String canonicalKey = canonicalKey(match, context.normalizedKo());
             ParsedPropertyReference reference = new ParsedPropertyReference(
                     0,
@@ -203,17 +245,18 @@ public final class PropertyReferenceParser {
             ordered.add(withOrder(reference, order++));
         }
 
-        String outputHash = hash(ordered);
+        String version = legacy ? LEGACY_VERSION : VERSION;
+        String outputHash = hash(ordered, version);
         return new PropertyReferenceParseResult(
-                VERSION,
+                version,
                 ordered,
                 outputHash,
                 ordered.size() - 1,
                 structuredStatus == PropertyReferenceExtractionStatus.NO_STRUCTURED_REFERENCE ? 1 : 0,
-                koConflict ? 1 : 0);
+                ordered.stream().anyMatch(ParsedPropertyReference::koConflict) ? 1 : 0);
     }
 
-    private static void extract(
+    private void extract(
             String sourceField,
             String text,
             int fieldOrder,
@@ -293,12 +336,12 @@ public final class PropertyReferenceParser {
         return PARCEL_FALSE_CONTEXT.matcher(text.substring(contextStart, start).trim()).find();
     }
 
-    private static void extractKo(
+    private void extractKo(
             String sourceField,
             String text,
             int fieldOrder,
             List<TextMatch> matches) {
-        Matcher matcher = KO_LABELED.matcher(text);
+        Matcher matcher = (legacy ? KO_LABELED : KO_PROSE).matcher(text);
         while (matcher.find()) {
             String raw = matcher.group("name").trim();
             String normalized = SerbianNameNormalizer.normalize(raw);
@@ -340,7 +383,7 @@ public final class PropertyReferenceParser {
         }
     }
 
-    private static void extractAddresses(
+    private void extractAddresses(
             String sourceField,
             String text,
             int fieldOrder,
@@ -348,7 +391,7 @@ public final class PropertyReferenceParser {
         Matcher matcher = ADDRESS_LABELED.matcher(text);
         while (matcher.find()) {
             String address = matcher.group("address").trim();
-            Matcher house = HOUSE_NUMBER.matcher(address);
+            Matcher house = (legacy ? HOUSE_NUMBER : HOUSE_SUFFIX).matcher(address);
             String street = address;
             String houseNumber = null;
             if (house.matches() && !house.group(1).isBlank()) {
@@ -371,6 +414,101 @@ public final class PropertyReferenceParser {
                         houseNumber));
             }
         }
+    }
+
+    /**
+     * Lexical association, deliberately independent of dictionary/alias versions.
+     * A structured/text spelling difference is NOT an extraction failure: #33
+     * compares official identities before granting lookup eligibility.
+     */
+    private static KoContext scopedKoContext(
+            TextMatch match, List<TextMatch> matches, Input input,
+            TextMatch soleKo, String structuredNormalizedKo) {
+        if (match.type() == PropertyReferenceType.CADASTRAL_MUNICIPALITY) {
+            return context(match);
+        }
+        List<TextMatch> allKos = matches.stream()
+                .filter(value -> value.type() == PropertyReferenceType.CADASTRAL_MUNICIPALITY).toList();
+        if (allKos.isEmpty()) {
+            return new KoContext(input.cadastral(), structuredNormalizedKo, false);
+        }
+        if (soleKo != null) {
+            return context(soleKo);
+        }
+        String text = match.fieldOrder() == 0 ? input.description() : input.shortDescription();
+        int start = blockStart(text, match.start());
+        int end = blockEnd(text, match.end());
+        List<TextMatch> block = matches.stream().filter(value -> value.fieldOrder() == match.fieldOrder()
+                && value.start() >= start && value.end() <= end).toList();
+        List<TextMatch> kos = block.stream()
+                .filter(value -> value.type() == PropertyReferenceType.CADASTRAL_MUNICIPALITY).toList();
+        if (kos.stream().map(TextMatch::canonicalValue).distinct().count() == 1) {
+            return context(kos.get(0));
+        }
+        TextMatch attached = postfixKo(match, block, text);
+        if (attached != null) return context(attached);
+        if (match.type() == PropertyReferenceType.ADDRESS) {
+            // Address preceding a parcel group with an explicit postfix KO, with
+            // no intervening KO/address/folio. This is a property clause, not a
+            // nearest-KO heuristic across the advertisement.
+            List<TextMatch> following = block.stream().filter(value -> value.start() >= match.end()).toList();
+            if (!following.isEmpty() && following.get(0).type() == PropertyReferenceType.PARCEL) {
+                attached = postfixKo(following.get(0), block, text);
+                if (attached != null) return context(attached);
+            }
+        }
+        // Short descriptions often repeat a parcel without repeating its KO.
+        // Reuse only identical parcel evidence with ONE explicit association.
+        if (match.type() == PropertyReferenceType.PARCEL && kos.isEmpty()) {
+            List<TextMatch> explicit = new ArrayList<>();
+            for (TextMatch other : matches) {
+                if (other.fieldOrder() == match.fieldOrder() || other.type() != PropertyReferenceType.PARCEL
+                        || !other.canonicalValue().equals(match.canonicalValue())) continue;
+                String otherText = other.fieldOrder() == 0 ? input.description() : input.shortDescription();
+                List<TextMatch> otherBlock = matches.stream().filter(value -> value.fieldOrder() == other.fieldOrder()
+                        && value.start() >= blockStart(otherText, other.start())
+                        && value.end() <= blockEnd(otherText, other.end())).toList();
+                TextMatch explicitKo = postfixKo(other, otherBlock, otherText);
+                if (explicitKo != null) explicit.add(explicitKo);
+            }
+            if (!explicit.isEmpty() && explicit.stream().map(TextMatch::canonicalValue).distinct().count() == 1) {
+                return context(explicit.get(0));
+            }
+        }
+        return new KoContext(null, null, true);
+    }
+
+    private static TextMatch postfixKo(TextMatch match, List<TextMatch> block, String text) {
+        if (match.type() != PropertyReferenceType.PARCEL && match.type() != PropertyReferenceType.LAND_REGISTER) return null;
+        int cursor = match.end();
+        for (TextMatch next : block) {
+            if (next.start() < cursor) continue;
+            String gap = text.substring(cursor, next.start());
+            if (next.type() == PropertyReferenceType.CADASTRAL_MUNICIPALITY) {
+                return POSTFIX_KO_GAP.matcher(gap).matches() ? next : null;
+            }
+            if (next.type() != PropertyReferenceType.PARCEL || !ENUMERATION_GAP.matcher(gap).matches()) return null;
+            cursor = next.end();
+        }
+        return null;
+    }
+
+    private static KoContext context(TextMatch ko) {
+        return new KoContext(ko.rawValue(), ko.canonicalValue(), false);
+    }
+
+    private static int blockStart(String text, int offset) {
+        for (int index = offset - 1; index >= 0; index--) {
+            if (";\\n\\r".indexOf(text.charAt(index)) >= 0) return index + 1;
+        }
+        return 0;
+    }
+
+    private static int blockEnd(String text, int offset) {
+        for (int index = offset; index < text.length(); index++) {
+            if (";\\n\\r".indexOf(text.charAt(index)) >= 0) return index;
+        }
+        return text.length();
     }
 
     private static KoContext koContext(
@@ -451,8 +589,8 @@ public final class PropertyReferenceParser {
         return blank(input.cadastral()) && blank(input.placeName()) && blank(input.municipality());
     }
 
-    private static String hash(List<ParsedPropertyReference> references) {
-        StringBuilder canonical = new StringBuilder(VERSION);
+    private static String hash(List<ParsedPropertyReference> references, String version) {
+        StringBuilder canonical = new StringBuilder(version);
         for (ParsedPropertyReference value : references) {
             append(canonical, Integer.toString(value.referenceOrder()));
             append(canonical, value.type().name());

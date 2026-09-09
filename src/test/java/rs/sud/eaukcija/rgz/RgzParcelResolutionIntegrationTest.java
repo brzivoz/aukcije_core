@@ -128,6 +128,7 @@ class RgzParcelResolutionIntegrationTest {
     void setUp() {
         clean();
         reset(client);
+        rgzProperties.setInvalidResultRecheckVersion("");
         rgzProperties.setEnabled(true);
         rgzProperties.setCapabilitiesSha256("a".repeat(64));
         rgzProperties.setSchemaSha256("b".repeat(64));
@@ -139,12 +140,62 @@ class RgzParcelResolutionIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        rgzProperties.setInvalidResultRecheckVersion("");
         rgzProperties.setEnabled(true);
         rgzProperties.setCapabilitiesSha256("a".repeat(64));
         rgzProperties.setSchemaSha256("b".repeat(64));
         rgzProperties.setDatasetVersion(ORIGINAL_DATASET);
         rgzProperties.setMaxLogicalLookupsPerRun(100);
         clean();
+    }
+
+    @Test
+    void explicitRecheckEpochRetriesOnlyInvalidCacheOnceAndKeepsAllOldEvidence() {
+        var item = seed(41_090L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        koMatches.run();
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class))).thenReturn(new RgzParcelResult(
+                RgzParcelResult.Status.INVALID, "INVALID_GEOMETRY", "a".repeat(64),
+                null, null, null, null, null, null, 1, Map.of("physicalAttempts", 1)));
+        stage.process(item.forRun(insertEnrichmentRun()));
+        UUID rejected = jdbc.queryForObject("SELECT cache_record_id FROM rgz_parcel_cache_keys", UUID.class);
+        stage.process(item.forRun(nextEnrichmentRun()));
+        verify(client, times(1)).fetch(anyString(), anyString(), any(BooleanSupplier.class));
+        rgzProperties.setInvalidResultRecheckVersion("reviewed-validator-fix-1");
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class)))
+                .thenReturn(errorResult("HTTP_503"));
+        stage.process(item.forRun(nextEnrichmentRun()));
+        // Failed recheck leaves the old immutable negative and pointer intact.
+        assertThat(jdbc.queryForObject("SELECT cache_record_id FROM rgz_parcel_cache_keys", UUID.class)).isEqualTo(rejected);
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class)))
+                .thenReturn(success("100001", "1572", "b".repeat(64)));
+        stage.process(item.forRun(nextEnrichmentRun()));
+        stage.process(item.forRun(nextEnrichmentRun()));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM location_resolution_cache_records", Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("SELECT resolution_status FROM location_resolution_cache_records WHERE id = ?",
+                String.class, rejected)).isEqualTo("INVALID");
+        assertThat(jdbc.queryForObject("SELECT cache_record_id FROM rgz_parcel_cache_keys", UUID.class)).isNotEqualTo(rejected);
+        // Changing recovery epochs never refetches a successful identity.
+        rgzProperties.setInvalidResultRecheckVersion("reviewed-validator-fix-2");
+        stage.process(item.forRun(nextEnrichmentRun()));
+        verify(client, times(3)).fetch(anyString(), anyString(), any(BooleanSupplier.class));
+    }
+
+    @Test
+    void duplicateFailedLookupIsDeferredAndBothReferencesRecoverFromOneNextRunFetch() {
+        var first = seed(41_091L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        var second = seed(41_092L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        koMatches.run();
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class))).thenReturn(errorResult("INVALID_CRS"));
+        UUID failedRun = insertEnrichmentRun();
+        stage.process(first.forRun(failedRun)); stage.process(second.forRun(failedRun));
+        verify(client, times(1)).fetch(anyString(), anyString(), any(BooleanSupplier.class));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM location_resolution_attempts WHERE confidence_reason='LOGICAL_LOOKUP_ALREADY_CLAIMED'",
+                Long.class)).isOne();
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class))).thenReturn(success("100001", "1572", "c".repeat(64)));
+        UUID retryRun = nextEnrichmentRun();
+        stage.process(second.forRun(retryRun)); stage.process(first.forRun(retryRun));
+        verify(client, times(2)).fetch(anyString(), anyString(), any(BooleanSupplier.class));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM current_location_resolutions", Long.class)).isEqualTo(2);
     }
 
     @Test
@@ -1010,7 +1061,7 @@ class RgzParcelResolutionIntegrationTest {
 
     private UUID insertSourceRun() {
         UUID id = UUID.randomUUID();
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        OffsetDateTime now = jdbc.queryForObject("SELECT CURRENT_TIMESTAMP", OffsetDateTime.class);
         jdbc.update("""
                 INSERT INTO sync_runs (
                     id, idempotency_key_sha256, trigger_kind, status, stage,
@@ -1020,9 +1071,16 @@ class RgzParcelResolutionIntegrationTest {
         return id;
     }
 
+    private UUID nextEnrichmentRun() {
+        jdbc.update("UPDATE enrichment_runs SET status='SUCCEEDED', finished_at=CURRENT_TIMESTAMP WHERE status='RUNNING'");
+        return insertEnrichmentRun();
+    }
+
     private UUID insertEnrichmentRun() {
         UUID id = UUID.randomUUID();
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        // Fixture completion uses the database clock as well; host/VM skew must
+        // not make an immediate cached run finish before its seeded start.
+        OffsetDateTime now = jdbc.queryForObject("SELECT CURRENT_TIMESTAMP", OffsetDateTime.class);
         jdbc.update("""
                 INSERT INTO enrichment_runs (
                     id, idempotency_key_sha256, trigger_kind, status,

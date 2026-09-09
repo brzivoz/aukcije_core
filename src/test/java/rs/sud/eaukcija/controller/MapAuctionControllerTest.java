@@ -68,6 +68,8 @@ class MapAuctionControllerTest {
                 .andExpect(jsonPath("$.features[0].id").value("11:feature"))
                 .andExpect(jsonPath("$.features[0].geometry.type").value("Point"))
                 .andExpect(jsonPath("$.features[0].geometry.coordinates[0]").value(20.5))
+                .andExpect(jsonPath("$.features[0].marker.type").value("Point"))
+                .andExpect(jsonPath("$.features[0].marker.coordinates[0]").value(20.5))
                 .andExpect(jsonPath("$.features[0].properties.auctionId").value(11))
                 .andExpect(jsonPath("$.features[0].properties.amount").value(125000.50))
                 .andExpect(jsonPath("$.features[0].properties.currency").value("RSD"))

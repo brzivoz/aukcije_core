@@ -236,8 +236,9 @@ defines this separately from filter/history restoration.
 
 A capture-phase document click handler dismisses outside the popup/retained
 selection content **before** MapLibre or button opening handlers run; the same
-opening event cannot immediately dismiss the new popup. One map hit test chooses
-the topmost feature across overlapping layers. Outside-click dismissal defers
+opening event cannot immediately dismiss the new popup. #47 extends the single map hit test to deduplicate fill/outline/marker/tile
+representations by canonical property ID and offer a chooser for overlapping
+properties rather than silently selecting the topmost. Outside-click dismissal defers
 summary layout collapse until after that event's hit test: hiding the summary
 in capture would shift the map beneath the original pointer coordinates.
 Escape respects already-handled
@@ -264,6 +265,55 @@ back/forward. It uses real PostGIS and periodic/viewport responses; the complete
 source-to-map browser flow additionally dismisses details before a second normal
 source refresh. Municipality, XSS/link allowlisting, accessibility and the shared
 localhost-only network guard remain covered.
+
+## Parcel visibility and cluster navigation (#47)
+
+The bounded API adds one presentation-only `marker` Point per feature; see
+[the GeoJSON contract](MAP_API.md#geojson-response). No geometry is inflated,
+no centroid precision is promoted, and API/result/cluster counts count each
+canonical property once, keeping multi-property auctions distinct.
+
+`auction-map.mjs` deliberately uses three levels of detail:
+
+- Overview, below zoom 13: precision markers and geographic clusters.
+- Neighbourhood, zoom 13–17: the same markers plus exact boundaries and fill.
+- Close inspection, zoom 17–20: lighter fill and full boundaries; parcel markers
+  shrink to a small cue so even sub-pixel parcels retain an activation target.
+
+The boundary source uses zero simplification tolerance and maxzoom 20, but the
+visibility guarantee does not depend on a tiny fill surviving tile quantization.
+The point source clusters through the supported camera maximum 20 (source
+maxzoom 21). Symbols/counts do not disappear from collision placement. One
+separate, unclustered selection-ring source and an exact-property boundary filter
+identify the selected property, not every sibling in its auction. Details
+dismissal/refresh never clear this identification; a now-ineligible feature is
+removed from all representations. The ring is a screen-space cue, not geometry.
+
+A separated cluster expands to MapLibre's expansion zoom, clamped to the camera
+maximum. Exactly coincident marker coordinates open a chooser without useless
+zooming. At maximum zoom, or when expansion cannot make progress, a spatial
+cluster also opens a chooser, explicitly labelled as a geographic group rather
+than one shared location. Choosers use native buttons, visible focus, Enter/Space
+activation and existing Escape/focus return. Canvas Enter activates its centre;
+the bounded result list remains the text alternative for every property. Direct
+hits take precedence over a 12px screen-space near-hit search. Overlapping
+boundaries offer unique property choices; marker/boundary/tile duplicates never
+create choices or counts. Selections always re-resolve to current full viewport
+geometry by ID; stale worker leaves cannot resurrect old geometry or replace a
+newer selection/dismissal/source revision.
+
+`ParcelMapBrowserTest` uses real PostGIS tiny, narrow, concave, holed and disjoint
+MultiPolygon fixtures at zooms 7, 12.9, 13, 16.9, 17, 18, 19 and 20. It covers
+edge re-anchoring, same-auction siblings/shared boundaries, mixed-precision
+coincidence, expansion, terminal groups, a real 1001-property/1000-limit response,
+keyboard/near-hit selection, exact unchanged geometry and revocation. The map
+API tests independently check marker coverage using PostGIS, including a
+boundary-only viewport intersection, limits, stable IDs/counts and NONE. Existing
+#33/RGZ and shared-filter tests still own current-premise and winner-before-bbox
+negative controls. All browser cases use the shared localhost-only guard; no
+frontend dependency or external service was added. No separate zoom-in
+cutoff/disappearance cause is asserted; the known overview gap was the absence
+of polygon markers.
 
 ## Shared-filter evidence
 

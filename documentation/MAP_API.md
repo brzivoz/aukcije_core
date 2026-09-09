@@ -67,6 +67,7 @@ receives JSON with the same body. Coordinates are WGS84 longitude/latitude.
     "type": "Feature",
     "id": "179415:735977df20b23da84356ab104b49f2cb",
     "geometry": {"type": "Point", "coordinates": [20.457273, 44.787197]},
+    "marker": {"type": "Point", "coordinates": [20.457273, 44.787197]},
     "properties": {
       "auctionId": 179415,
       "title": "Н179415",
@@ -100,6 +101,20 @@ receives JSON with the same body. Coordinates are WGS84 longitude/latitude.
 generic property type). `propertyKind` is a deprecated JSON alias for it,
 **not normalized property kind or sale scope**. `amount` is starting price in
 RSD. End times display in Europe/Belgrade, with an explicit unknown fallback.
+
+`geometry` is the unchanged canonical Point/Polygon/MultiPolygon. The additive
+GeoJSON foreign member `marker` is a presentation-only Point on that geometry,
+**not another feature/property**. For points it is identical. For polygons the
+existing JTS library derives an interior point (never the envelope centre); if
+that point is outside `bbox`, it derives one on the geometry's visible
+intersection instead. A boundary vertex is the numerical fallback for extremely
+narrow shapes. This also preserves inclusive edge touches and disjoint parts
+without multiple pins per property. Marker coordinates can change with the
+viewport; the canonical geometry and feature ID do not. Derivation runs only on
+the already eligible, bounded returned rows, after winner/bbox/precision/limit
+selection. No new query, geometry buffer, source acquisition or pin for NONE is
+introduced. Markers, popup anchors and location links use the same on-geometry
+coordinate; a parcel boundary is not necessarily an auctioned building footprint.
 
 Counts precede map limits. Distinct mapped-auction count can differ from feature
 count for genuine multi-property auctions; neither equals paginated table row

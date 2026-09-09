@@ -194,7 +194,7 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
             assertThat(page.evaluate("window.__auctionMap.getDiagnostics().selectedFeatureId")).isEqualTo(property);
             assertThat(result(page, "STREET").getAttribute("aria-current")).isEqualTo("true");
             assertThat(page.locator("#shared-results tr[data-auction-id='34001']").getAttribute("aria-selected")).isEqualTo("true");
-            assertThat(page.evaluate("window.__auctionMap.map.getFilter('auction-selected-point')").toString()).contains("34001");
+            assertThat(page.evaluate("async () => (await window.__auctionMap.map.getSource('auction-selection').getData()).features.map(f => f.id)").toString()).contains(property);
             if (dismissal.equals("outside")) assertFocused(page.locator("#search-filter"));
             page.evaluate("() => { const map = window.__auctionMap.map; map.setPaintProperty('auction-selected-area', 'line-width', 7); map.triggerRepaint(); }");
             page.waitForFunction("window.__auctionMap.map.isStyleLoaded() && window.__auctionMap.map.areTilesLoaded()");

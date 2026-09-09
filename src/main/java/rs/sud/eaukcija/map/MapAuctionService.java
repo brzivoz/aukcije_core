@@ -27,7 +27,7 @@ public class MapAuctionService {
         int returned = Math.min(rows.size(), request.limit());
         List<MapGeoJsonResponse.Feature> features = new ArrayList<>(returned);
         for (int index = 0; index < returned; index++) {
-            features.add(toFeature(rows.get(index)));
+            features.add(toFeature(rows.get(index), request));
         }
         MapGeoJsonResponse.Selection selection = null;
         if (request.filters().auction() != null) {
@@ -41,7 +41,7 @@ public class MapAuctionService {
                 features.stream().map(f -> f.properties().auctionId()).distinct().count(), selection);
     }
 
-    private static MapGeoJsonResponse.Feature toFeature(MapAuctionRow row) {
+    private static MapGeoJsonResponse.Feature toFeature(MapAuctionRow row, MapAuctionRequest request) {
         String title = safeText(row.auctionNumber(), "Е-аукција " + row.auctionId());
         String status = safeText(row.sourceStatus(), "Unknown");
         String kind = safeText(row.propertyKind(), null); // Unknown raw category is not inferred taxonomy.
@@ -49,6 +49,7 @@ public class MapAuctionService {
                 "Feature",
                 row.featureId(),
                 GeoJsonGeometry.from(row.geometry()),
+                GeoJsonGeometry.markerFor(row.geometry(), request.boundingBox()),
                 new MapGeoJsonResponse.Properties(
                         row.auctionId(),
                         title,

@@ -5,6 +5,10 @@ import {createFilterPresentation} from './auction-filter-presentation.mjs';
 
 const POINT_SOURCE = 'auction-points';
 const AREA_SOURCE = 'auction-areas';
+const SELECTION_SOURCE = 'auction-selection';
+const NEIGHBOURHOOD_ZOOM = 13;
+const CLOSE_ZOOM = 17;
+const HIT_RADIUS_PX = 12;
 const CLUSTER_LAYER = 'auction-clusters';
 const CLUSTER_COUNT_LAYER = 'auction-cluster-count';
 const SELECTED_POINT_LAYER = 'auction-selected-point';
@@ -20,7 +24,7 @@ const RSD_AMOUNT_FORMATTER = createRsdAmountFormatter();
 
 const PRECISIONS = Object.freeze({
     PARCEL: {
-        explanation: 'Проверена граница или тачка парцеле.',
+        explanation: 'Проверена граница или тачка парцеле. Ознака је на парцели; граница парцеле није нужно обрис објекта који се продаје.',
         color: '#7b2cbf',
         shape: 'diamond',
         dash: [10, 1]
@@ -825,6 +829,9 @@ function validFeature(feature) {
             && typeof feature.id === 'string'
             && ['Point', 'Polygon', 'MultiPolygon'].includes(feature?.geometry?.type)
             && Array.isArray(feature?.geometry?.coordinates)
+            && (feature.geometry.type === 'Point' || (feature.marker?.type === 'Point'
+                && Array.isArray(feature.marker.coordinates) && feature.marker.coordinates.length === 2
+                && feature.marker.coordinates.every(Number.isFinite)))
             && properties
             && validAuctionId(String(properties.auctionId))
             && typeof properties.title === 'string'
@@ -838,11 +845,17 @@ function updateSources(features) {
     // Promote the existing API identity explicitly; never confuse sibling properties.
     const rendered = features.map(feature => ({...feature,
         properties: {...feature.properties, mapFeatureId: feature.id}}));
-    const points = rendered.filter(feature => feature.geometry.type === 'Point');
+    state.clusterSequence++; // In-flight worker leaves belong to the previous source revision.
+    const points = rendered.map(markerFeature);
     const areas = rendered.filter(feature => feature.geometry.type !== 'Point');
     state.map.getSource(POINT_SOURCE).setData({type: 'FeatureCollection', features: points});
     state.map.getSource(AREA_SOURCE).setData({type: 'FeatureCollection', features: areas});
     updateSelectionLayers();
+}
+
+function markerFeature(feature) {
+    return {...feature, geometry: feature.geometry.type === 'Point' ? feature.geometry : feature.marker,
+        properties: {...feature.properties, mapFeatureId: feature.id, parcelBoundary: feature.geometry.type !== 'Point'}};
 }
 
 function addAuctionSourcesAndLayers(map) {
@@ -855,23 +868,29 @@ function addAuctionSourcesAndLayers(map) {
         data: EMPTY_COLLECTION,
         promoteId: 'mapFeatureId',
         cluster: true,
+        maxzoom: 21, // Keep coincident groups resolvable through the supported camera maximum (20).
         clusterMaxZoom: 20,
         clusterRadius: 52
     });
-    map.addSource(AREA_SOURCE, {type: 'geojson', data: EMPTY_COLLECTION, promoteId: 'mapFeatureId'});
+    map.addSource(AREA_SOURCE, {type: 'geojson', data: EMPTY_COLLECTION, promoteId: 'mapFeatureId',
+        maxzoom: 20, tolerance: 0}); // Do not deliberately simplify cadastral boundaries.
+    map.addSource(SELECTION_SOURCE, {type: 'geojson', data: EMPTY_COLLECTION, promoteId: 'mapFeatureId'});
 
     for (const [precision, presentation] of Object.entries(PRECISIONS)) {
         map.addLayer({
             id: areaFillLayer(precision),
             type: 'fill',
             source: AREA_SOURCE,
+            minzoom: NEIGHBOURHOOD_ZOOM,
             filter: ['==', ['get', 'precision'], precision],
-            paint: {'fill-color': presentation.color, 'fill-opacity': .25}
+            paint: {'fill-color': presentation.color,
+                'fill-opacity': ['step', ['zoom'], .25, CLOSE_ZOOM, .12]}
         });
         map.addLayer({
             id: areaLineLayer(precision),
             type: 'line',
             source: AREA_SOURCE,
+            minzoom: NEIGHBOURHOOD_ZOOM,
             filter: ['==', ['get', 'precision'], precision],
             paint: {
                 'line-color': presentation.color,
@@ -890,19 +909,6 @@ function addAuctionSourcesAndLayers(map) {
         paint: {'line-color': '#111827', 'line-width': 6, 'line-opacity': .9}
     });
 
-    map.addLayer({
-        id: SELECTED_POINT_LAYER,
-        type: 'circle',
-        source: POINT_SOURCE,
-        filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'auctionId'], -1]],
-        paint: {
-            'circle-radius': 15,
-            'circle-color': '#fff',
-            'circle-stroke-color': '#111827',
-            'circle-stroke-width': 3
-        }
-    });
-
     for (const precision of Object.keys(PRECISIONS)) {
         map.addLayer({
             id: pointLayer(precision),
@@ -911,9 +917,11 @@ function addAuctionSourcesAndLayers(map) {
             filter: ['all', ['!', ['has', 'point_count']], ['==', ['get', 'precision'], precision]],
             layout: {
                 'icon-image': iconName(precision),
-                'icon-size': 1,
-                'icon-allow-overlap': false,
-                'icon-ignore-placement': false
+                // Retain a small activation cue even for sub-pixel parcels at maximum zoom.
+                'icon-size': ['step', ['zoom'], 1, CLOSE_ZOOM,
+                    ['case', ['get', 'parcelBoundary'], .6, 1]],
+                'icon-allow-overlap': true,
+                'icon-ignore-placement': true
             }
         });
     }
@@ -940,9 +948,20 @@ function addAuctionSourcesAndLayers(map) {
         layout: {
             'text-field': ['get', 'point_count_abbreviated'],
             'text-font': ['Noto Sans Regular'],
-            'text-size': 13
+            'text-size': 13,
+            'text-allow-overlap': true,
+            'text-ignore-placement': true
         },
         paint: {'text-color': '#fff'}
+    });
+    // An unclustered overlay keeps the chosen PROPERTY identifiable even inside a cluster
+    // or after closing details. It is never included in cluster/product counts.
+    map.addLayer({
+        id: SELECTED_POINT_LAYER,
+        type: 'circle',
+        source: SELECTION_SOURCE,
+        paint: {'circle-radius': 34, 'circle-color': '#fff', 'circle-opacity': 0,
+            'circle-stroke-color': '#111827', 'circle-stroke-width': 3, 'circle-stroke-opacity': 1}
     });
 }
 
@@ -1014,14 +1033,42 @@ function drawShape(context, shape, size) {
 
 function bindMapInteractions(map) {
     const layers = [CLUSTER_LAYER, ...Object.keys(PRECISIONS)
-            .flatMap(precision => [pointLayer(precision), areaFillLayer(precision)])];
+            .flatMap(precision => [pointLayer(precision), areaFillLayer(precision), areaLineLayer(precision)])];
     layers.forEach(layer => setPointerCursor(map, layer));
-    // One hit test chooses the topmost feature, even where precision layers overlap.
+    const activate = (point, keyboard = false) => {
+        // Prefer an actual hit; enlarge only the screen-space activation target, never geometry.
+        let hits = map.queryRenderedFeatures(point, {layers});
+        if (!hits.length) hits = map.queryRenderedFeatures([
+            [point.x - HIT_RADIUS_PX, point.y - HIT_RADIUS_PX],
+            [point.x + HIT_RADIUS_PX, point.y + HIT_RADIUS_PX]
+        ], {layers});
+        const cluster = hits.find(feature => feature.layer.id === CLUSTER_LAYER);
+        if (cluster) return showCluster(cluster);
+        const features = canonicalFeatures(hits);
+        if (features.length > 1) renderClusterSelection(features, features.length, coincidentLocations(features));
+        else if (features.length) selectFeature(features[0], {trigger: map.getCanvas(), focusDetails: keyboard});
+    };
     map.on('click', event => {
-        if (event.originalEvent?.target !== map.getCanvas()) return;
-        const feature = map.queryRenderedFeatures(event.point, {layers})[0];
-        if (feature?.layer.id === CLUSTER_LAYER) showCluster(feature);
-        else if (feature) selectFeature(feature, {trigger: map.getCanvas()});
+        if (event.originalEvent?.target === map.getCanvas()) activate(event.point);
+    });
+    map.getCanvas().addEventListener('keydown', event => {
+        if (event.key !== 'Enter' || event.isComposing) return;
+        event.preventDefault();
+        activate({x: map.getContainer().clientWidth / 2, y: map.getContainer().clientHeight / 2}, true);
+    });
+}
+
+function canonicalFeatures(features) {
+    const ids = new Set(features.map(feature => feature.properties.mapFeatureId || feature.id));
+    return state.features.filter(feature => ids.has(feature.id));
+}
+
+function coincidentLocations(features) {
+    if (!features.length) return false;
+    const [x, y] = representativeCoordinate(features[0]);
+    return features.every(feature => {
+        const point = representativeCoordinate(feature);
+        return point[0] === x && point[1] === y; // No jitter or merging nearby, distinct locations.
     });
 }
 
@@ -1084,8 +1131,22 @@ async function showCluster(cluster) {
     try {
         const leaves = await source.getClusterLeaves(clusterId, Math.min(count, RESULT_LIMIT), 0);
         if (sequence !== state.clusterSequence) return;
+        const features = canonicalFeatures(leaves);
+        const coincident = features.length === count && coincidentLocations(features);
         diagnostics.lastClusterError = null;
-        renderClusterSelection(leaves, count);
+        if (!coincident && state.map.getZoom() < state.map.getMaxZoom()) {
+            const expansion = await source.getClusterExpansionZoom(clusterId);
+            if (sequence !== state.clusterSequence) return;
+            const zoom = Math.min(expansion, state.map.getMaxZoom());
+            if (zoom > state.map.getZoom() + .01) {
+                dismissDetails();
+                state.map.easeTo({center: cluster.geometry.coordinates, zoom,
+                    duration: reducedMotion() ? 0 : 300});
+                return;
+            }
+        }
+        // Coincident locations, terminal zoom, or no possible camera progress: always a chooser.
+        renderClusterSelection(features, count, coincident);
     } catch (_error) {
         if (sequence !== state.clusterSequence) return;
         diagnostics.lastClusterError = 'CLUSTER_CHANGED';
@@ -1107,21 +1168,25 @@ function renderClusterError() {
     if (!elements.selection.hidden) elements.selection.focus({preventScroll: true});
 }
 
-function renderClusterSelection(features, total) {
-    closePopup();
+function renderClusterSelection(features, total, coincident) {
+    state.clusterSequence++; // An overlap chooser also supersedes older asynchronous cluster work.
+    state.detailsDismissed = false;
     state.detailsOpen = false;
+    state.detailsTrigger = state.map.getCanvas();
+    closePopup();
     window.dispatchEvent(new Event('eaukcija:show-map'));
     elements.selection.replaceChildren();
     elements.selection.removeAttribute('role');
     elements.selection.removeAttribute('aria-live');
     const heading = document.createElement('h4');
-    heading.textContent = `${total} објеката на овој локацији (${new Set(features.map(f => f.properties.auctionId)).size} учитаних аукција)`;
+    heading.textContent = `${total} објеката ${coincident ? 'на овој локацији' : 'у географској групи'} (${new Set(features.map(f => f.properties.auctionId)).size} учитаних аукција)`;
     elements.selection.append(heading);
-    for (const feature of features) {
+    for (const [index, feature] of features.entries()) {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'map-selection-button';
-        button.textContent = `${feature.properties.title} — ${precisionLabel(feature)}`;
+        button.dataset.featureId = feature.id;
+        button.textContent = `${feature.properties.title} — ${precisionLabel(feature)} · објекат ${index + 1}`;
         bindFeatureSelection(button, feature);
         elements.selection.append(button);
     }
@@ -1142,6 +1207,7 @@ function renderResults(features) {
     const focusedId = elements.resultList.contains(document.activeElement)
             ? document.activeElement.dataset.featureId : null;
     elements.resultList.replaceChildren();
+    const selectedId = selectedFeature()?.id;
     elements.resultCount.textContent = String(features.length);
     elements.resultCount.setAttribute('aria-label', `${features.length} објеката, ${new Set(features.map(f => f.properties.auctionId)).size} аукција`);
     for (const feature of features) {
@@ -1152,8 +1218,7 @@ function renderResults(features) {
         button.className = 'map-result-button';
         button.dataset.auctionId = String(feature.properties.auctionId);
         button.dataset.featureId = feature.id;
-        button.setAttribute('aria-current',
-                String(feature.properties.auctionId) === state.selectedAuctionId ? 'true' : 'false');
+        button.setAttribute('aria-current', feature.id === selectedId ? 'true' : 'false');
 
         const title = document.createElement('span');
         title.className = 'map-result-title';
@@ -1193,7 +1258,11 @@ function selectFeature(feature, options = {}) {
     state.clusterSequence++; // A late chooser response cannot replace an explicit property activation.
     // Use full viewport geometry/properties rather than a clipped rendered tile or stale cluster leaf.
     const featureId = feature.properties.mapFeatureId || feature.id;
-    feature = state.features.find(candidate => candidate.id === featureId) || {...feature, id: featureId};
+    feature = state.features.find(candidate => candidate.id === featureId);
+    if (!feature) {
+        renderClusterError(); // A stale chooser/tile must never restore an ineligible property.
+        return;
+    }
     const auctionId = String(feature.properties.auctionId);
     if (!validAuctionId(auctionId)) {
         return;
@@ -1223,7 +1292,7 @@ function selectFeature(feature, options = {}) {
         });
     } else if (options.moveMap) {
         state.map.easeTo({
-            center: representativeCoordinate(feature.geometry),
+            center: representativeCoordinate(feature),
             duration: reducedMotion() ? 0 : 300
         });
     }
@@ -1260,13 +1329,14 @@ function renderSelectedSummary(feature) {
 }
 
 function updateResultSelection() {
+    const selectedId = selectedFeature()?.id;
     for (const row of document.querySelectorAll('#shared-results tr[data-auction-id]')) {
         row.setAttribute('aria-selected', String(row.dataset.auctionId === state.selectedAuctionId));
     }
     for (const button of elements.resultList.querySelectorAll('.map-result-button')) {
         button.setAttribute(
                 'aria-current',
-                button.dataset.auctionId === state.selectedAuctionId ? 'true' : 'false');
+                button.dataset.featureId === selectedId ? 'true' : 'false');
     }
 }
 
@@ -1274,11 +1344,10 @@ function updateSelectionLayers() {
     if (!state.map?.getLayer(SELECTED_POINT_LAYER)) {
         return;
     }
-    const selected = state.selectedAuctionId ? Number(state.selectedAuctionId) : -1;
-    state.map.setFilter(
-            SELECTED_POINT_LAYER,
-            ['all', ['!', ['has', 'point_count']], ['==', ['get', 'auctionId'], selected]]);
-    state.map.setFilter(SELECTED_AREA_LAYER, ['==', ['get', 'auctionId'], selected]);
+    const selected = selectedFeature();
+    state.map.getSource(SELECTION_SOURCE).setData({type: 'FeatureCollection',
+        features: selected ? [markerFeature(selected)] : []});
+    state.map.setFilter(SELECTED_AREA_LAYER, ['==', ['get', 'mapFeatureId'], selected?.id || '']);
 }
 
 function restoreSelectionFromFeatures() {
@@ -1299,6 +1368,7 @@ function restoreSelectionFromFeatures() {
     const selected = selectedFeature();
     if (selected) {
         state.selectedFeatureId = selected.id;
+        updateSelectionLayers();
         toggle.textContent = `Избор: ${state.selectedAuctionId} · ${precisionLabel(selected)}`;
         renderSelectedSummary(selected);
         if (state.detailsOpen) showPopup(selected);
@@ -1373,7 +1443,7 @@ function showPopup(feature) {
             closeOnClick: false, // One document-level dismissal path, including controls outside the map.
             focusAfterOpen: false,
             maxWidth: '310px'
-        }).setLngLat(representativeCoordinate(feature.geometry)).setDOMContent(content).addTo(state.map);
+        }).setLngLat(representativeCoordinate(feature)).setDOMContent(content).addTo(state.map);
         state.popup = popup;
         popup.on('close', () => {
             if (state.popup !== popup) return; // Internal teardown is not user dismissal.
@@ -1398,7 +1468,7 @@ function showPopup(feature) {
     view.explanation.textContent = precisionExplanation(feature);
     view.sourceLink = updateSourceLink(view.content, view.sourceLink, feature, 'Отвори на порталу еАукција');
     view.mapsLink = updateMapsLink(view.content, view.mapsLink, feature);
-    state.popup?.setLngLat(representativeCoordinate(feature.geometry));
+    state.popup?.setLngLat(representativeCoordinate(feature));
     updateDetailsControl();
 }
 
@@ -1417,7 +1487,7 @@ function updateSourceLink(container, link, feature, text) {
 }
 
 function updateMapsLink(container, link, feature) {
-    const url = googleMapsUrl(feature.geometry);
+    const url = googleMapsUrl(feature);
     if (!url) {
         link?.remove();
         return null;
@@ -1440,13 +1510,8 @@ function updateMapsLink(container, link, feature) {
 // link a person chooses to follow. The URL mirrors the allowlistedSourceUrl
 // discipline: fixed origin and path, with a query built exclusively from
 // fixed-precision coordinate numbers derived from the reviewed geometry.
-function googleMapsUrl(geometry) {
-    const coordinates = [];
-    collectCoordinatePairs(geometry?.coordinates, coordinates);
-    if (!coordinates.length) {
-        return null;
-    }
-    const [longitude, latitude] = representativeCoordinate(geometry);
+function googleMapsUrl(feature) {
+    const [longitude, latitude] = representativeCoordinate(feature);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
             || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
         return null;
@@ -1561,22 +1626,8 @@ function initialMapNumber(name, min, max, fallback) {
     return Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
 
-function representativeCoordinate(geometry) {
-    if (geometry.type === 'Point') {
-        return geometry.coordinates;
-    }
-    const coordinates = [];
-    collectCoordinatePairs(geometry.coordinates, coordinates);
-    if (!coordinates.length) {
-        return [20.46, 44.79];
-    }
-    const bounds = coordinates.reduce((value, coordinate) => ({
-        minX: Math.min(value.minX, coordinate[0]),
-        minY: Math.min(value.minY, coordinate[1]),
-        maxX: Math.max(value.maxX, coordinate[0]),
-        maxY: Math.max(value.maxY, coordinate[1])
-    }), {minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity});
-    return [(bounds.minX + bounds.maxX) / 2, (bounds.minY + bounds.maxY) / 2];
+function representativeCoordinate(feature) {
+    return feature.geometry.type === 'Point' ? feature.geometry.coordinates : feature.marker.coordinates;
 }
 
 function collectCoordinatePairs(value, output) {
@@ -1722,7 +1773,7 @@ function handleMapError(event) {
         state.resourceWarnings.set(
                 `source:${BASEMAP_SOURCE}`,
                 'Основна карта је пријавила привремени проблем са ресурсом; доступни слојеви и подаци остају приказани.');
-    } else if (sourceId === POINT_SOURCE || sourceId === AREA_SOURCE) {
+    } else if ([POINT_SOURCE, AREA_SOURCE, SELECTION_SOURCE].includes(sourceId)) {
         diagnostics.auctionSourceErrors++;
         state.resourceWarnings.set(
                 `source:${sourceId}`,
@@ -1772,7 +1823,7 @@ function configureAccessibleMap(map) {
     const canvas = map.getCanvas();
     canvas.tabIndex = 0;
     canvas.setAttribute('aria-label',
-            'Карта аукција. Користите стрелице за померање, плус и минус за увећање.');
+            'Карта аукција. Користите стрелице за померање, плус и минус за увећање. Enter активира групу или објекат у средини карте; сви учитани објекти су и у листи резултата.');
     const zoomIn = map.getContainer().querySelector('.maplibregl-ctrl-zoom-in');
     const zoomOut = map.getContainer().querySelector('.maplibregl-ctrl-zoom-out');
     zoomIn?.setAttribute('aria-label', 'Увећај карту');

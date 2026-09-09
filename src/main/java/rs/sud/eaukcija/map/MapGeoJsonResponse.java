@@ -23,6 +23,7 @@ public record MapGeoJsonResponse(
             String type,
             String id,
             GeoJsonGeometry geometry,
+            GeoJsonGeometry marker,
             Properties properties) {
     }
 

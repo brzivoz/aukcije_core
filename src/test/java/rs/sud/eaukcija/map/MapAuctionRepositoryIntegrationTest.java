@@ -132,6 +132,58 @@ class MapAuctionRepositoryIntegrationTest {
     }
 
     @Test
+    void markerDerivationKeepsExactGeometryIdsAndCountsForDifficultParcelsAndEdgeIntersections() throws Exception {
+        var shapes = rs.sud.eaukcija.testsupport.ParcelVisibilityFixtures.SHAPES;
+        long auction = 470;
+        for (var shape : shapes) {
+            insertAuction(auction, shape.name(), "1", "2026-09-01T00:00:00Z", "Verified", "Парцела");
+            select(insertReference(auction++, 0, "OTHER", shape.name(), null), shape.wkt(), "PARCEL", "2026-08-23T09:00:00Z");
+        }
+        // A genuine sibling and another auction on the same parcel remain distinct, not marker duplicates.
+        select(insertReference(470, 1, "OTHER", "sibling", null), shapes.get(1).wkt(), "PARCEL", "2026-08-23T09:00:00Z");
+        insertAuction(475, "shared", "1", "2026-09-01T00:00:00Z", "Verified", "Парцела");
+        select(insertReference(475, 0, "OTHER", "shared", null), shapes.get(0).wkt(), "PARCEL", "2026-08-23T09:00:00Z");
+        insertAuction(476, "NONE", "1", "2026-09-01T00:00:00Z", "Verified", "Парцела");
+        var full = service.findAuctions(shared(""));
+        assertThat(full.features()).hasSize(7);
+        assertThat(full.counts()).isEqualTo(new MapAuctionRepository.Counts(7, 1, 6, 7));
+        assertThat(full.returnedAuctionCount()).isEqualTo(6);
+        assertThat(full.features()).extracting(MapGeoJsonResponse.Feature::id).doesNotHaveDuplicates();
+        for (var feature : full.features()) assertMarkerCovered(feature, new BoundingBox(20.2, 44.6, 20.8, 44.9));
+        assertThat(service.findAuctions(shared("limit=2")).features()).hasSize(2);
+        assertThat(service.findAuctions(shared("limit=2")).truncated()).isTrue();
+        assertThat(service.findAuctions(shared("limit=2")).counts()).isEqualTo(full.counts());
+        assertThat(service.findAuctions(shared("precision=NONE")).features()).isEmpty();
+
+        // Only the small, eastern MultiPolygon part intersects; its ordinary interior point is off screen.
+        // Also test a viewport touching just the boundary: ST_Intersects is inclusive.
+        for (var box : List.of(new BoundingBox(20.4643, 44.7861, 20.4647, 44.7864),
+                new BoundingBox(20.4645, 44.7861, 20.4647, 44.7864))) {
+            var edge = service.findAuctions(MapAuctionRepositoryTestAccess.request(box, null, null, null, FROM, null, 100));
+            assertThat(edge.features()).singleElement().satisfies(feature -> {
+                var original = full.features().stream().filter(f -> f.id().equals(feature.id())).findFirst().orElseThrow();
+                assertThat(feature.geometry()).isEqualTo(original.geometry());
+                assertThat(feature.marker()).isNotEqualTo(original.marker());
+            });
+            assertMarkerCovered(edge.features().get(0), box);
+            assertThat(edge.counts().featureCountInViewport()).isOne();
+        }
+    }
+
+    private void assertMarkerCovered(MapGeoJsonResponse.Feature feature, BoundingBox box) throws Exception {
+        String geometry = json.writeValueAsString(feature.geometry());
+        String marker = json.writeValueAsString(feature.marker());
+        assertThat(feature.marker().type()).isEqualTo("Point");
+        // Independent PostGIS oracle, not a repeat of the JTS derivation used by the service.
+        assertThat(jdbc.queryForObject("SELECT ST_Covers(ST_GeomFromGeoJSON(?), ST_GeomFromGeoJSON(?))",
+                Boolean.class, geometry, marker)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT ST_Covers(ST_MakeEnvelope(?, ?, ?, ?, 4326), ST_GeomFromGeoJSON(?))",
+                Boolean.class, box.minLongitude(), box.minLatitude(), box.maxLongitude(), box.maxLatitude(), marker)).isTrue();
+        var original = repository.findWithin(shared("")).stream().filter(row -> row.featureId().equals(feature.id())).findFirst().orElseThrow();
+        assertThat(feature.geometry()).isEqualTo(GeoJsonGeometry.from(original.geometry()));
+    }
+
+    @Test
     void mapAndLocationSelectorsShareTheSameTieBreakForOneCanonicalProperty() {
         insertAuction(150, "Н150", "100000", "2026-08-24T10:00:00Z", "Verified", "Парцела");
         long identity = insertParcelIdentity("702013", "1572");

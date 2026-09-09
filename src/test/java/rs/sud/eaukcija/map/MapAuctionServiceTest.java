@@ -42,6 +42,7 @@ class MapAuctionServiceTest {
             assertThat(feature.type()).isEqualTo("Feature");
             assertThat(feature.id()).isEqualTo("42:feature");
             assertThat(feature.geometry().type()).isEqualTo("Polygon");
+            assertThat(feature.marker()).isEqualTo(new GeoJsonGeometry("Point", List.of(20.5, 44.5)));
             assertThat(feature.properties().auctionId()).isEqualTo(42);
             assertThat(feature.properties().title())
                     .isEqualTo("<script>alert('x')</script> Н42");
@@ -66,6 +67,7 @@ class MapAuctionServiceTest {
         assertThat(service.findAuctions(request).features()).singleElement().satisfies(feature -> {
             assertThat(feature.properties().category()).isNull();
             assertThat(feature.properties().propertyKind()).isNull();
+            assertThat(feature.marker()).isEqualTo(feature.geometry());
             assertThat(feature.properties().endTime()).isNull();
             assertThat(feature.properties().sourceStatus()).isEqualTo("InPrediction");
         });

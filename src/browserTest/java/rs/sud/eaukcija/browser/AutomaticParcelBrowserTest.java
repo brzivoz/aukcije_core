@@ -70,7 +70,7 @@ class AutomaticParcelBrowserTest extends PostgisBrowserFixture {
                     && ['Polygon', 'MultiPolygon'].includes(feature.geometry.type))
                 """)).isTrue();
         page.locator(".map-result-button").first().click();
-        page.waitForSelector(".maplibregl-popup .map-popup");
+        page.waitForSelector(".map-popup");
         assertThat(page.locator(".map-popup").textContent()).contains("Парцела", "Проверена граница");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM rgz_parcel_cache_keys", Long.class)).isEqualTo(3);
         assertThat(FIXTURE.parcelRequests).containsExactlyInAnyOrderElementsOf(

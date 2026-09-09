@@ -1,7 +1,13 @@
 <form xmlns:th="http://www.thymeleaf.org" th:fragment="filters" id="shared-filters" class="filters" method="get" action="/"
       aria-label="Заједнички филтери табеле и карте" th:attr="data-query=${filters.query()}">
-    <h3>Филтери табеле и карте</h3>
+    <div class="filter-panel-heading"><h3>Филтери табеле и карте</h3>
+        <button type="button" id="filter-panel-close" hidden aria-label="Затвори филтере">Затвори</button>
+    </div>
+    <p id="filter-draft-state" role="status" aria-live="polite"></p>
     <div class="filter-grid">
+        <div class="filter-group"><label for="search-filter">Број или опис (ћирилица / латиница)</label>
+            <input id="search-filter" name="search" type="search" maxlength="200" th:value="${filters.search}"/>
+        </div>
         <div class="filter-group"><label for="time-scope-filter">Временски опсег</label>
             <select id="time-scope-filter" name="timeScope">
                 <option value="not-ended" th:selected="${filters.timeScope == 'not-ended'}">Нису завршене</option>
@@ -41,6 +47,16 @@
                 <option th:each="v : ${categories}" th:value="${v}" th:text="${v}" th:selected="${v == filters.category}"></option>
             </select>
         </div>
+        <div class="filter-group"><label for="min-price-filter">Мин. почетна цена (РСД)</label>
+            <input id="min-price-filter" name="minPrice" type="number" min="0" step="0.01" th:value="${filters.minPrice}"/>
+        </div>
+        <div class="filter-group"><label for="max-price-filter">Макс. почетна цена (РСД)</label>
+            <input id="max-price-filter" name="maxPrice" type="number" min="0" step="0.01" th:value="${filters.maxPrice}"/>
+        </div>
+    </div>
+    <details id="advanced-filters">
+        <summary>Још филтера <span id="advanced-filter-count"></span></summary>
+        <div class="filter-grid">
         <div class="filter-group"><label for="map-status-filter">Изворни статус (није временски опсег)</label>
             <select id="map-status-filter" name="status"><option value="">Сви статуси</option>
                 <option th:each="v : ${statuses}" th:value="${v}" th:text="${v}" th:selected="${v == filters.status}"></option>
@@ -58,28 +74,22 @@
         <div class="filter-group"><label for="map-to-filter">Завршетак до, укључиво (Београд)</label>
             <input id="map-to-filter" name="to" type="date" th:value="${filters.to}"/>
         </div>
-        <div class="filter-group"><label for="min-price-filter">Мин. почетна цена (РСД)</label>
-            <input id="min-price-filter" name="minPrice" type="number" min="0" step="0.01" th:value="${filters.minPrice}"/>
-        </div>
-        <div class="filter-group"><label for="max-price-filter">Макс. почетна цена (РСД)</label>
-            <input id="max-price-filter" name="maxPrice" type="number" min="0" step="0.01" th:value="${filters.maxPrice}"/>
-        </div>
         <div class="filter-group"><label for="first-sale-filter">Прва продаја</label>
             <select id="first-sale-filter" name="firstSale"><option value="">Свеједно</option>
                 <option value="true" th:selected="${filters.firstSale == true}">Да</option>
                 <option value="false" th:selected="${filters.firstSale == false}">Не</option>
             </select>
         </div>
-        <div class="filter-group"><label for="search-filter">Број или опис (ћирилица / латиница)</label>
-            <input id="search-filter" name="search" type="search" maxlength="200" th:value="${filters.search}"/>
         </div>
-    </div>
+    </details>
     <input type="hidden" name="sortBy" th:value="${filters.sortBy}"/>
     <input type="hidden" name="sortDir" th:value="${filters.sortDir}"/>
     <input type="hidden" name="auction" th:value="${filters.auction}"/>
+    <details id="filter-help"><summary>Како се примењују датуми и временски опсег?</summary>
     <p id="map-default-time-note" class="map-default-note">Подразумевано: нису завршене (познат завршетак после тренутка провере),
         не нужно отворене за лицитирање. Датуми завршетка и временски опсег се укрштају.
         Непознат завршетак је укључен само под „Све” без датума.</p>
+    </details>
     <div class="filter-actions">
         <button type="submit" class="btn btn-primary">Примени филтере</button>
         <a id="shared-filter-reset" class="btn btn-secondary" th:href="${filters.resetUrl()}">Ресетуј</a>

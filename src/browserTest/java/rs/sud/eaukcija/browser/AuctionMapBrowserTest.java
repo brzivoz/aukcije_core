@@ -175,7 +175,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         unsafeTitle.focus();
         assertThat((Boolean) unsafeTitle.evaluate("element => element.matches(':focus-visible')")).isTrue();
         unsafeTitle.press("Enter");
-        page.waitForSelector(".maplibregl-popup .map-popup");
+        page.waitForSelector(".map-popup");
 
         assertThat(page.url()).contains("auction=34001").doesNotContain("%3Cimg", "onerror");
         assertThat(page.locator(".map-popup").textContent())
@@ -220,6 +220,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         page.locator(".map-selection-reopen").press("Enter");
         assertThat(page.locator(".map-popup").isVisible()).isTrue();
 
+        page.locator("#workspace-filter-toggle").click();
+        page.locator("#advanced-filters > summary").click();
         page.selectOption("#map-status-filter", "Verified");
         page.locator("#shared-filters button[type='submit']").click();
         page.waitForFunction("""
@@ -357,6 +359,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                   map.isStyleLoaded = () => false;
                 }
                 """);
+        page.locator("#workspace-filter-toggle").click();
+        page.locator("#advanced-filters > summary").click();
         page.selectOption("#map-status-filter", "Verified");
         page.locator("#shared-filters button[type='submit']").click();
         assertThat(page.url()).contains("status=Verified");
@@ -508,6 +512,18 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(dimensions.get("resultsHeight").doubleValue())
                 .isLessThanOrEqualTo(dimensions.get("canvasHeight").doubleValue() + 1);
 
+        page.locator(".map-results").evaluate("el => { el.scrollTop = 450; }");
+        page.waitForTimeout(50); // Allow the native scroll event to record the user's position.
+        for (String mode : List.of("map", "table", "results")) {
+            page.locator("#mode-" + mode).click();
+            page.evaluate("window.__auctionMap.refreshNow()");
+            page.waitForFunction("window.__auctionMap.getDiagnostics().lastState === 'ready' && !window.__auctionMap.getDiagnostics().requestInFlight");
+        }
+        assertThat(page.locator(".map-results").evaluate("el => el.scrollTop")).isEqualTo(450);
+        page.locator("#workspace-filter-toggle").click();
+        page.evaluate("window.__auctionMap.refreshNow()");
+        assertThat(page.locator(".map-results").evaluate("el => el.scrollTop")).isEqualTo(450);
+
         browser.network().assertOnlyLocalhostRequests();
         assertThat(browser.network().contactedHosts()).containsExactly("localhost");
     }
@@ -586,8 +602,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                       const attribution = rect('#auction-map .maplibregl-ctrl-attrib');
                       return {mapWidth: map.width, mapHeight: map.height, mapTop: map.top, mapBottom: map.bottom,
                         mapRight: map.right, attributionBottom: attribution.bottom, attributionRight: attribution.right,
-                        railWidth: rail.width, containerWidth: container.width, scrollWidth: document.documentElement.scrollWidth,
-                        applyBottom: rect('#shared-filters button[type=submit]').bottom};
+                        railWidth: rail.width, containerWidth: container.width, scrollWidth: document.documentElement.scrollWidth};
                     }
                     """);
             assertThat(bounds.get("containerWidth").doubleValue()).isEqualTo(size.width);
@@ -595,7 +610,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
             assertThat(bounds.get("mapWidth").doubleValue()).isGreaterThan(size.width - 430.0);
             assertThat(bounds.get("mapHeight").doubleValue()).isGreaterThanOrEqualTo(320);
             assertThat(bounds.get("mapBottom").doubleValue()).isBetween(size.height - 24.0, (double) size.height);
-            assertThat(bounds.get("applyBottom").doubleValue()).isLessThan(bounds.get("mapTop").doubleValue());
+            assertThat(page.locator("#shared-filters").isHidden()).isTrue();
+            assertThat(bounds.get("mapHeight").doubleValue()).isGreaterThanOrEqualTo(size.height * .75);
             assertThat(bounds.get("attributionBottom").doubleValue()).isLessThanOrEqualTo(bounds.get("mapBottom").doubleValue());
             assertThat(bounds.get("attributionRight").doubleValue()).isLessThanOrEqualTo(bounds.get("mapRight").doubleValue());
             assertThat(bounds.get("scrollWidth").intValue()).isLessThanOrEqualTo(size.width);
@@ -672,7 +688,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         page.setViewportSize(1366, 768);
         page.navigate(applicationUri().toString());
         waitForReadyMap(page);
-        double firstMinimum = ((Number) page.evaluate("window.__auctionMap.map.getMinZoom()")).doubleValue();
+        var minima = new java.util.ArrayList<Double>();
         for (String action : List.of(
                 "window.__auctionMap.map.jumpTo({zoom: window.__auctionMap.map.getMinZoom()})",
                 "document.querySelector('#workspace-rail-toggle').click()",
@@ -681,8 +697,10 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
             page.evaluate("() => {" + action + ";}");
             page.waitForFunction("before => window.__auctionMap.getDiagnostics().requestsCompleted > before", before);
             waitForReadyMap(page);
+            minima.add(((Number) page.evaluate("window.__auctionMap.map.getMinZoom()")).doubleValue());
         }
-        assertThat(((Number) page.evaluate("window.__auctionMap.map.getMinZoom()")).doubleValue()).isGreaterThan(firstMinimum);
+        assertThat(minima.get(1)).isGreaterThan(minima.get(0)); // Closing the results rail widens the map.
+        assertThat(minima.get(2)).isLessThan(minima.get(1)); // Opening the side form narrows it again.
         page.locator("#mode-table").press("Enter");
         page.setViewportSize(2560, 1440);
         page.waitForFunction("window.__auctionMap.map.getCanvas().clientWidth === document.querySelector('#auction-map').clientWidth");
@@ -695,6 +713,31 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(areas).hasSizeGreaterThanOrEqualTo(5).allSatisfy(area -> assertThat(area).isBetween(1.0, 1_000_000.0));
         assertThat(statuses).allSatisfy(status -> assertThat(status).isEqualTo(200));
         assertThat(page.evaluate("window.__auctionMap.getDiagnostics().lastError")).isNull();
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
+    void lateClusterChoicesCannotReplaceANewerExplicitPropertySelection() {
+        Page page = browser.page();
+        page.navigate(applicationUri().toString());
+        waitForReadyMap(page);
+        page.waitForFunction("window.__auctionMap.renderedClusterCount() > 0");
+        page.evaluate("""
+                () => {
+                  const map = window.__auctionMap.map;
+                  const source = map.getSource('auction-points');
+                  source.getClusterLeaves = () => new Promise(resolve => { window.__finishLeaves = resolve; });
+                  window.__pendingCluster = window.__auctionMap.showCluster(map.queryRenderedFeatures({layers:['auction-clusters']})[0]);
+                }
+                """);
+        page.locator(".map-result-button").first().press("Enter");
+        page.waitForSelector(".map-popup");
+        page.evaluate("window.__focused = document.activeElement");
+        page.evaluate("async () => { window.__finishLeaves([]); await window.__pendingCluster; }");
+        assertThat(page.locator(".map-popup").isVisible()).isTrue();
+        assertThat(page.locator(".map-selection-button").count()).isZero();
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().detailsOpen")).isEqualTo(true);
+        assertThat(page.evaluate("window.__focused === document.activeElement && window.__focused.isConnected")).isEqualTo(true);
         browser.network().assertOnlyLocalhostRequests();
     }
 
@@ -1072,7 +1115,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                     select: contrast(outer, background('#map-status-filter')),
                     date: contrast(outer, background('#map-from-filter')),
                     selection: contrast(outer, background('#map-selection')),
-                    popup: contrast(outer, background('.maplibregl-popup-content')),
+                    popup: contrast(outer, background('.map-sidebar')),
                     primary: contrast(inner, background('#shared-filters button[type="submit"]')),
                     twoTone: contrast(inner, outer)
                   };

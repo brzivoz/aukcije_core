@@ -2,10 +2,25 @@
 
 ## Using the page
 
-There is one Serbian-labelled filter form above the table and map. **Примени
-филтере** applies its criteria to both views and returns the table to page 1.
-The active-criteria summary describes the *applied* state; typing alone does not
-change results. Source/background refresh uses that applied state, not drafts.
+There is one Serbian-labelled filter form. The enhanced desktop workspace (#54)
+starts with it closed; **Филтери** opens it beside the map/table, never as another
+full-width block above them. Panel/disclosure preferences are remembered locally,
+not in canonical URLs. Without JavaScript the native GET form remains visible.
+**Примени филтере** applies its criteria to both views and returns the table to
+page 1. Closing/reopening the panel preserves drafts; typing alone does not
+change results. Source/background refresh uses applied state, not drafts.
+
+Applied-filter chips remain visible in every mode, always including time scope.
+A removable chip deliberately changes only that applied criterion, updates its
+control, retains unrelated drafts/selection/sorting and resets the page. Removing
+a non-default time scope restores `not-ended`; the default scope chip opens that
+control instead of hiding the time restriction. **Непримењене измене** is visible
+both inside the form and on its toggle while drafts differ. Numeric comparison
+and chip labels preserve the full decimal RSD value without floating-point rounding.
+Specialist status/precision/date/first-sale controls are under **Још филтера**,
+with an applied-field count. Help is another disclosure. Native and server-side
+validation reveal the affected panel/disclosure and make the invalid field reachable.
+Reload/back-forward restore applied controls; unsaved drafts are not persisted.
 
 - **Нису завршене** (default): known end time strictly after the evaluation
   instant. This includes future auctions and does **not** mean bidding is open.
@@ -56,18 +71,21 @@ location. Filter edits never call RGZ, ingestion, or enrichment.
 
 Selection and transient details are independent. Click a map object or its
 result/table button to select it and open non-modal details. With a keyboard,
-use Enter or Space on a result/table button, or **Отвори детаље на карти** in
-the selection summary when it is visible. Dismissal hides **both the popup and
-`map-selection` summary**, including its controls; auction identity and
-map/list/table highlighting are retained. Select the object/result again to
-reopen it after dismissal.
+use Enter or Space on a result/table button, **Отвори детаље** in the selection
+summary, or the compact **Избор** control. Since #54, Map + results shows details
+inside the rail; Map-only reuses the same article in a popup. The selection summary
+is also in the rail, never above the map. Dismissal hides details and the summary;
+auction identity and map/list/table highlighting remain. The compact selection
+control stays available for deliberate reopening, including an explicit reason
+when the selected property is unavailable. No separate detail/query state is added.
 
-- **Escape**, **×** (accessible name **Затвори детаље аукције**, 44×44 px), or a
+- **Escape**, **Назад на резултате** in the rail, **×** in the popup (accessible
+  name **Затвори детаље аукције**, 44×44 px), or a
   blank-map/outside click closes both details surfaces. Content and safe
   source-link clicks do not close them. The eAukcija and Google Maps links are
   displayed on separate lines. Activating the same or another object opens it.
-- Keyboard opening focuses the popup's safe source link, or its labelled
-  article if no allowlisted link exists. There is no modal focus trap. Escape
+- Keyboard opening focuses the details article's safe source link, or the labelled
+  article itself if no allowlisted link exists. There is no modal focus trap. Escape
   and × return focus to the connected, visible opening control where possible;
   if a result was replaced, a table/summary trigger hidden, or a cluster choice
   removed, use the current matching property result, then the map canvas.
@@ -94,6 +112,14 @@ behavior; these are not modal dialogs. Operator confirmations/cancellation and
 future durable property-identity/keyed-results reconciliation are outside #46.
 
 ## Counts and refresh
+
+A compact disclosure beside the map controls shows global filtered auctions and
+viewport auction/property totals. Its breakdown distinguishes returned properties
+and auctions, unmapped and outside-view auctions. **Прикажи све у табели** switches
+to the global table without applying drafts. Freshness, failures and truncation
+stay visible outside disclosures, including Map-only. A recoverable view failure
+has **Поново учитај приказ**; it retries the local view, never source enrichment.
+Background loading retains existing results and does not add a vertical banner.
 
 The table is the global filtered population, paged by 25. Map panning affects
 only the map subset; it never restricts the table. No “search this map area”

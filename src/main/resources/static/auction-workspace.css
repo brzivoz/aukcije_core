@@ -1,113 +1,154 @@
-/* The unenhanced page keeps its GET form and table. Enhancement only changes
-   presentation: neither the form nor the MapLibre instance is recreated. */
+/* Native GET fallback stays readable. Enhancement only rearranges the same form/map. */
 [hidden] { display: none !important; }
-.container { width: 100%; max-width: none; padding: 8px 16px; }
-header { padding: 0; margin-bottom: 0; }
-header .container { gap: 8px 24px; flex-wrap: wrap; }
-header h1 { font-size: 1.1rem; }
-#workspace { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-#workspace > * { min-width: 0; }
-#workspace summary { cursor: pointer; font-size: .82rem; font-weight: 600; }
-#workspace summary:focus-visible,
-.workspace-toolbar button:focus-visible {
-    outline: 3px solid #fff;
-    outline-offset: 0;
-    box-shadow: 0 0 0 5px #0b2e59;
+.container { width: 100%; max-width: none; padding: 6px 12px; }
+header { padding: 0; margin: 0; }
+header .container { gap: 8px 20px; flex-wrap: wrap; }
+header h1 { font-size: 1rem; }
+#workspace { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+#workspace > *, #workspace-body > * { min-width: 0; }
+summary { cursor: pointer; font-size: .82rem; font-weight: 600; }
+summary:focus-visible, .workspace-toolbar button:focus-visible,
+#workspace-applied button:focus-visible, #selection-toggle:focus-visible {
+    outline: 3px solid #fff; outline-offset: 0; box-shadow: 0 0 0 5px #0b2e59;
 }
 
-.refresh-panel { margin: 0; padding: 8px 12px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 16px; }
+.refresh-panel { min-width: 0; max-width: 100%; margin: 0; padding: 2px 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; color: #17243a; }
 .refresh-panel h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.refresh-actions { grid-column: 3; grid-row: 1 / span 2; margin: 0; }
-.refresh-status { grid-column: 1 / 3; grid-row: 1; font-size: .8rem; overflow-wrap: anywhere; }
-.refresh-last-good { grid-column: 1; grid-row: 2; font-size: .75rem; color: #4b5563; }
-#refresh-details { grid-column: 2; grid-row: 2; }
-#refresh-details[open] { grid-column: 1 / -1; grid-row: 3; }
-#refresh-details > summary { width: fit-content; }
-#refresh-details[open] > summary { margin-bottom: 10px; }
+.refresh-actions { order: 3; margin: 0; }
+.refresh-actions .btn { padding: 6px 10px; min-height: 32px; font-size: .8rem; }
+.refresh-status { font-size: .78rem; overflow-wrap: anywhere; }
+.refresh-last-good { font-size: .75rem; color: #4b5563; }
+#refresh-details { position: relative; }
+.refresh-details-content, .map-reference-content { color: #17243a; position: absolute; right: 0; top: calc(100% + 6px); width: 420px; max-width: calc(100vw - 32px); max-height: min(560px, 70dvh); overflow: auto; padding: 12px; border: 1px solid #9aa6b2; border-radius: 6px; background: #fff; box-shadow: 0 4px 12px #0003; z-index: 10; }
+.refresh-details-content .stats { opacity: 1; font-size: .8rem; }
+.refresh-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .refresh-introduction { margin-top: 8px; }
+.workspace-header .container { justify-content: space-between; padding-top: 4px; padding-bottom: 4px; }
 
-.workspace-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.workspace-modes { display: flex; flex-wrap: wrap; gap: 4px; margin-right: auto; }
-.workspace-toolbar button { min-height: 34px; padding: 6px 12px; border: 1px solid #9aa6b2; border-radius: 4px; background: #fff; color: #17243a; cursor: pointer; font: inherit; font-size: .82rem; }
+.workspace-toolbar, .workspace-modes { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.workspace-modes { margin-right: auto; }
+.workspace-toolbar button, #workspace-applied button, #selection-toggle,
+#filter-panel-close, #map-count-table, #map-retry, .rail-details-close {
+    min-height: 32px; padding: 5px 10px; border: 1px solid #9aa6b2; border-radius: 4px;
+    background: #fff; color: #17243a; cursor: pointer; font: inherit; font-size: .8rem;
+}
 .workspace-toolbar button[aria-pressed="true"] { background: #1a237e; color: #fff; border-color: #1a237e; text-decoration: underline; text-underline-offset: 4px; }
+#workspace-applied, #applied-filter-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; font-size: .78rem; }
+#workspace-applied { min-height: 28px; }
+#applied-filter-chips { min-width: 0; }
+#workspace-applied button { min-height: 28px; padding: 3px 8px; overflow-wrap: anywhere; max-width: 100%; }
+#applied-filter-chips .filter-chip { border-radius: 12px; background: #eef2ff; }
+#filter-dirty-indicator, #filter-draft-state { color: #754200; font-weight: 650; }
+#filter-draft-state:empty, #filter-state:empty { display: none; }
 
-#shared-filters { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 16px; padding: 8px 12px; margin: 0; }
-#shared-filters h3, #shared-filters .filter-grid { grid-column: 1 / -1; }
-#shared-filters select, #shared-filters input, #shared-filters .municipality-select summary { min-height: 32px; }
+#shared-filters { padding: 10px; margin: 0; }
+.filter-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+#shared-filters h3 { font-size: .95rem; margin: 0; }
+#shared-filters .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: end; }
+#shared-filters .filter-group label, .municipality-group legend { font-size: .78rem; }
+#shared-filters select, #shared-filters input, #shared-filters .municipality-select summary { min-height: 34px; }
 #shared-filters .municipality-option input { min-height: 0; }
-#shared-filters .filter-actions { grid-column: 1; grid-row: 3; }
-#shared-filters #map-default-time-note { grid-column: 2; grid-row: 3; align-self: center; margin: 0; }
-#shared-filters h3 { font-size: .85rem; margin-bottom: 6px; }
-#shared-filters .filter-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px 12px; align-items: end; }
-#shared-filters .filter-group label, .municipality-group legend { font-size: .72rem; }
-#shared-filters .filter-actions { margin-top: 6px; flex-wrap: wrap; }
-#shared-filters .map-default-note { margin: 6px 0 0; font-size: .72rem; }
-#shared-filters .btn { padding: 6px 12px; }
-#filter-state:empty { display: none; }
+#shared-filters details:not(.municipality-select) { margin-top: 12px; }
+#advanced-filters > summary { margin-bottom: 10px; }
+#filter-draft-state, #filter-state { font-size: .8rem; margin: 8px 0; overflow-wrap: anywhere; }
+#shared-filters .filter-actions { position: sticky; bottom: -10px; padding: 10px 0; margin-top: 8px; background: #fff; flex-wrap: wrap; z-index: 1; }
+#shared-filters .filter-actions .btn { font-size: .8rem; padding: 8px 10px; }
+/* The single side form scrolls; municipality options must stay inside its scrollport. */
+.workspace-enhanced .municipality-panel { position: static; width: 100%; max-width: 100%; margin-top: 4px; padding: 6px; }
+.workspace-enhanced .municipality-group { grid-column: 1 / -1; }
 
-.auction-map-panel { margin: 0; padding: 8px; min-width: 0; }
-.auction-map-heading-row { display: flex; justify-content: space-between; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-bottom: 4px; }
-.auction-map-panel h2 { font-size: 1rem; }
-.map-introduction { max-width: none; margin: 0 0 6px; font-size: .75rem; }
+.auction-map-panel { margin: 0; padding: 4px; min-width: 0; }
+.auction-map-heading-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-bottom: 4px; min-height: 28px; }
+.map-introduction { max-width: none; margin: 0 0 0 auto; font-size: .75rem; }
 .map-reference { position: relative; }
-.map-reference[open] { z-index: 6; }
-.map-reference-content { position: absolute; right: 0; top: calc(100% + 6px); width: 380px; max-width: calc(100vw - 48px); max-height: min(520px, 70dvh); overflow: auto; padding: 12px; border: 1px solid #9aa6b2; border-radius: 6px; background: #fff; box-shadow: 0 4px 12px #0003; }
-.map-versions { min-width: 0; }
+.map-reference-content { width: 380px; font-size: .82rem; line-height: 1.5; }
+#map-counts .map-reference-content { left: 0; right: auto; }
+#map-count-breakdown { margin-bottom: 8px; }
+.map-versions { min-width: 0; margin-top: 8px; }
 .map-legend { padding: 10px 0; margin-bottom: 8px; }
-.map-notice { margin: 0 0 6px; padding: 5px 8px; font-size: .76rem; overflow-wrap: anywhere; }
-.map-selection { max-height: 130px; overflow: auto; padding: 6px 9px; margin-bottom: 6px; }
-.map-selection h4 { margin-bottom: 3px; }
+.map-notice { margin: 0 0 6px; padding: 5px 8px; font-size: .8rem; overflow-wrap: anywhere; }
+#map-update-indicator { min-width: 6rem; font-size: .75rem; color: #52606d; }
+#selection-toggle { min-height: 28px; padding: 3px 6px; max-width: 100%; overflow-wrap: anywhere; }
+.map-canvas-frame #selection-toggle { position: absolute; top: 10px; left: 10px; max-width: calc(100% - 70px); z-index: 2; box-shadow: 0 1px 4px #0003; }
+#map-retry { align-self: flex-start; margin-bottom: 6px; }
+/* Healthy totals have a compact visible disclosure; retain the live status without
+   a full-width success banner. Updating existing results never changes map height. */
+.workspace-enhanced #map-state[data-state="ready"],
+.workspace-enhanced #map-state[data-state="loading"][data-retained="true"] {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; border: 0;
+}
 #workspace-views { min-width: 0; }
 .auction-map-layout { grid-template-columns: 350px minmax(0, 1fr); }
-.map-sidebar { grid-template-rows: minmax(0, 1fr); }
-.map-results { padding: 10px; }
+.map-sidebar { display: flex; flex-direction: column; }
+.map-selection { flex: none; max-height: 35%; overflow: auto; padding: 10px; margin: 0; border: 0; border-bottom: 1px solid #c7d0d9; border-radius: 0; background: #f8fafc; color: #17243a; font-size: .82rem; }
+.map-selection h4 { margin-bottom: 4px; }
+/* Only one full selection surface: the restored summary or the open rail article. */
+.map-selection[data-details-open="true"] { display: none; }
+.map-selection-reopen { font-size: .8rem; margin-top: 5px; }
+.map-results { padding: 10px; flex: 1; min-height: 80px; }
+.map-result-title { font-size: .85rem; }
+.map-result-meta { font-size: .78rem; }
+#rail-details { flex: none; max-height: 55%; overflow: auto; padding: 10px; border-bottom: 1px solid #c7d0d9; }
+.map-popup { overflow-wrap: anywhere; }
+#rail-details .map-popup { max-width: none; min-width: 0; }
+#rail-details .map-popup dl { font-size: .82rem; }
+.rail-details-close { min-height: 44px; width: 100%; margin-top: 8px; }
 #table-view { min-width: 0; }
 .results-info, .pagination { flex-wrap: wrap; gap: 6px; }
 
-/* A viewport-sized workspace on desktop, not a wider stacked operations page.
-   Native disclosure expansion and small/zoomed windows may grow vertically. */
 .workspace-enhanced body { min-height: 100dvh; height: 100dvh; display: flex; flex-direction: column; }
 .workspace-enhanced #workspace { flex: 1; min-height: 0; }
+.workspace-enhanced #workspace-body { display: flex; flex: 1; min-height: 0; }
+.workspace-enhanced #workspace[data-filters="true"] #workspace-views { grid-template-columns: 350px minmax(0, 1fr); gap: 8px; }
+.workspace-enhanced #shared-filters { grid-area: 1 / 1; }
+.workspace-enhanced #workspace[data-filters="true"] .auction-map-layout,
+.workspace-enhanced #workspace[data-filters="true"] #table-view { grid-area: 1 / 2; }
+.workspace-enhanced #shared-filters { min-height: 0; overflow: auto; }
 .workspace-enhanced .auction-map-panel { display: flex; flex-direction: column; flex: 1; min-height: min-content; }
-.workspace-enhanced #shared-filters .filter-actions, .workspace-enhanced #shared-filters #map-default-time-note { grid-row: 2; }
-.workspace-enhanced #shared-filters h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-.workspace-enhanced #filter-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
-/* Result/table content must not contribute an intrinsic height to the flex
-   workspace: only the explicit view minimum and available space size it. */
+/* Content cannot contribute an intrinsic map height; warnings can still grow above
+   the explicit minimum without being clipped. Table mode retains a measured map. */
 .workspace-enhanced #workspace-views { display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 240px; contain: size; }
 .workspace-enhanced .auction-map-layout { grid-area: 1 / 1; height: 100%; min-height: 0; }
 .workspace-enhanced .map-canvas-frame { min-height: 0; }
 .workspace-enhanced #table-view { grid-area: 1 / 1; overflow: auto; background: #fff; padding: 0 4px 8px; }
 #workspace[data-mode]:not([data-mode="table"]) #table-view { display: none; }
-/* Keep the hidden map's measured size and camera for shared viewport requests
-   while using the table. Visibility also removes its controls from keyboard/AT. */
 #workspace[data-mode="table"] .auction-map-layout { visibility: hidden; }
 #workspace[data-rail="false"] .auction-map-layout { grid-template-columns: minmax(0, 1fr); }
 #workspace[data-rail="false"] .map-sidebar { display: none; }
 
+@media (max-width: 1500px) {
+    header h1 { font-size: .9rem; }
+    .refresh-panel { gap: 4px 8px; }
+}
 @media (max-width: 1100px) {
-    #shared-filters .filter-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .auction-map-layout { grid-template-columns: 320px minmax(0, 1fr); }
+    .workspace-enhanced #workspace[data-filters="true"] #workspace-views { grid-template-columns: 300px minmax(0, 1fr); }
 }
 @media (max-width: 900px), (max-height: 700px) {
     .workspace-enhanced body { height: auto; }
-    .workspace-enhanced #workspace-views { flex: none; height: 55dvh; min-height: 390px; }
+    .workspace-enhanced #workspace-views { flex: none; height: 65dvh; min-height: 390px; }
+    .workspace-enhanced #shared-filters { max-height: 75dvh; }
+}
+@media (max-width: 900px) {
+    .workspace-enhanced #workspace[data-filters="true"] #workspace-views { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(390px, 1fr); height: auto; contain: none; }
+    .workspace-enhanced #workspace[data-filters="true"] .auction-map-layout,
+    .workspace-enhanced #workspace[data-filters="true"] #table-view { grid-area: 2 / 1; }
+    .workspace-enhanced #workspace[data-filters="true"] #table-view { max-height: 65dvh; }
+    .workspace-header .container { display: block; }
+    header h1 { margin-bottom: 6px; }
 }
 @media (max-width: 760px) {
-    .container { padding: 8px; }
-    header .stats { font-size: .75rem; }
-    .refresh-panel { grid-template-columns: minmax(0, 1fr); }
-    .refresh-actions, .refresh-status, .refresh-last-good, #refresh-details, #refresh-details[open] { grid-column: 1; grid-row: auto; }
-    #shared-filters { display: block; }
-    #shared-filters #map-default-time-note { margin-top: 6px; }
-    #shared-filters .filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .map-reference-content { position: static; margin-top: 8px; width: 100%; max-width: 100%; }
-    .map-reference[open] { width: 100%; }
+    .container { padding: 6px 8px; }
+    .refresh-panel { align-items: flex-start; }
+    .refresh-details-content, .map-reference-content { position: static; width: 100%; max-width: 100%; margin-top: 6px; }
+    #refresh-details[open], .map-reference[open] { width: 100%; }
     .workspace-enhanced #workspace-views { height: auto; contain: none; }
     .workspace-enhanced .auction-map-layout { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(390px, 1fr) auto; height: auto; overflow: hidden; }
     .workspace-enhanced .map-canvas-frame { grid-row: 1; min-height: 390px; }
     .map-sidebar { grid-row: 2; border: 0; border-top: 1px solid #aab5c0; }
     .map-results { max-height: 270px; }
+    .map-selection, #rail-details { max-height: 300px; }
     #workspace[data-rail="false"] .auction-map-layout { grid-template-rows: minmax(390px, 1fr); }
     #workspace[data-mode="table"] #workspace-views { height: 65dvh; min-height: 390px; }
     #workspace[data-mode="table"] .auction-map-layout { height: 100%; overflow: hidden; }

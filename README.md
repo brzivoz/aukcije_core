@@ -138,18 +138,24 @@ GET  /basemap/*             same-origin PMTiles, style, sprites, and glyphs
 The desktop page is a full-width, viewport-sized investigation workspace. Use
 **Карта + резултати**, **Само карта**, or **Табела** to change presentation without
 losing applied filters, unsaved edits, selection, camera, sort or page. The results
-rail and the single filter form can be collapsed independently. Refresh/retry,
-last complete success and failures remain visible; progress/operator details and
-the extended legend/version information expand on demand. Narrow or zoomed
-windows reflow, with horizontal scrolling confined to the table region.
+rail and the single filter form can be collapsed independently. Filters start
+closed and open beside the map, with locally remembered panel/disclosure preferences.
+Applied chips (always including time scope) remain visible; **Непримењене измене**
+distinguishes drafts. Common criteria come first, with specialist criteria under
+**Још филтера**. Closing a panel never applies or discards its drafts.
+Refresh/retry and the last complete success share the compact header; failures,
+staleness and running progress remain discoverable without opening diagnostics.
+Counts, the extended legend and technical versions expand on demand. Narrow or
+zoomed windows reflow, with horizontal scrolling confined to the table region.
 See [#45 verification](documentation/2026-09-08-issue-45-verification.md) for
 measured desktop/ultrawide bounds and the keyboard/resize regression coverage.
 
-The map popup and selection summary close together with **Escape**, **×**, or
-a blank-map/outside click, without clearing selection or filters. Updates keep
-both dismissed surfaces hidden; select the object/result again to reopen them.
-Reload/copied links and back/forward restore the selection summary with the popup
-closed; see the
+Selected details now use the results rail, not a banner above the map. Map-only
+mode reuses the same details article in a popup. **Escape**, **Назад на резултате**,
+**×**, or an outside click closes transient details without clearing selection.
+A compact **Избор** control reopens them and explains unavailable selections.
+Updates never reopen dismissed details; reload/history restore selection with
+details closed. See [#54 verification](documentation/2026-09-09-issue-54-verification.md), the
 [selection and focus contract](documentation/SHARED_FILTERS.md#selection-and-map-details-46)
 and [#46 verification](documentation/2026-09-09-issue-46-verification.md).
 
@@ -408,8 +414,8 @@ Reports land in `build/reports/tests/browserTest/index.html`. Failed tests retai
 `failure.png` and `trace.zip` under `build/browser-test-results/artifacts/`; CI
 publishes those files as `playwright-failure-evidence`. Successful map proofs
 retain the #25 basemap screenshot, #27 desktop/narrow product screenshots,
-and #45 workspace screenshots at 1366×768, 1920×1080 and 2560×1080 with measured bounds
-plus JSON manifests under `build/browser-test-results/evidence/`; CI publishes
+#45 workspace screenshots at 1366×768, 1920×1080 and 2560×1080, and #54 compact
+workspace screenshots at 1366×768 and 1920×1080 with measured bounds plus JSON manifests under `build/browser-test-results/evidence/`; CI publishes
 that directory in `browser-test-report`. The shared network guard
 aborts every non-loopback HTTP(S) request, closes every non-loopback WebSocket,
 and tests assert the exact contacted host set. See

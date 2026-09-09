@@ -200,7 +200,7 @@ if (panel) {
             ? `Напредак: ${stageLabels[state.stage]} ${countFor(state.stage, state)} — детаљи`
             : state.status === 'FAILED'
                 ? 'Детаљи неуспелог покушаја и операторске контроле'
-                : 'Напредак и операторски детаљи';
+                : 'Напредак и детаљи';
         elements.startedAt.textContent = formatInstant(state.startedAt, 'Није покренуто');
         elements.lastSuccess.textContent = formatInstant(
             state.lastSuccessfulCompleteRefresh, 'Није забележено');
@@ -224,7 +224,7 @@ if (panel) {
             const summary = precisionSummary(state.precisionSummary);
             elements.result.textContent = `Карта је спремна. Приказано је ${state.mappedCount} од ${state.populationCount} аукција.${summary}`;
             elements.result.hidden = false;
-            announce(`Карта је спремна. Мапирано је ${state.mappedCount} од ${state.populationCount} аукција.`, 'success');
+            announce('Карта је спремна.', 'success');
             if (firstStateRendered && previous?.status === 'RUNNING') {
                 // The shared view owns all result/count refreshes at one cutoff.
                 window.dispatchEvent(new CustomEvent('eaukcija:refresh-complete', {

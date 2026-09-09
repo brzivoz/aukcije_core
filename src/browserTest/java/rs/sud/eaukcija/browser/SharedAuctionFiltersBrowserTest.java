@@ -26,6 +26,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
     @Autowired JdbcTemplate jdbc;
 
     @BeforeEach void legacyFixtures() {
+        browser.page().addInitScript("localStorage.setItem('eaukcija.workspace.v1.filters', 'true'); localStorage.setItem('eaukcija.workspace.v1.advanced-filters', 'true');");
         jdbc.update("""
                 INSERT INTO auctions(id, auction_number, end_date, starting_price, status, category_name,
                     short_description, municipality, place_name, first_sale, details_fetched)
@@ -141,7 +142,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         page.fill("#min-price-filter", "200000"); page.fill("#max-price-filter", "100000");
         page.click("#shared-filters button[type=submit]");
         page.waitForFunction("document.querySelector('#map-state').dataset.state === 'error'");
-        assertThat(page.locator("#filter-state").textContent()).contains("maxPrice");
+        assertThat(page.locator("#filter-state").textContent()).contains("Макс. РСД");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
         assertThat(page.locator("#shared-results tbody tr[data-auction-id]").count()).isEqualTo(6);
         browser.network().assertOnlyLocalhostRequests();

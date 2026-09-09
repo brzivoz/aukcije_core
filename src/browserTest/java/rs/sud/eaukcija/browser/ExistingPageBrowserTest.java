@@ -144,7 +144,8 @@ class ExistingPageBrowserTest extends PostgisBrowserFixture {
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         page.waitForFunction("""
                 () => document.querySelector('#refresh-status')?.textContent
-                        === 'Карта је спремна. Мапирано је 1 од 1 аукција.'
+                        === 'Карта је спремна.'
+                  && document.querySelector('#refresh-result')?.textContent.includes('1 од 1')
                   && localStorage.getItem('eaukcija.refresh.workflowId') === null
                 """);
 

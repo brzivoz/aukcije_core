@@ -24,7 +24,7 @@ import rs.sud.eaukcija.basemap.BasemapTestBundle;
 /** #46: real viewport/periodic refreshes over PostGIS, not synthetic map refresh events. */
 class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
     private static final Path BASEMAP = basemap();
-    private static final String CLOSE = ".maplibregl-popup-close-button";
+    private static final String CLOSE = ".rail-details-close, .maplibregl-popup-close-button";
     private static final String REOPEN = ".map-selection-reopen";
 
     @DynamicPropertySource
@@ -39,6 +39,7 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
 
     @BeforeEach
     void seedProperties() {
+        browser.page().addInitScript("localStorage.setItem('eaukcija.workspace.v1.filters', 'true'); localStorage.setItem('eaukcija.workspace.v1.advanced-filters', 'true');");
         jdbc.update("""
                 INSERT INTO auctions(id, auction_number, end_date, starting_price, status, category_name,
                     first_sale, details_fetched)
@@ -113,11 +114,11 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
         result(page, "ADDRESS").press("Enter");
         assertOpen(page, "ADDRESS");
         assertFocused(page.locator(".map-popup a[href^='https://eaukcija.sud.rs/']"));
-        page.evaluate("window.__focusedDetails = document.activeElement; window.__popup = document.querySelector('.maplibregl-popup')");
+        page.evaluate("window.__focusedDetails = document.activeElement; window.__popup = document.querySelector('#auction-popup-details')");
         jdbc.update("UPDATE auctions SET starting_price=987654 WHERE id=34001");
         awaitPeriodicUpdate(page);
         assertThat(page.locator(".map-popup").textContent()).contains("987.654");
-        assertThat(page.evaluate("document.activeElement === window.__focusedDetails && window.__focusedDetails.isConnected && document.querySelector('.maplibregl-popup') === window.__popup")).isEqualTo(true);
+        assertThat(page.evaluate("document.activeElement === window.__focusedDetails && window.__focusedDetails.isConnected && document.querySelector('#auction-popup-details') === window.__popup")).isEqualTo(true);
         page.keyboard().press("Escape");
         assertDismissed(page, page.url());
         assertFocused(result(page, "ADDRESS")); // The original result node was replaced by refresh.
@@ -127,7 +128,7 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
         page.locator(".map-popup a").last().press("Tab");
         Locator close = page.locator(CLOSE);
         assertFocused(close);
-        assertThat(close.getAttribute("aria-label")).isEqualTo("Затвори детаље аукције");
+        assertThat(close.getAttribute("aria-label")).contains("Затвори детаље аукције");
         assertThat(close.evaluate("el => { const b = el.getBoundingClientRect(); return b.width >= 44 && b.height >= 44 && el.matches(':focus-visible'); }")).isEqualTo(true);
         page.evaluate("window.__focusedClose = document.activeElement");
         awaitPeriodicUpdate(page);
@@ -137,20 +138,20 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
         assertFocused(result(page, "STREET"));
 
         result(page, "STREET").press("Enter");
-        page.locator(REOPEN).press("Enter");
+        page.locator("#selection-toggle").press("Enter");
         assertOpen(page, "STREET");
         page.keyboard().press("Escape");
         assertDismissed(page, page.url());
-        assertFocused(result(page, "STREET")); // The summary trigger is now hidden too.
+        assertFocused(page.locator("#selection-toggle")); // The compact reopen control remains available.
         result(page, "STREET").press("Enter");
-        page.locator(REOPEN).focus();
+        page.locator("#selection-toggle").focus();
         page.evaluate("window.__reopen = document.activeElement");
         awaitPeriodicUpdate(page);
         assertThat(page.evaluate("document.activeElement === window.__reopen && window.__reopen.isConnected")).isEqualTo(true);
-        page.locator(REOPEN).press("Space");
+        page.locator("#selection-toggle").press("Space");
         page.locator(CLOSE).click();
         assertDismissed(page, page.url());
-        assertFocused(result(page, "STREET"));
+        assertFocused(page.locator("#selection-toggle"));
 
         // The table trigger becomes hidden when selection reveals the map; use the matching result instead.
         page.locator("#mode-table").press("Enter");
@@ -373,7 +374,8 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
         page.waitForSelector(".map-popup");
         ready(page);
         assertThat(page.locator(".map-popup").getAttribute("data-feature-id")).isEqualTo(result(page, precision).getAttribute("data-feature-id"));
-        assertThat(page.locator("#map-selection").isVisible()).isTrue();
+        assertThat(page.locator("#map-selection").isHidden()).isTrue(); // Do not duplicate the open rail article.
+        assertThat(page.locator("#rail-details").isVisible()).isTrue();
         assertThat(page.locator(REOPEN).getAttribute("aria-expanded")).isEqualTo("true");
         assertThat(page.evaluate("window.__auctionMap.getDiagnostics().detailsOpen")).isEqualTo(true);
     }
@@ -389,7 +391,7 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
     }
 
     private static void assertPopupClosed(Page page, String url) {
-        assertThat(page.locator(".maplibregl-popup").count()).isZero();
+        assertThat(page.locator("#auction-popup-details").count()).isZero();
         assertThat(page.evaluate("window.__auctionMap.getDiagnostics().detailsOpen")).isEqualTo(false);
         assertThat(page.url()).isEqualTo(url);
     }
@@ -436,7 +438,10 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
     }
 
     private static void clickBlankMap(Page page) {
-        page.locator("#auction-map canvas").click(new Locator.ClickOptions().setPosition(15, 15));
+        Locator canvas = page.locator("#auction-map canvas");
+        double height = ((Number) canvas.evaluate("el => el.clientHeight")).doubleValue();
+        // Top-left now contains the deliberate selection reopen control, not blank map.
+        canvas.click(new Locator.ClickOptions().setPosition(15, height - 35));
     }
 
     private void location(long auction, String precision, String wkt) {

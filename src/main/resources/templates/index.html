@@ -91,17 +91,9 @@
     <link rel="stylesheet" href="/auction-workspace.css"/>
 </head>
 <body>
-<header>
+<header class="workspace-header">
     <div class="container">
         <h1>еАукција — Претрага непокретности</h1>
-        <div class="stats">
-            Укупно: <strong id="catalogue-count" th:text="${totalCount}">0</strong> аукција |
-            Са детаљима: <strong id="catalogue-details" th:text="${detailsCount}">0</strong>
-        </div>
-    </div>
-</header>
-
-<main class="container" id="workspace">
 
     <section class="refresh-panel" id="refresh-panel"
              aria-labelledby="refresh-heading" th:attr="data-refresh-enabled=${refreshEnabled}">
@@ -117,9 +109,12 @@
         </div>
         <div id="refresh-polite" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
         <div id="refresh-alert" class="sr-only" role="alert" aria-live="assertive" aria-atomic="true"></div>
-        <p class="refresh-last-good">Последње потпуно успешно освежавање: <strong id="refresh-last-success">Није забележено</strong></p>
+        <p class="refresh-last-good"><span title="Последње потпуно успешно освежавање">Успешно освежено:</span> <strong id="refresh-last-success">Није забележено</strong></p>
         <details id="refresh-details">
-        <summary id="refresh-progress-summary">Напредак и операторски детаљи</summary>
+        <summary id="refresh-progress-summary">Напредак и детаљи</summary>
+        <div class="refresh-details-content">
+        <p class="stats">Каталог: <strong id="catalogue-count" th:text="${totalCount}">0</strong> аукција ·
+            Са детаљима: <strong id="catalogue-details" th:text="${detailsCount}">0</strong></p>
         <p class="refresh-introduction">
             Једна радња преузима огласе и детаље, обрађује локације и потврђује да је карта спремна.
             Претходна исправна карта остаје доступна ако нови покушај не успе.
@@ -149,27 +144,47 @@
             </div>
             <p id="advanced-status" role="status" aria-live="polite"></p>
         </details>
+        </div>
         </details>
     </section>
+    </div>
+</header>
 
+<main class="container" id="workspace">
     <div class="workspace-toolbar" hidden>
         <div class="workspace-modes" role="group" aria-label="Начин приказа">
             <button type="button" id="mode-results" data-workspace-mode="results" aria-pressed="true" aria-controls="workspace-views">Карта + резултати</button>
             <button type="button" id="mode-map" data-workspace-mode="map" aria-pressed="false" aria-controls="workspace-views">Само карта</button>
             <button type="button" id="mode-table" data-workspace-mode="table" aria-pressed="false" aria-controls="workspace-views">Табела</button>
         </div>
-        <button type="button" id="workspace-filter-toggle" aria-expanded="true" aria-controls="shared-filters">Филтери</button>
+        <button type="button" id="workspace-filter-toggle" aria-expanded="false" aria-controls="shared-filters">Филтери <span id="filter-active-count"></span><span id="filter-dirty-indicator" hidden> · Непримењене измене</span></button>
         <button type="button" id="workspace-rail-toggle" aria-expanded="true" aria-controls="map-sidebar">Резултати карте</button>
     </div>
+    <div id="workspace-applied" aria-label="Примењени филтери" hidden>
+        <span>Примењено:</span><div id="applied-filter-chips"></div>
+        <button type="button" id="applied-filter-reset">Ресетуј</button>
+    </div>
+    <div id="workspace-body">
     <div th:replace="~{auction-filters :: filters}"></div>
 
     <section class="auction-map-panel" aria-labelledby="auction-map-heading"
              th:attr="data-map-test-hooks=${mapBrowserTestHooks},data-auto-refresh-interval-ms=${mapAutoRefreshIntervalMs},data-initial-longitude=${mapInitialLongitude},data-initial-latitude=${mapInitialLatitude},data-initial-zoom=${mapInitialZoom},data-fit-parcels=${fitParcelsOnSelect}">
         <div class="auction-map-heading-row">
-            <h2 id="auction-map-heading">Аукције непокретности у Србији</h2>
+            <h2 id="auction-map-heading" class="sr-only">Аукције непокретности у Србији</h2>
+            <details id="map-counts" class="map-reference">
+                <summary id="map-count-summary">Број аукција и објеката</summary>
+                <div class="map-reference-content"><p id="map-count-breakdown"></p>
+                    <p>Табела: све филтриране аукције. Карта и резултати: само видљива област.</p>
+                    <button type="button" id="map-count-table">Прикажи све у табели</button>
+                </div>
+            </details>
+            <span id="map-update-indicator" role="status" aria-live="polite"></span>
+            <button type="button" id="selection-toggle" aria-expanded="false" aria-controls="map-selection" hidden>Изабрана аукција</button>
+            <p id="auction-map-description" class="map-introduction">Центар ≠ тачна локација</p>
             <details id="map-reference" class="map-reference">
             <summary>Легенда и подаци карте</summary>
             <div class="map-reference-content">
+            <p>Ознака „центар“ је приближна локација области, не адреса или парцела. Облик и текст ознаке показују прецизност.</p>
             <dl class="map-versions" aria-label="Верзије и свежина карте">
                 <div><dt>Основна карта</dt><dd id="basemap-version">Учитавање…</dd></div>
                 <div><dt>Подаци</dt><dd id="map-data-version">Учитавање…</dd></div>
@@ -190,17 +205,18 @@
             </div>
             </details>
         </div>
-        <p id="auction-map-description" class="map-introduction">Ознака „центар“ је приближна локација области, не адреса или парцела. Облик и текст ознаке показују прецизност.</p>
         <div id="map-freshness-warning" class="map-notice map-notice-warning" role="status" hidden></div>
         <div id="map-state" class="map-notice" role="status" aria-live="polite"
              aria-atomic="true" data-state="loading">Учитавање аукција у видљивом делу карте…</div>
+        <button type="button" id="map-retry" hidden>Поново учитај приказ</button>
         <div id="map-limit-warning" class="map-notice map-notice-warning" role="status" hidden>
             Приказан је само ограничен број резултата. Увећајте карту или сузите филтере.
         </div>
-        <div id="map-selection" class="map-selection" tabindex="-1" hidden></div>
         <div id="workspace-views">
         <div class="auction-map-layout">
             <aside id="map-sidebar" class="map-sidebar" aria-label="Резултати карте">
+                <div id="map-selection" class="map-selection" tabindex="-1" hidden></div>
+                <div id="rail-details" hidden></div>
                 <section class="map-results" aria-labelledby="map-results-heading">
                     <div class="map-results-heading-row">
                         <h3 id="map-results-heading">У видљивом делу</h3>
@@ -300,6 +316,7 @@
     </div>
     </div>
     </section>
+    </div>
 </main>
 
 <script type="module" src="/auction-workspace.mjs"></script>

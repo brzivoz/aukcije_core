@@ -138,8 +138,9 @@ server-rendered table remain available.
 
 `auction-workspace.css` uses modest gutters and a 350px results rail (320px on
 smaller desktops), with the map flexing into the remaining viewport. The same
-selected-feature summary is available in every mode, including its textual
-precision/explanation, but dismissal hides it together with the popup. Full legend and technical versions are a native details
+selected-feature summary originally sat above the map, including its textual
+precision/explanation; #54 below moves it into the rail and provides a compact
+reopen control. Dismissal still hides the summary together with details. Full legend and technical versions are a native details
 panel with Escape-to-summary focus restoration. Smaller/zoomed windows reflow
 vertically, map before results; the table has its own focusable horizontal scroll
 region. This is not the separate mobile bottom-sheet or advanced-filter/chip UX.
@@ -169,6 +170,52 @@ Browser coverage measures default map/rail/container/attribution bounds at
 rail/filter toggles, disclosures, retained drafts/sort/page/selection/camera,
 reduced motion, 200%-zoom-equivalent reflow, no-JavaScript GET fallback, and
 actual resized minimum-zoom API responses under the localhost-only guard.
+
+## Compact desktop chrome (#54)
+
+The #45 geometry and shared-state guarantees remain; #54 replaces its remaining
+vertical stack. `index.html` puts compact refresh/last-good status in the header,
+with catalogue statistics inside the operator disclosure. Warnings and running
+progress remain visible. The redundant visual map heading is screen-reader-only;
+a concise coarse-location cue and legend disclosure remain visible.
+
+`auction-workspace.mjs` reparents the **same** form once into `#workspace-views`.
+Its side column starts closed, while map counts/warnings keep the full workspace
+width, so opening filters cannot rewrap them and shift the map vertically.
+`eaukcija.workspace.v1.*` local-storage keys remember only presentation booleans;
+storage failure is harmless. Native disclosures own Escape before the outer panel,
+which returns focus to its toggle. Validation reveals the offending control.
+Small/zoomed windows reflow the form and retain a usable map/table scroll region.
+
+`auction-filter-presentation.mjs` is a read-only projection of the shared view's
+last usable query, not a second filter model. It creates DOM-safe applied chips,
+advanced-field counts and dirty-state feedback from native controls. Removal/reset
+callbacks go through `auction-map.mjs` and its existing canonical navigation path.
+Unrelated drafts survive chip removal, refresh and panel/mode changes; chips only
+change after accepted view responses. Unchanged polls do not recreate focused chips.
+RSD normalization is lexical, preserving the server's 17-digit decimal contract.
+
+The healthy count paragraph is now a compact disclosure with explicit auction /
+property totals and returned/unmapped/outside breakdown. Warnings remain outside;
+a separate view retry never triggers acquisition. Existing-result loading retains
+height and uses a quiet indicator. Result refresh retains the rail's scroll offset.
+
+Selection summary/details live in the rail. Map-only uses a small **Избор** overlay
+and transports the same details article into MapLibre's popup on explicit opening.
+Table-mode reopening reveals Map + results. Both transports reuse #46's state,
+source-link allowlist, dismissal and focus return; periodic updates retain connected
+controls. Late cluster responses are discarded after another selection/dismissal.
+This does not add #51's richer auction descriptions/projections or #48's broader
+keyed result reconciliation, nor #53's mobile bottom-sheet workflow.
+
+`CompactWorkspaceBrowserTest` measures map bounds and retains `issue-54-*` screenshots
+and JSON under `build/browser-test-results/evidence/`. It covers defaults, preferences,
+chips/drafts/history, invalid hidden fields, rail/Map-only details, stationary map
+position through panel/selection/refresh, exceptional selections, retry, storage
+denial and narrow/zoom-equivalent layouts. Existing #45/#46/#44 suites retain
+resize/minimum-zoom, precision, hostile-text/link safety, source refresh, keyboard,
+reduced-motion, no-JavaScript and localhost-only coverage. See the
+[verification record](2026-09-09-issue-54-verification.md).
 
 ## Transient map details (#46)
 

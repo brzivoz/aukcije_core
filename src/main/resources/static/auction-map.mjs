@@ -1,6 +1,7 @@
 import {NavigationControl, Popup} from './vendor/maplibre-gl/6.1.0/maplibre-gl.mjs';
 import {createLocalBasemap} from './basemap-map.mjs';
 import {createMunicipalitySelect} from './municipality-select.mjs';
+import {createFilterPresentation} from './auction-filter-presentation.mjs';
 
 const POINT_SOURCE = 'auction-points';
 const AREA_SOURCE = 'auction-areas';
@@ -103,9 +104,11 @@ const state = {
     map: null,
     popup: null,
     features: [],
+    resultScrollTop: 0,
     selectedAuctionId: readSelectedAuction(),
     // Selection is durable; details visibility and its return-focus trigger are not URL state.
     selectedFeatureId: null,
+    clusterSequence: 0,
     detailsOpen: false,
     // URL restoration may show a selection-only summary; dismissal hides that too.
     detailsDismissed: false,
@@ -146,6 +149,24 @@ if (document.querySelector('.auction-map-panel')?.dataset.mapTestHooks === 'true
     window.__auctionMap = publicApi;
 }
 
+const filterPresentation = createFilterPresentation({
+    form: elements.filterForm, fields: FILTER_FIELDS, appliedQuery: () => state.lastUsableQuery,
+    removeCriterion: (name, value) => {
+        const query = new URLSearchParams(state.lastUsableQuery);
+        if (name === 'municipality') {
+            query.delete(name, value);
+            // Remove this applied choice only; preserve other municipality drafts.
+            municipalitySelect.setValues(new FormData(elements.filterForm).getAll(name).filter(item => item !== value));
+        } else {
+            query.delete(name);
+            if (name === 'timeScope') query.set(name, 'not-ended');
+            elements.filterForm.elements.namedItem(name).value = query.get(name) || '';
+        }
+        query.set('page', '0');
+        navigateFilters(query, false);
+    },
+    reset: () => elements.filterReset.click()
+});
 replaceUrl(state.appliedQuery);
 bindFilterControls();
 bindDetailsDismissal();
@@ -289,6 +310,15 @@ function configureTwoDimensionalCamera(map) {
 }
 
 function bindFilterControls() {
+    const results = elements.resultList.closest('.map-results');
+    const resultsVisible = () => results.getClientRects().length && getComputedStyle(results).visibility !== 'hidden';
+    results.addEventListener('scroll', () => {
+        if (resultsVisible()) state.resultScrollTop = results.scrollTop;
+    });
+    window.addEventListener('eaukcija:workspace-mode', () => {
+        if (resultsVisible()) results.scrollTop = state.resultScrollTop;
+    });
+    document.getElementById('map-retry').addEventListener('click', () => refreshNow());
     elements.filterForm.addEventListener('submit', event => {
         // With no usable basemap, normal GET submission still provides a working table.
         if (!state.map && !state.initializationPromise) return;
@@ -309,6 +339,12 @@ function bindFilterControls() {
         elements.filterForm.elements.namedItem(name).addEventListener('input', () =>
             document.getElementById('map-to-filter').setCustomValidity(''));
     }
+    elements.filterForm.addEventListener('input', event => {
+        if (event.target.getAttribute('aria-invalid') === 'true') {
+            event.target.removeAttribute('aria-invalid');
+            event.target.removeAttribute('aria-errormessage');
+        }
+    });
     elements.filterReset.addEventListener('click', event => {
         event.preventDefault();
         const query = new URLSearchParams(state.appliedQuery);
@@ -319,6 +355,7 @@ function bindFilterControls() {
     document.addEventListener('click', event => {
         const selected = event.target.closest('#shared-results .table-select');
         if (selected) {
+            state.clusterSequence++;
             window.dispatchEvent(new Event('eaukcija:show-map'));
             if (state.selectedAuctionId !== selected.dataset.auctionId) state.selectedFeatureId = null;
             state.selectedAuctionId = selected.dataset.auctionId;
@@ -371,6 +408,7 @@ function restoreFilterControls() {
         else elements.filterForm.elements.namedItem(field).value = state.appliedQuery.get(field) || '';
     }
     document.getElementById('map-to-filter').setCustomValidity('');
+    filterPresentation.update();
 }
 
 function refreshOptions(options) {
@@ -530,6 +568,11 @@ async function loadViewport({quiet = false} = {}) {
         state.lastUsableQuery = new URLSearchParams(canonical);
         state.invalidFilter = false;
         replaceUrl(canonical);
+        filterPresentation.update();
+        elements.filterForm.querySelectorAll('[aria-invalid]').forEach(control => {
+            control.removeAttribute('aria-invalid');
+            control.removeAttribute('aria-errormessage');
+        });
         document.getElementById('filter-state').textContent = '';
         state.features = collection.features;
         state.selectionStatus = collection.selection || null;
@@ -546,11 +589,16 @@ async function loadViewport({quiet = false} = {}) {
                 + `Објеката на карти: ${collection.numberReturned} од ${counts.featureCountInViewport}. `
                 + `Без локације: ${counts.unmappedAuctionCount}. `
                 + `Ван приказа: ${counts.filteredAuctionCount - counts.unmappedAuctionCount - counts.mappedAuctionCountInViewport}.`;
+        const returnedAuctions = collection.returnedAuctionCount ?? new Set(collection.features.map(feature => feature.properties.auctionId)).size;
+        document.getElementById('map-count-breakdown').textContent = summary + ` Учитано аукција: ${returnedAuctions}.`;
+        document.getElementById('map-count-summary').textContent = `Филтрирано: ${counts.filteredAuctionCount} аукција · `
+            + `У приказу: ${counts.mappedAuctionCountInViewport} аукција / ${counts.featureCountInViewport} објеката`
+            + (collection.truncated ? ` — учитано ${collection.numberReturned} објеката (ограничено)` : '');
         const empty = !collection.features.length
                 ? (state.appliedQuery.get('precision') === 'NONE'
                     ? ' Изабране су аукције без објављиве локације; карта нема ознаке.'
                     : ' Нема објеката у приказу за пресек критеријума; проверите датуме и временски опсег.') : '';
-        setMapState(collection.features.length ? 'ready' : 'empty', summary + empty
+        setMapState(collection.features.length ? 'ready' : 'empty', (collection.features.length ? summary : empty)
                 + (collection.truncated ? ' Приказ је ограничен: нису све аукције/објекти учитани; сузите област или филтере.' : ''));
         restoreSelectionFromFeatures();
     } catch (error) {
@@ -568,15 +616,25 @@ async function loadViewport({quiet = false} = {}) {
             state.appliedQuery = new URLSearchParams(state.lastUsableQuery);
             state.invalidFilter = true;
             replaceUrl(state.appliedQuery);
-            const field = error.field ? ` (${error.field})` : '';
+            const field = error.field ? ` (${filterPresentation.label(error.field)})` : '';
             const detail = error.detail ? `: ${error.detail}` : '';
             setMapState(
                     'error',
                     `Захтев приказа није прихваћен${field}${detail}.${retained} Промените приказ или филтер.`);
+            filterPresentation.update();
+            if (FILTER_FIELDS.includes(error.field)) {
+                const control = elements.filterForm.elements.namedItem(error.field);
+                if (control instanceof HTMLElement) {
+                    control.setAttribute('aria-invalid', 'true');
+                    control.setAttribute('aria-errormessage', 'filter-state');
+                }
+                window.dispatchEvent(new CustomEvent('eaukcija:reveal-filter', {detail: {field: error.field}}));
+            }
         } else {
             setMapState(
                     'error',
                     `Није могуће преузети аукције за овај приказ.${retained} Покушајте поново.`);
+            document.getElementById('map-retry').hidden = false;
         }
     } finally {
         if (state.activeRequest === controller) {
@@ -968,11 +1026,28 @@ function bindMapInteractions(map) {
 }
 
 function bindDetailsDismissal() {
+    const toggle = document.getElementById('selection-toggle');
+    toggle.addEventListener('click', event => {
+        if (document.getElementById('workspace').dataset.mode === 'table') window.dispatchEvent(new Event('eaukcija:show-map'));
+        const feature = selectedFeature();
+        if (feature) selectFeature(feature, {trigger: toggle, focusDetails: event.detail === 0});
+        else {
+            window.dispatchEvent(new Event('eaukcija:show-map'));
+            state.detailsDismissed = false;
+            restoreSelectionFromFeatures();
+            elements.selection.focus({preventScroll: true});
+        }
+    });
+    window.addEventListener('eaukcija:workspace-mode', () => {
+        if (state.detailsOpen && selectedFeature()) showPopup(selectedFeature());
+        updateDetailsControl();
+    });
     // Capture runs BEFORE result/table/MapLibre opening handlers. The opening click
     // cannot bubble back here and immediately dismiss the newly opened details.
     document.addEventListener('click', event => {
         if ((state.detailsOpen || !elements.selection.hidden) && !state.popup?.getElement().contains(event.target)
-                && !elements.selection.contains(event.target)) {
+                && !document.getElementById('rail-details').contains(event.target)
+                && !toggle.contains(event.target) && !elements.selection.contains(event.target)) {
             // Hide the summary after hit testing: removing it now shifts the map
             // under this same pointer event. Never reclaim the clicked control's focus.
             dismissDetails({deferSummary: true});
@@ -1002,31 +1077,40 @@ async function showCluster(cluster) {
         return;
     }
     state.detailsDismissed = false;
+    const sequence = ++state.clusterSequence;
     const source = state.map.getSource(POINT_SOURCE);
     const clusterId = Number(cluster.properties.cluster_id);
     const count = Number(cluster.properties.point_count);
     try {
         const leaves = await source.getClusterLeaves(clusterId, Math.min(count, RESULT_LIMIT), 0);
+        if (sequence !== state.clusterSequence) return;
         diagnostics.lastClusterError = null;
         renderClusterSelection(leaves, count);
     } catch (_error) {
+        if (sequence !== state.clusterSequence) return;
         diagnostics.lastClusterError = 'CLUSTER_CHANGED';
         renderClusterError();
     }
 }
 
 function renderClusterError() {
+    state.detailsOpen = false;
+    closePopup();
     elements.selection.replaceChildren();
     elements.selection.setAttribute('role', 'alert');
     elements.selection.setAttribute('aria-live', 'assertive');
     const message = document.createElement('p');
     message.textContent = 'Група аукција се променила током освежавања. Активирајте групу поново.';
     elements.selection.append(message);
+    window.dispatchEvent(new Event('eaukcija:show-map'));
     elements.selection.hidden = state.detailsDismissed;
     if (!elements.selection.hidden) elements.selection.focus({preventScroll: true});
 }
 
 function renderClusterSelection(features, total) {
+    closePopup();
+    state.detailsOpen = false;
+    window.dispatchEvent(new Event('eaukcija:show-map'));
     elements.selection.replaceChildren();
     elements.selection.removeAttribute('role');
     elements.selection.removeAttribute('aria-live');
@@ -1051,6 +1135,10 @@ function renderClusterSelection(features, total) {
 }
 
 function renderResults(features) {
+    const scroll = elements.resultList.closest('.map-results');
+    if (scroll.getClientRects().length && getComputedStyle(scroll).visibility !== 'hidden') {
+        state.resultScrollTop = scroll.scrollTop;
+    }
     const focusedId = elements.resultList.contains(document.activeElement)
             ? document.activeElement.dataset.featureId : null;
     elements.resultList.replaceChildren();
@@ -1079,6 +1167,7 @@ function renderResults(features) {
         elements.resultList.append(item);
     }
     // Preserve the same logical keyboard position, not a global focus transfer.
+    scroll.scrollTop = state.resultScrollTop;
     if (focusedId) resultTrigger(focusedId)?.focus({preventScroll: true});
 }
 
@@ -1101,6 +1190,7 @@ function bindActivation(button, activate) {
 }
 
 function selectFeature(feature, options = {}) {
+    state.clusterSequence++; // A late chooser response cannot replace an explicit property activation.
     // Use full viewport geometry/properties rather than a clipped rendered tile or stale cluster leaf.
     const featureId = feature.properties.mapFeatureId || feature.id;
     feature = state.features.find(candidate => candidate.id === featureId) || {...feature, id: featureId};
@@ -1151,11 +1241,10 @@ function renderSelectedSummary(feature) {
         const reopen = document.createElement('button');
         reopen.type = 'button';
         reopen.className = 'map-selection-reopen';
-        reopen.textContent = 'Отвори детаље на карти';
+        reopen.textContent = 'Отвори детаље';
         bindActivation(reopen, options => {
             const selected = selectedFeature();
             if (!selected) return;
-            window.dispatchEvent(new Event('eaukcija:show-map'));
             selectFeature(selected, {...options, trigger: reopen});
         });
         elements.selection.append(heading, summary, reopen);
@@ -1194,6 +1283,9 @@ function updateSelectionLayers() {
 
 function restoreSelectionFromFeatures() {
     diagnostics.selectedAuctionId = state.selectedAuctionId;
+    const toggle = document.getElementById('selection-toggle');
+    toggle.hidden = !state.selectedAuctionId;
+    toggle.textContent = state.selectedAuctionId ? `Избор: ${state.selectedAuctionId}` : '';
     updateResultSelection();
     // A resize/refresh must not replace the cluster chooser while the user is
     // choosing a property. Explicit feature/table activation bypasses it.
@@ -1207,6 +1299,7 @@ function restoreSelectionFromFeatures() {
     const selected = selectedFeature();
     if (selected) {
         state.selectedFeatureId = selected.id;
+        toggle.textContent = `Избор: ${state.selectedAuctionId} · ${precisionLabel(selected)}`;
         renderSelectedSummary(selected);
         if (state.detailsOpen) showPopup(selected);
         else closePopup();
@@ -1222,6 +1315,9 @@ function restoreSelectionFromFeatures() {
             VISIBLE: 'Изабрани објекат аукције није у учитаном приказу; други објекти исте аукције могу бити видљиви.'
         };
         const code = String(state.selectionStatus?.auctionId) === state.selectedAuctionId ? state.selectionStatus.state : null;
+        const shortReasons = {OUTSIDE_FILTERS: 'ван филтера', UNMAPPED: 'без локације', OUTSIDE_VIEWPORT: 'ван приказа',
+            LIMIT: 'изван ограничења', NOT_FOUND: 'није пронађена', VISIBLE: 'објекат није учитан'};
+        toggle.textContent += ` · ${shortReasons[code] || 'објекат није учитан'} — детаљи`;
         text.textContent = (reasons[code] || 'Изабрана аукција није у видљивом делу карте, не одговара филтерима или нема објављиву локацију.') + ' Избор је сачуван.';
         elements.selection.append(text);
         elements.selection.hidden = state.detailsDismissed;
@@ -1236,7 +1332,7 @@ function selectedFeature() {
 
 function showPopup(feature) {
     if (!state.detailsOpen) return;
-    if (!state.popup) {
+    if (!state.popupView) {
         const content = document.createElement('article');
         content.id = 'auction-popup-details';
         content.className = 'map-popup';
@@ -1250,6 +1346,28 @@ function showPopup(feature) {
         const explanation = document.createElement('p');
         content.append(title, details, explanation);
         state.popupView = {content, title, amount, end, status, precision, explanation, sourceLink: null, mapsLink: null};
+    }
+    const rail = document.getElementById('rail-details');
+    const inRail = document.getElementById('workspace').dataset.mode === 'results';
+    if (inRail) {
+        if (state.popup) {
+            const popup = state.popup;
+            state.popup = null;
+            popup.remove(); // Transport change, not dismissal; retain the same details nodes.
+        }
+        if (!rail.contains(state.popupView.content)) {
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'rail-details-close';
+            close.textContent = 'Назад на резултате';
+            close.setAttribute('aria-label', 'Затвори детаље аукције — назад на резултате');
+            close.addEventListener('click', () => dismissDetails({restoreFocus: true}));
+            rail.replaceChildren(state.popupView.content, close);
+        }
+        rail.hidden = false;
+    } else if (!state.popup) {
+        rail.hidden = true;
+        const content = state.popupView.content;
         const popup = new Popup({
             closeButton: true,
             closeOnClick: false, // One document-level dismissal path, including controls outside the map.
@@ -1280,7 +1398,7 @@ function showPopup(feature) {
     view.explanation.textContent = precisionExplanation(feature);
     view.sourceLink = updateSourceLink(view.content, view.sourceLink, feature, 'Отвори на порталу еАукција');
     view.mapsLink = updateMapsLink(view.content, view.mapsLink, feature);
-    state.popup.setLngLat(representativeCoordinate(feature.geometry));
+    state.popup?.setLngLat(representativeCoordinate(feature.geometry));
     updateDetailsControl();
 }
 
@@ -1340,10 +1458,18 @@ function googleMapsUrl(geometry) {
 }
 
 function updateDetailsControl() {
+    const toggle = document.getElementById('selection-toggle');
+    elements.selection.dataset.detailsOpen = String(state.detailsOpen && !!state.popupView
+        && document.getElementById('workspace').dataset.mode === 'results');
+    toggle.hidden = !state.selectedAuctionId;
+    toggle.setAttribute('aria-expanded', String(state.detailsOpen));
+    toggle.setAttribute('aria-controls', state.popupView ? 'auction-popup-details' : 'map-selection');
+    const feature = selectedFeature();
+    if (feature) toggle.textContent = `Избор: ${state.selectedAuctionId} · ${precisionLabel(feature)}`;
     const reopen = state.summaryView?.reopen;
     if (!reopen?.isConnected) return;
-    reopen.setAttribute('aria-expanded', String(!!state.popup));
-    if (state.popup) reopen.setAttribute('aria-controls', 'auction-popup-details');
+    reopen.setAttribute('aria-expanded', String(state.detailsOpen));
+    if (state.detailsOpen) reopen.setAttribute('aria-controls', 'auction-popup-details');
     else reopen.removeAttribute('aria-controls');
 }
 
@@ -1365,8 +1491,10 @@ function restoreDetailsFocus() {
 }
 
 function dismissDetails({restoreFocus = false, deferSummary = false} = {}) {
+    state.clusterSequence++;
     state.detailsOpen = false;
     state.detailsDismissed = true;
+    document.getElementById('selection-toggle').setAttribute('aria-expanded', 'false');
     if (deferSummary) {
         window.setTimeout(() => {
             if (state.detailsDismissed) elements.selection.hidden = true;
@@ -1419,8 +1547,12 @@ function closePopup() {
     // Teardown for unavailable geometry is distinct from dismissal. Neither changes selection.
     const popup = state.popup;
     state.popup = null;
+    state.popupView?.content.remove();
     state.popupView = null;
     popup?.remove();
+    const rail = document.getElementById('rail-details');
+    rail.replaceChildren();
+    rail.hidden = true;
     updateDetailsControl();
 }
 
@@ -1575,8 +1707,11 @@ function setMapState(name, message) {
     elements.state.dataset.state = name;
     elements.state.setAttribute('role', name === 'error' ? 'alert' : 'status');
     elements.state.setAttribute('aria-live', name === 'error' ? 'assertive' : 'polite');
-    elements.state.textContent = message;
-    document.getElementById('filter-state').textContent = name === 'error' || name === 'loading' ? message : '';
+    elements.state.dataset.retained = String(state.features.length > 0);
+    if (elements.state.textContent !== message) elements.state.textContent = message;
+    document.getElementById('map-update-indicator').textContent = name === 'loading' ? 'Освежавање…' : '';
+    document.getElementById('map-retry').hidden = true;
+    document.getElementById('filter-state').textContent = name === 'error' ? message : '';
 }
 
 function handleMapError(event) {

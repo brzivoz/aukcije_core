@@ -183,10 +183,15 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 .contains("RSD", "Парцела", "Проверена граница", "Verified");
         assertThat(page.locator(".map-popup img").count()).isZero();
         assertThat(page.evaluate("window.__popupXss ?? null")).isNull();
-        Locator source = page.locator(".map-popup a");
+        Locator source = page.locator(".map-popup a[href^='https://eaukcija.sud.rs']");
         assertThat(source.getAttribute("href"))
                 .isEqualTo("https://eaukcija.sud.rs/#/aukcije/34001");
         assertThat(source.getAttribute("rel")).isEqualTo("noopener noreferrer");
+        Locator maps = page.locator(".map-popup a[href^='https://www.google.com/maps/search/']");
+        assertThat(maps.getAttribute("href"))
+                .isEqualTo("https://www.google.com/maps/search/?api=1&query=44.786600%2C20.456400");
+        assertThat(maps.getAttribute("rel")).isEqualTo("noopener noreferrer");
+        assertThat(maps.getAttribute("target")).isEqualTo("_blank");
         Locator selectedSource = page.locator("#map-selection .map-selection-source");
         assertThat(selectedSource.getAttribute("href"))
                 .isEqualTo("https://eaukcija.sud.rs/#/aukcije/34001");
@@ -195,9 +200,9 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 previous => window.__auctionMap.getDiagnostics().requestsStarted > previous
                   && window.__auctionMap.getDiagnostics().lastState === 'ready'
                 """, requestsBeforeKeyboardSelection);
-        assertThat((Boolean) selectedSource.evaluate("element => element === document.activeElement"))
+        assertThat((Boolean) source.evaluate("element => element === document.activeElement"))
                 .isTrue();
-        assertThat((Boolean) selectedSource.evaluate("""
+        assertThat((Boolean) source.evaluate("""
                 element => {
                   const style = getComputedStyle(element);
                   return element.matches(':focus-visible')
@@ -210,8 +215,10 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
 
         page.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         waitForReadyMap(page);
-        assertThat(page.locator(".map-popup").isVisible()).isTrue();
+        assertThat(page.locator(".map-popup").count()).isZero();
         assertThat(page.locator("#map-selection").textContent()).contains("Изабрана аукција");
+        page.locator(".map-selection-reopen").press("Enter");
+        assertThat(page.locator(".map-popup").isVisible()).isTrue();
 
         page.selectOption("#map-status-filter", "Verified");
         page.locator("#shared-filters button[type='submit']").click();
@@ -247,8 +254,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                     window.__realClusterLeaves;
                 }
                 """);
-        // Shared filters retain selection now; close its overlapping popup before clicking the cluster.
-        page.locator(".maplibregl-popup-close-button").click();
+        // Applying filters dismissed transient details but retained the auction selection.
+        assertThat(page.locator(".map-popup").count()).isZero();
         clickFirstCluster(page);
         page.waitForSelector("#map-selection:not([hidden]) .map-selection-button");
         assertThat(page.locator("#map-selection h4").textContent())
@@ -285,6 +292,13 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         page.locator(".auction-map-panel").screenshot(
                 new Locator.ScreenshotOptions().setPath(narrow));
         assertThat(Files.size(narrow)).isGreaterThan(10_000);
+
+        clickFirstCluster(page); // Reopen the chooser after the responsive viewport refresh.
+        page.locator("#map-selection .map-selection-button").first().press("Enter");
+        page.waitForSelector(".map-popup");
+        page.keyboard().press("Escape");
+        assertThat(page.locator(".map-popup").count()).isZero();
+        assertThat(page.evaluate("document.activeElement.matches('.map-result-button')")).isEqualTo(true);
 
         browser.network().assertOnlyLocalhostRequests();
         assertThat(browser.network().contactedHosts()).containsExactly("localhost");
@@ -619,7 +633,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         page.locator(".map-result-button").first().press("Enter");
         assertThat(page.locator("#map-selection").textContent()).contains("Парцела", "Проверена граница");
         page.locator("#mode-map").press("Enter");
-        assertThat(page.locator("#map-selection").isVisible()).isTrue();
+        assertThat(page.locator("#map-selection").isHidden()).isTrue();
         assertThat(page.evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches")).isEqualTo(true);
         assertThat(page.locator("#mode-map").evaluate("el => getComputedStyle(el).transitionDuration")).isEqualTo("0s");
 

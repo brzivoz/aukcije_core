@@ -104,6 +104,14 @@ const state = {
     popup: null,
     features: [],
     selectedAuctionId: readSelectedAuction(),
+    // Selection is durable; details visibility and its return-focus trigger are not URL state.
+    selectedFeatureId: null,
+    detailsOpen: false,
+    // URL restoration may show a selection-only summary; dismissal hides that too.
+    detailsDismissed: false,
+    detailsTrigger: null,
+    popupView: null,
+    summaryView: null,
     debounceTimer: null,
     activeRequest: null,
     requestSequence: 0,
@@ -125,7 +133,8 @@ const publicApi = {
     ready: false,
     map: null,
     refreshNow: () => refreshNow(),
-    getDiagnostics: () => ({...diagnostics, requestInFlight: !!state.activeRequest}),
+    getDiagnostics: () => ({...diagnostics, requestInFlight: !!state.activeRequest,
+        selectedFeatureId: state.selectedFeatureId, detailsOpen: state.detailsOpen}),
     renderedClusterCount: () => renderedClusterCount(),
     showCluster: cluster => showCluster(cluster),
     waitForMapLoad: (map, timeoutMs) => mapLoaded(map, {
@@ -139,6 +148,7 @@ if (document.querySelector('.auction-map-panel')?.dataset.mapTestHooks === 'true
 
 replaceUrl(state.appliedQuery);
 bindFilterControls();
+bindDetailsDismissal();
 const metadataPromise = loadMetadata();
 initialize();
 window.addEventListener('eaukcija:refresh-complete', () => {
@@ -205,7 +215,8 @@ async function initializeMap() {
             touchPitch: false,
             // One resize owner: MapLibre 6 also has a throttled container observer.
             trackResize: false,
-            fadeDuration: reducedMotion() ? 0 : 150
+            fadeDuration: reducedMotion() ? 0 : 150,
+            locale: {'Popup.Close': 'Затвори детаље аукције'}
         });
         configureTwoDimensionalCamera(map);
         state.map = map;
@@ -309,11 +320,15 @@ function bindFilterControls() {
         const selected = event.target.closest('#shared-results .table-select');
         if (selected) {
             window.dispatchEvent(new Event('eaukcija:show-map'));
+            if (state.selectedAuctionId !== selected.dataset.auctionId) state.selectedFeatureId = null;
             state.selectedAuctionId = selected.dataset.auctionId;
+            state.detailsOpen = true;
+            state.detailsDismissed = false;
+            state.detailsTrigger = selected;
             writeUrlState();
             updateSelectionLayers();
             restoreSelectionFromFeatures();
-            elements.selection.focus({preventScroll: true});
+            if (event.detail === 0) focusDetails();
             if (!state.features.some(f => String(f.properties.auctionId) === state.selectedAuctionId)) refreshNow();
             return;
         }
@@ -328,7 +343,14 @@ function bindFilterControls() {
     window.addEventListener('popstate', () => {
         state.appliedQuery = new URL(window.location.href).searchParams;
         state.invalidFilter = false;
-        state.selectedAuctionId = state.appliedQuery.get('auction');
+        // History restores shareable identity, never a historical DOM/open state.
+        dismissDetails();
+        state.selectedAuctionId = readSelectedAuction();
+        state.selectedFeatureId = null;
+        state.detailsDismissed = false;
+        state.detailsTrigger = null;
+        updateSelectionLayers();
+        restoreSelectionFromFeatures();
         restoreFilterControls();
         refreshNow();
     });
@@ -754,8 +776,12 @@ function validFeature(feature) {
 }
 
 function updateSources(features) {
-    const points = features.filter(feature => feature.geometry.type === 'Point');
-    const areas = features.filter(feature => feature.geometry.type !== 'Point');
+    // GeoJSON tiling can coerce a string id like "34001:hash" to the number 34001.
+    // Promote the existing API identity explicitly; never confuse sibling properties.
+    const rendered = features.map(feature => ({...feature,
+        properties: {...feature.properties, mapFeatureId: feature.id}}));
+    const points = rendered.filter(feature => feature.geometry.type === 'Point');
+    const areas = rendered.filter(feature => feature.geometry.type !== 'Point');
     state.map.getSource(POINT_SOURCE).setData({type: 'FeatureCollection', features: points});
     state.map.getSource(AREA_SOURCE).setData({type: 'FeatureCollection', features: areas});
     updateSelectionLayers();
@@ -769,11 +795,12 @@ function addAuctionSourcesAndLayers(map) {
     map.addSource(POINT_SOURCE, {
         type: 'geojson',
         data: EMPTY_COLLECTION,
+        promoteId: 'mapFeatureId',
         cluster: true,
         clusterMaxZoom: 20,
         clusterRadius: 52
     });
-    map.addSource(AREA_SOURCE, {type: 'geojson', data: EMPTY_COLLECTION});
+    map.addSource(AREA_SOURCE, {type: 'geojson', data: EMPTY_COLLECTION, promoteId: 'mapFeatureId'});
 
     for (const [precision, presentation] of Object.entries(PRECISIONS)) {
         map.addLayer({
@@ -928,20 +955,37 @@ function drawShape(context, shape, size) {
 }
 
 function bindMapInteractions(map) {
-    map.on('click', CLUSTER_LAYER, event => showCluster(event.features?.[0]));
-    setPointerCursor(map, CLUSTER_LAYER);
+    const layers = [CLUSTER_LAYER, ...Object.keys(PRECISIONS)
+            .flatMap(precision => [pointLayer(precision), areaFillLayer(precision)])];
+    layers.forEach(layer => setPointerCursor(map, layer));
+    // One hit test chooses the topmost feature, even where precision layers overlap.
+    map.on('click', event => {
+        if (event.originalEvent?.target !== map.getCanvas()) return;
+        const feature = map.queryRenderedFeatures(event.point, {layers})[0];
+        if (feature?.layer.id === CLUSTER_LAYER) showCluster(feature);
+        else if (feature) selectFeature(feature, {trigger: map.getCanvas()});
+    });
+}
 
-    for (const precision of Object.keys(PRECISIONS)) {
-        for (const layer of [pointLayer(precision), areaFillLayer(precision)]) {
-            map.on('click', layer, event => {
-                const feature = event.features?.[0];
-                if (feature) {
-                    selectFeature(feature);
-                }
-            });
-            setPointerCursor(map, layer);
+function bindDetailsDismissal() {
+    // Capture runs BEFORE result/table/MapLibre opening handlers. The opening click
+    // cannot bubble back here and immediately dismiss the newly opened details.
+    document.addEventListener('click', event => {
+        if ((state.detailsOpen || !elements.selection.hidden) && !state.popup?.getElement().contains(event.target)
+                && !elements.selection.contains(event.target)) {
+            // Hide the summary after hit testing: removing it now shifts the map
+            // under this same pointer event. Never reclaim the clicked control's focus.
+            dismissDetails({deferSummary: true});
         }
-    }
+    }, {capture: true});
+    document.addEventListener('keydown', event => {
+        // Native disclosures (e.g. municipalities) own their handled Escape first.
+        if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing
+                && (state.detailsOpen || !elements.selection.hidden)) {
+            event.preventDefault();
+            dismissDetails({restoreFocus: true});
+        }
+    });
 }
 
 function setPointerCursor(map, layer) {
@@ -957,6 +1001,7 @@ async function showCluster(cluster) {
     if (!cluster) {
         return;
     }
+    state.detailsDismissed = false;
     const source = state.map.getSource(POINT_SOURCE);
     const clusterId = Number(cluster.properties.cluster_id);
     const count = Number(cluster.properties.point_count);
@@ -977,8 +1022,8 @@ function renderClusterError() {
     const message = document.createElement('p');
     message.textContent = 'Група аукција се променила током освежавања. Активирајте групу поново.';
     elements.selection.append(message);
-    elements.selection.hidden = false;
-    elements.selection.focus({preventScroll: true});
+    elements.selection.hidden = state.detailsDismissed;
+    if (!elements.selection.hidden) elements.selection.focus({preventScroll: true});
 }
 
 function renderClusterSelection(features, total) {
@@ -1001,11 +1046,13 @@ function renderClusterSelection(features, total) {
         note.textContent = `Приказано ${features.length} од ${total}; сузите приказ карте за остале.`;
         elements.selection.append(note);
     }
-    elements.selection.hidden = false;
-    elements.selection.focus({preventScroll: true});
+    elements.selection.hidden = state.detailsDismissed;
+    if (!elements.selection.hidden) elements.selection.focus({preventScroll: true});
 }
 
 function renderResults(features) {
+    const focusedId = elements.resultList.contains(document.activeElement)
+            ? document.activeElement.dataset.featureId : null;
     elements.resultList.replaceChildren();
     elements.resultCount.textContent = String(features.length);
     elements.resultCount.setAttribute('aria-label', `${features.length} објеката, ${new Set(features.map(f => f.properties.auctionId)).size} аукција`);
@@ -1016,6 +1063,7 @@ function renderResults(features) {
         button.type = 'button';
         button.className = 'map-result-button';
         button.dataset.auctionId = String(feature.properties.auctionId);
+        button.dataset.featureId = feature.id;
         button.setAttribute('aria-current',
                 String(feature.properties.auctionId) === state.selectedAuctionId ? 'true' : 'false');
 
@@ -1030,9 +1078,15 @@ function renderResults(features) {
         item.append(button);
         elements.resultList.append(item);
     }
+    // Preserve the same logical keyboard position, not a global focus transfer.
+    if (focusedId) resultTrigger(focusedId)?.focus({preventScroll: true});
 }
 
 function bindFeatureSelection(button, feature, options = {}) {
+    bindActivation(button, activation => selectFeature(feature, {...options, ...activation, trigger: button}));
+}
+
+function bindActivation(button, activate) {
     let keyboardActivation = false;
     button.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -1042,21 +1096,28 @@ function bindFeatureSelection(button, feature, options = {}) {
     button.addEventListener('click', event => {
         const focusDetails = keyboardActivation || event.detail === 0;
         keyboardActivation = false;
-        selectFeature(feature, {...options, focusDetails});
+        activate({focusDetails});
     });
 }
 
 function selectFeature(feature, options = {}) {
+    // Use full viewport geometry/properties rather than a clipped rendered tile or stale cluster leaf.
+    const featureId = feature.properties.mapFeatureId || feature.id;
+    feature = state.features.find(candidate => candidate.id === featureId) || {...feature, id: featureId};
     const auctionId = String(feature.properties.auctionId);
     if (!validAuctionId(auctionId)) {
         return;
     }
     state.selectedAuctionId = auctionId;
+    state.selectedFeatureId = feature.id;
+    state.detailsOpen = true;
+    state.detailsDismissed = false;
+    state.detailsTrigger = options.trigger || null;
     diagnostics.selectedAuctionId = auctionId;
     writeUrlState();
     updateSelectionLayers();
     updateResultSelection();
-    const summaryLink = renderSelectedSummary(feature);
+    renderSelectedSummary(feature);
     showPopup(feature);
     if (options.moveMap && feature.properties.precision === 'PARCEL'
             && document.querySelector('.auction-map-panel')?.dataset.fitParcels === 'true'
@@ -1076,27 +1137,37 @@ function selectFeature(feature, options = {}) {
             duration: reducedMotion() ? 0 : 300
         });
     }
-    if (options.focusDetails) {
-        (summaryLink || elements.selection).focus({preventScroll: true});
-    }
+    if (options.focusDetails) focusDetails();
 }
 
 function renderSelectedSummary(feature) {
-    elements.selection.replaceChildren();
-    elements.selection.removeAttribute('role');
-    elements.selection.removeAttribute('aria-live');
-    const heading = document.createElement('h4');
-    heading.textContent = 'Изабрана аукција';
-    const summary = document.createElement('p');
-    summary.textContent = `${feature.properties.title} — ${precisionLabel(feature)}. ${precisionExplanation(feature)}`;
-    elements.selection.append(heading, summary);
-    const sourceLink = createSourceLink(feature, 'Отвори изабрану аукцију на порталу еАукција');
-    if (sourceLink) {
-        sourceLink.className = 'map-selection-source';
-        elements.selection.append(sourceLink);
+    if (!state.summaryView?.summary.isConnected) {
+        elements.selection.replaceChildren();
+        elements.selection.removeAttribute('role');
+        elements.selection.removeAttribute('aria-live');
+        const heading = document.createElement('h4');
+        heading.textContent = 'Изабрана аукција';
+        const summary = document.createElement('p');
+        const reopen = document.createElement('button');
+        reopen.type = 'button';
+        reopen.className = 'map-selection-reopen';
+        reopen.textContent = 'Отвори детаље на карти';
+        bindActivation(reopen, options => {
+            const selected = selectedFeature();
+            if (!selected) return;
+            window.dispatchEvent(new Event('eaukcija:show-map'));
+            selectFeature(selected, {...options, trigger: reopen});
+        });
+        elements.selection.append(heading, summary, reopen);
+        state.summaryView = {summary, reopen, sourceLink: null};
     }
-    elements.selection.hidden = false;
-    return sourceLink;
+    const view = state.summaryView;
+    view.summary.textContent = `${feature.properties.title} — ${precisionLabel(feature)}. ${precisionExplanation(feature)}`;
+    view.sourceLink = updateSourceLink(elements.selection, view.sourceLink, feature,
+            'Отвори изабрану аукцију на порталу еАукција');
+    if (view.sourceLink) view.sourceLink.className = 'map-selection-source';
+    elements.selection.hidden = state.detailsDismissed;
+    updateDetailsControl();
 }
 
 function updateResultSelection() {
@@ -1124,20 +1195,21 @@ function updateSelectionLayers() {
 function restoreSelectionFromFeatures() {
     diagnostics.selectedAuctionId = state.selectedAuctionId;
     updateResultSelection();
+    // A resize/refresh must not replace the cluster chooser while the user is
+    // choosing a property. Explicit feature/table activation bypasses it.
+    if (!state.detailsOpen && !state.detailsDismissed && !elements.selection.hidden
+            && elements.selection.querySelector('.map-selection-button')) return;
     if (!state.selectedAuctionId) {
         elements.selection.hidden = true;
         closePopup();
         return;
     }
-    const selected = state.features.find(
-            feature => String(feature.properties.auctionId) === state.selectedAuctionId);
+    const selected = selectedFeature();
     if (selected) {
-        const selectionHadFocus = elements.selection.contains(document.activeElement);
-        const summaryLink = renderSelectedSummary(selected);
-        showPopup(selected);
-        if (selectionHadFocus) {
-            (summaryLink || elements.selection).focus({preventScroll: true});
-        }
+        state.selectedFeatureId = selected.id;
+        renderSelectedSummary(selected);
+        if (state.detailsOpen) showPopup(selected);
+        else closePopup();
     } else {
         elements.selection.replaceChildren();
         const text = document.createElement('p');
@@ -1146,51 +1218,164 @@ function restoreSelectionFromFeatures() {
             UNMAPPED: 'Изабрана аукција нема објављиву локацију; није додата ознака на карту.',
             OUTSIDE_VIEWPORT: 'Изабрана аукција има локацију ван видљивог дела карте.',
             LIMIT: 'Изабрана аукција је у приказу, али изван ограниченог броја учитаних објеката.',
-            NOT_FOUND: 'Изабрана аукција није у локалном каталогу.'
+            NOT_FOUND: 'Изабрана аукција није у локалном каталогу.',
+            VISIBLE: 'Изабрани објекат аукције није у учитаном приказу; други објекти исте аукције могу бити видљиви.'
         };
         const code = String(state.selectionStatus?.auctionId) === state.selectedAuctionId ? state.selectionStatus.state : null;
         text.textContent = (reasons[code] || 'Изабрана аукција није у видљивом делу карте, не одговара филтерима или нема објављиву локацију.') + ' Избор је сачуван.';
         elements.selection.append(text);
-        elements.selection.hidden = false;
+        elements.selection.hidden = state.detailsDismissed;
         closePopup();
     }
 }
 
+function selectedFeature() {
+    return state.features.find(feature => String(feature.properties.auctionId) === state.selectedAuctionId
+            && (!state.selectedFeatureId || feature.id === state.selectedFeatureId));
+}
+
 function showPopup(feature) {
-    closePopup();
-    const popupContent = document.createElement('article');
-    popupContent.className = 'map-popup';
-    popupContent.setAttribute('aria-label', `Детаљи аукције ${feature.properties.title}`);
-
-    const title = document.createElement('h3');
-    title.textContent = feature.properties.title;
-    popupContent.append(title);
-
-    const details = document.createElement('dl');
-    appendDetail(details, 'Цена', formatAmount(feature.properties));
-    appendDetail(details, 'Завршетак', formatEndTime(feature.properties.endTime));
-    appendDetail(details, 'Статус', statusLabel(feature.properties.sourceStatus));
-    appendDetail(details, 'Прецизност', precisionLabel(feature));
-    popupContent.append(details);
-
-    const explanation = document.createElement('p');
-    explanation.textContent = precisionExplanation(feature);
-    popupContent.append(explanation);
-
-    const sourceLink = createSourceLink(feature, 'Отвори на порталу еАукција');
-    if (sourceLink) {
-        popupContent.append(sourceLink);
+    if (!state.detailsOpen) return;
+    if (!state.popup) {
+        const content = document.createElement('article');
+        content.id = 'auction-popup-details';
+        content.className = 'map-popup';
+        content.tabIndex = -1;
+        const title = document.createElement('h3');
+        const details = document.createElement('dl');
+        const amount = appendDetail(details, 'Цена', '');
+        const end = appendDetail(details, 'Завршетак', '');
+        const status = appendDetail(details, 'Статус', '');
+        const precision = appendDetail(details, 'Прецизност', '');
+        const explanation = document.createElement('p');
+        content.append(title, details, explanation);
+        state.popupView = {content, title, amount, end, status, precision, explanation, sourceLink: null, mapsLink: null};
+        const popup = new Popup({
+            closeButton: true,
+            closeOnClick: false, // One document-level dismissal path, including controls outside the map.
+            focusAfterOpen: false,
+            maxWidth: '310px'
+        }).setLngLat(representativeCoordinate(feature.geometry)).setDOMContent(content).addTo(state.map);
+        state.popup = popup;
+        popup.on('close', () => {
+            if (state.popup !== popup) return; // Internal teardown is not user dismissal.
+            state.popup = null;
+            state.popupView = null;
+            dismissDetails();
+        });
+        const close = popup.getElement().querySelector('.maplibregl-popup-close-button');
+        close.title = 'Затвори детаље аукције';
+        // The built-in listener has already removed the popup and recorded dismissal.
+        close.addEventListener('click', () => restoreDetailsFocus());
     }
+    // Keep popup and focusable nodes connected during background data/geometry updates.
+    const view = state.popupView;
+    view.content.dataset.featureId = feature.id;
+    view.content.setAttribute('aria-label', `Детаљи аукције ${feature.properties.title}`);
+    view.title.textContent = feature.properties.title;
+    view.amount.textContent = formatAmount(feature.properties);
+    view.end.textContent = formatEndTime(feature.properties.endTime);
+    view.status.textContent = statusLabel(feature.properties.sourceStatus);
+    view.precision.textContent = precisionLabel(feature);
+    view.explanation.textContent = precisionExplanation(feature);
+    view.sourceLink = updateSourceLink(view.content, view.sourceLink, feature, 'Отвори на порталу еАукција');
+    view.mapsLink = updateMapsLink(view.content, view.mapsLink, feature);
+    state.popup.setLngLat(representativeCoordinate(feature.geometry));
+    updateDetailsControl();
+}
 
-    state.popup = new Popup({
-        closeButton: true,
-        closeOnClick: false,
-        focusAfterOpen: false,
-        maxWidth: '310px'
-    })
-            .setLngLat(representativeCoordinate(feature.geometry))
-            .setDOMContent(popupContent)
-            .addTo(state.map);
+function updateSourceLink(container, link, feature, text) {
+    const url = allowlistedSourceUrl(feature.properties.detailUrl, feature.properties.auctionId);
+    if (!url) {
+        link?.remove();
+        return null;
+    }
+    if (link) link.href = url;
+    else {
+        link = createSourceLink(feature, text);
+        container.append(link);
+    }
+    return link;
+}
+
+function updateMapsLink(container, link, feature) {
+    const url = googleMapsUrl(feature.geometry);
+    if (!url) {
+        link?.remove();
+        return null;
+    }
+    if (link) {
+        link.href = url;
+        return link;
+    }
+    const mapsLink = document.createElement('a');
+    mapsLink.href = url;
+    mapsLink.target = '_blank';
+    mapsLink.rel = 'noopener noreferrer';
+    mapsLink.textContent = 'Отвори локацију у Google Maps';
+    container.append(mapsLink);
+    return mapsLink;
+}
+
+// Externally hosted, user-initiated navigation only. The offline asset
+// contract governs resources this page loads by itself; it does not forbid a
+// link a person chooses to follow. The URL mirrors the allowlistedSourceUrl
+// discipline: fixed origin and path, with a query built exclusively from
+// fixed-precision coordinate numbers derived from the reviewed geometry.
+function googleMapsUrl(geometry) {
+    const coordinates = [];
+    collectCoordinatePairs(geometry?.coordinates, coordinates);
+    if (!coordinates.length) {
+        return null;
+    }
+    const [longitude, latitude] = representativeCoordinate(geometry);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)
+            || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) {
+        return null;
+    }
+    const url = new URL('https://www.google.com/maps/search/');
+    url.searchParams.set('api', '1');
+    url.searchParams.set('query', `${latitude.toFixed(6)},${longitude.toFixed(6)}`);
+    return url.href;
+}
+
+function updateDetailsControl() {
+    const reopen = state.summaryView?.reopen;
+    if (!reopen?.isConnected) return;
+    reopen.setAttribute('aria-expanded', String(!!state.popup));
+    if (state.popup) reopen.setAttribute('aria-controls', 'auction-popup-details');
+    else reopen.removeAttribute('aria-controls');
+}
+
+function focusDetails() {
+    (state.popupView?.sourceLink || state.popupView?.content || elements.selection).focus({preventScroll: true});
+}
+
+function resultTrigger(featureId) {
+    return [...elements.resultList.querySelectorAll('.map-result-button')]
+            .find(button => button.dataset.featureId === featureId);
+}
+
+function restoreDetailsFocus() {
+    const candidates = [state.detailsTrigger, resultTrigger(state.selectedFeatureId),
+        state.map?.getCanvas(), state.summaryView?.reopen, elements.selection];
+    const trigger = candidates.find(element => element?.isConnected && element.getClientRects().length
+            && getComputedStyle(element).visibility === 'visible' && !element.closest('[inert]'));
+    trigger?.focus({preventScroll: true});
+}
+
+function dismissDetails({restoreFocus = false, deferSummary = false} = {}) {
+    state.detailsOpen = false;
+    state.detailsDismissed = true;
+    if (deferSummary) {
+        window.setTimeout(() => {
+            if (state.detailsDismissed) elements.selection.hidden = true;
+        }, 0);
+    } else {
+        elements.selection.hidden = true;
+    }
+    closePopup();
+    if (restoreFocus) restoreDetailsFocus();
 }
 
 function createSourceLink(feature, text) {
@@ -1212,6 +1397,7 @@ function appendDetail(list, termText, valueText) {
     const value = document.createElement('dd');
     value.textContent = valueText;
     list.append(term, value);
+    return value;
 }
 
 function allowlistedSourceUrl(value, auctionId) {
@@ -1230,8 +1416,12 @@ function allowlistedSourceUrl(value, auctionId) {
 }
 
 function closePopup() {
-    state.popup?.remove();
+    // Teardown for unavailable geometry is distinct from dismissal. Neither changes selection.
+    const popup = state.popup;
     state.popup = null;
+    state.popupView = null;
+    popup?.remove();
+    updateDetailsControl();
 }
 
 function initialMapNumber(name, min, max, fallback) {

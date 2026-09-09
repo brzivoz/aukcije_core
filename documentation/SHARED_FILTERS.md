@@ -52,6 +52,47 @@ not in the local catalogue, outside filters, unmapped, outside viewport, or
 excluded by the feature limit. Selecting it never clears filters or invents a
 location. Filter edits never call RGZ, ingestion, or enrichment.
 
+## Selection and map details (#46)
+
+Selection and transient details are independent. Click a map object or its
+result/table button to select it and open non-modal details. With a keyboard,
+use Enter or Space on a result/table button, or **Отвори детаље на карти** in
+the selection summary when it is visible. Dismissal hides **both the popup and
+`map-selection` summary**, including its controls; auction identity and
+map/list/table highlighting are retained. Select the object/result again to
+reopen it after dismissal.
+
+- **Escape**, **×** (accessible name **Затвори детаље аукције**, 44×44 px), or a
+  blank-map/outside click closes both details surfaces. Content and safe
+  source-link clicks do not close them. The eAukcija and Google Maps links are
+  displayed on separate lines. Activating the same or another object opens it.
+- Keyboard opening focuses the popup's safe source link, or its labelled
+  article if no allowlisted link exists. There is no modal focus trap. Escape
+  and × return focus to the connected, visible opening control where possible;
+  if a result was replaced, a table/summary trigger hidden, or a cluster choice
+  removed, use the current matching property result, then the map canvas.
+  Pointer click-away never returns focus from the clicked control. Background
+  refresh never transfers focus into details; open popup/summary controls remain
+  connected and focused result/table positions are retained where applicable.
+- Panning/zooming, periodic updates, source-refresh completion and source/layer
+  redraws do not reopen dismissed details or clear criteria/selection. Within
+  the page, the selected property uses the existing GeoJSON feature ID, not the
+  first property of the same auction. If it is unavailable, keep its identity
+  and explain the absence, without substituting another property.
+- The URL stores **only the auction identity**, not a property DOM reference or
+  open/dismissed state. Reload/copied links and back/forward restore the auction
+  and criteria **with the popup closed**. The restored selection summary is
+  initially available for reopening or explaining an unavailable selection;
+  Escape/click-away can dismiss that summary too, even without a popup.
+  An available auction initially selects its first returned property;
+  explicitly select another if needed. Closing or
+  reopening the same selection creates no history entry or query parameter.
+  Back/forward is not an undo stack for transient popup visibility.
+
+Municipality and other native disclosures retain their own Escape/outside-click
+behavior; these are not modal dialogs. Operator confirmations/cancellation and
+future durable property-identity/keyed-results reconciliation are outside #46.
+
 ## Counts and refresh
 
 The table is the global filtered population, paged by 25. Map panning affects

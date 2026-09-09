@@ -138,8 +138,8 @@ server-rendered table remain available.
 
 `auction-workspace.css` uses modest gutters and a 350px results rail (320px on
 smaller desktops), with the map flexing into the remaining viewport. The same
-selected-feature summary stays visible in all modes, including its textual
-precision/explanation. Full legend and technical versions are a native details
+selected-feature summary is available in every mode, including its textual
+precision/explanation, but dismissal hides it together with the popup. Full legend and technical versions are a native details
 panel with Escape-to-summary focus restoration. Smaller/zoomed windows reflow
 vertically, map before results; the table has its own focusable horizontal scroll
 region. This is not the separate mobile bottom-sheet or advanced-filter/chip UX.
@@ -170,6 +170,54 @@ rail/filter toggles, disclosures, retained drafts/sort/page/selection/camera,
 reduced motion, 200%-zoom-equivalent reflow, no-JavaScript GET fallback, and
 actual resized minimum-zoom API responses under the localhost-only guard.
 
+## Transient map details (#46)
+
+`auction-map.mjs` keeps `selectedAuctionId`/the existing GeoJSON
+`selectedFeatureId` separate from `detailsOpen`, `detailsDismissed` and the
+return-focus trigger. A restored URL may show a selection-only summary; explicit
+dismissal hides both the popup and `#map-selection`, including summary controls,
+until another explicit selection or URL restoration. Background refresh must
+respect that dismissed state for both surfaces.
+The GeoJSON sources promote that existing string ID through a local
+`mapFeatureId` property, preventing tile conversion from truncating a
+`34001:hash` ID to auction number `34001`; this adds no API/URL field.
+Only explicit feature/table/summary activation opens details. URL restoration
+(reload, copied links, popstate) restores the auction with details closed, never
+serializes temporary DOM/visibility state, and still explains unavailable
+selections. The [user and keyboard contract](SHARED_FILTERS.md#selection-and-map-details-46)
+defines this separately from filter/history restoration.
+
+A capture-phase document click handler dismisses outside the popup/retained
+selection content **before** MapLibre or button opening handlers run; the same
+opening event cannot immediately dismiss the new popup. One map hit test chooses
+the topmost feature across overlapping layers. Outside-click dismissal defers
+summary layout collapse until after that event's hit test: hiding the summary
+in capture would shift the map beneath the original pointer coordinates.
+Escape respects already-handled
+native disclosure keys. The localized built-in × records dismissal; internal
+popup teardown for missing geometry does not masquerade as user dismissal.
+Pointer click-away never returns focus. Escape/× use connected visible triggers
+or the matching result/canvas fallback; keyboard opening targets the safe popup
+source link or labelled article, without a focus trap.
+
+Refresh updates popup and summary content in place with DOM/text methods,
+revalidating links with the unchanged fixed eAukcija allowlist. It neither
+recreates focused popup controls nor focuses them on background updates.
+Dismissed details remain closed through real source `setData`, layer redraws,
+viewport requests, periodic updates and source-refresh completion. This is a
+scoped popup/summary lifecycle fix, not full keyed result reconciliation or a
+new durable property-identity contract.
+
+`AuctionMapDetailsBrowserTest` covers pointer map/list/table and keyboard
+activation, switching properties within an auction, inside/source-link clicks,
+outside/blank-map clicks, Escape/×, hidden-summary focus fallback, 44px localized
+close targets, separately stacked source/Google Maps links on desktop/phone,
+focus through actual data changes, unavailable property restoration, reload/copied URLs and
+back/forward. It uses real PostGIS and periodic/viewport responses; the complete
+source-to-map browser flow additionally dismisses details before a second normal
+source refresh. Municipality, XSS/link allowlisting, accessibility and the shared
+localhost-only network guard remain covered.
+
 ## Shared-filter evidence
 
 `SharedAuctionFiltersBrowserTest` uses real PostGIS, the local basemap and the
@@ -192,8 +240,8 @@ opens a keyboard-accessible list instead of hiding stacked auctions.
 
 The browser suite also proves DOM-safe rendering of hostile-looking title text,
 the fixed eAukcija link allowlist and `noopener noreferrer`, selection restore
-from a numeric URL id, keyboard focus transfer to the selected auction's safe
-link, computed focus-indicator contrast of at least 3:1 on every tested surface,
+from a numeric URL id (details initially closed), keyboard focus transfer to the
+popup's safe source link, computed focus-indicator contrast of at least 3:1 on every tested surface,
 selected-polygon layer order, localized status/date fallbacks, and a 390 px
 layout with no document-level horizontal overflow. A controlled browser-fetch
 boundary delays one viewport response, pans and zooms, observes `AbortSignal`

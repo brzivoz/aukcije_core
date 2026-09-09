@@ -111,7 +111,11 @@ publishable location, matches the table and produces an explained empty map.
 With `auction` selected, `selection` has `auctionId` and `state`: `VISIBLE`,
 `OUTSIDE_FILTERS`, `UNMAPPED`, `OUTSIDE_VIEWPORT`, `LIMIT`, or `NOT_FOUND`. The
 browser keeps that selection and explains exclusions instead of clearing filters
-or fabricating a pin.
+or fabricating a pin. This is selection metadata, **not popup visibility**.
+The browser retains the current property by the existing feature ID within the
+page. `auction` is still the only shareable selection parameter; reload/history
+restore it with details closed. No open/dismissed or DOM state is sent to the API.
+See the [details/focus contract](SHARED_FILTERS.md#selection-and-map-details-46).
 
 Headers preserve the existing contract:
 

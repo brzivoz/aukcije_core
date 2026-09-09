@@ -64,6 +64,8 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("form").count()).isOne();
         assertThat(page.url()).contains("from=2026-08-28", "timeScope=all", "precision=CADASTRAL_MUNICIPALITY").doesNotContain("mapFrom", "mapPrecision");
         assertThat(page.locator("#shared-results tbody").textContent()).contains("Н179415", "28.08.2026. 13:00", "Центар катастарске општине");
+        assertThat(page.locator(".map-popup").count()).isZero();
+        page.locator(".map-selection-reopen").press("Enter");
         assertThat(page.locator(".map-popup").textContent()).contains("InPrediction", "Центар катастарске општине");
         page.selectOption("#time-scope-filter", "ended");
         page.fill("#search-filter", "vikend kuca");
@@ -225,7 +227,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
             assertThat(page.locator("#map-precision-filter").inputValue()).isEqualTo("PARCEL");
             assertThat(page.locator("input[name=municipality][value='Чачак']").isChecked()).isTrue();
             assertThat(page.locator("#shared-results tbody tr[data-auction-id]").count()).isEqualTo(6);
-            assertThat(page.locator("#map-selection").isVisible()).isTrue();
+            assertThat(page.locator("#map-selection").isHidden()).isTrue();
             assertThat(page.locator("#map-selection").textContent()).contains("Центар катастарске општине", "ово није адреса ни парцела");
             assertThat(page.evaluate("[window.__auctionMap.map.getCenter().toArray(), window.__auctionMap.map.getZoom()]")).isEqualTo(camera);
             assertThat(page.evaluate("window.__retainedMap === window.__auctionMap.map && window.__retainedForm === document.querySelector('#shared-filters')")).isEqualTo(true);

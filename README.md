@@ -145,6 +145,14 @@ windows reflow, with horizontal scrolling confined to the table region.
 See [#45 verification](documentation/2026-09-08-issue-45-verification.md) for
 measured desktop/ultrawide bounds and the keyboard/resize regression coverage.
 
+The map popup and selection summary close together with **Escape**, **×**, or
+a blank-map/outside click, without clearing selection or filters. Updates keep
+both dismissed surfaces hidden; select the object/result again to reopen them.
+Reload/copied links and back/forward restore the selection summary with the popup
+closed; see the
+[selection and focus contract](documentation/SHARED_FILTERS.md#selection-and-map-details-46)
+and [#46 verification](documentation/2026-09-09-issue-46-verification.md).
+
 The table and map use one filter form and server contract. Both visibly default
 to **Нису завршене** (`endDate > asOf`); choose **Завршене** or **Све** for
 history without losing category, dates, search, RSD prices or precision.
@@ -357,6 +365,7 @@ No test touches a live network. eaukcija.sud.rs responses are served from
 | `AddressRegistryImporterIntegrationTest` | offline GPKG/ZIP import, exact names/ids, Đ normalization, 25834→4326, checksum/schema/CRS/source+active-row/geometry gates, parcel-loss metrics, unchanged replay, session-locked staging/promotion and recovery isolation, post-commit retention, rollback |
 | `ExistingPageBrowserTest` | seven real Playwright tests: HTTP/Thymeleaf rendering over seeded PostGIS, stale-run recovery, transient-to-terminal polling, secret-bearing JSON/non-JSON error redaction, non-empty visible UI, exact contacted-host evidence, reserved-character external-asset blocking, and loopback/external WebSocket controls |
 | `LocalBasemapBrowserTest` | actual compact PMTiles v3 through the production endpoint; same-origin MapLibre protocol/style/sprite/glyph/worker requests; zoom 5/9/14 plus pan; visible linked OSM attribution; exact localhost-only host and `206`/ETag evidence |
+| `AuctionMapDetailsBrowserTest` | pointer/keyboard popup lifecycle, connected return focus, multi-property selection, inside/outside/source clicks, Escape/×, real viewport/periodic refresh and redraw, closed reload/copy/history restoration, municipality dismissal and localhost-only traffic |
 | `AuctionMapBrowserTest` | real local basemap plus PostGIS GeoJSON; all six precision styles; shared-centroid cluster/list; keyboard selection; escaped popup and allowlisted source link; allowlisted URL restoration; coalesced pan/zoom refresh with an idle-or-250-ms fallback; retained loading/empty/error/limit state; desktop/narrow evidence; exact localhost-only traffic |
 | `PostgisBrowserFixtureCleanupTest` | browser-free proof that fixture reset handles a selected location graph and append-only resolution evidence |
 | `LocalhostOnlyNetworkTest` | browser-free proof that only browser-local `blob:`/`data:` schemes bypass the JDK protocol-handler registry while HTTP(S) and WebSockets remain guarded |

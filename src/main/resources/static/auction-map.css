@@ -347,6 +347,19 @@
     box-shadow: 0 0 0 5px var(--map-focus-outer);
 }
 
+.map-selection-reopen {
+    min-height: 44px;
+    margin-right: 10px;
+    padding: 6px 10px;
+    border: 1px solid #9aa6b2;
+    border-radius: 4px;
+    background: #fff;
+    color: #162a83;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+}
+
 .map-selection-source {
     display: inline-block;
     margin-top: 3px;
@@ -361,8 +374,22 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
+#auction-map .maplibregl-popup-close-button {
+    width: 44px;
+    height: 44px;
+    border-radius: 4px;
+    color: var(--map-ink);
+    font-size: 1.5rem;
+}
+
+.map-popup:focus-visible {
+    outline: 3px solid var(--map-focus-outer);
+    outline-offset: 2px;
+}
+
 .map-popup h3 {
-    margin: 0 20px 8px 0;
+    min-height: 34px;
+    margin: 0 40px 8px 0;
     font-size: .95rem;
     line-height: 1.25;
 }
@@ -378,7 +405,8 @@
 .map-popup dt { color: #52606d; }
 .map-popup dd { margin: 0; font-weight: 650; }
 .map-popup p { margin: 0 0 9px; color: #3f4d5a; font-size: .73rem; line-height: 1.35; }
-.map-popup a { color: #162a83; font-size: .78rem; font-weight: 700; }
+.map-popup a { display: block; width: fit-content; color: #162a83; font-size: .78rem; font-weight: 700; }
+.map-popup a + a { margin-top: 6px; }
 
 @media (max-width: 760px) {
     .auction-map-panel {

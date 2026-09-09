@@ -136,6 +136,34 @@ class RefreshEndToEndBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
         assertThat(page.locator("#map-result-list").textContent()).contains("Н40-001");
         assertThat(SOURCE.getRequestCount()).isGreaterThanOrEqualTo(9);
+
+        // #46: a dismissed selection survives a second REAL source/enrichment/map
+        // workflow, including its production refresh-complete event and view request.
+        page.locator(".map-result-button").press("Enter");
+        page.waitForSelector(".map-popup");
+        String selectedUrl = page.url();
+        page.keyboard().press("Escape");
+        assertThat(page.locator(".map-popup").count()).isZero();
+        page.evaluate("""
+                window.__completedSourceRefreshes = 0;
+                window.addEventListener('eaukcija:refresh-complete', () => window.__completedSourceRefreshes++);
+                """);
+        int before = ((Number) page.evaluate("window.__auctionMap.getDiagnostics().requestsCompleted")).intValue();
+        page.locator("#refresh-start").click();
+        page.waitForFunction("window.__completedSourceRefreshes > 0", null,
+                new Page.WaitForFunctionOptions().setTimeout(60_000));
+        page.waitForFunction("""
+                before => window.__auctionMap.getDiagnostics().requestsCompleted > before
+                  && window.__auctionMap.getDiagnostics().lastState === 'ready'
+                  && !window.__auctionMap.getDiagnostics().requestInFlight
+                """, before);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_runs WHERE status='SUCCEEDED'", Long.class)).isEqualTo(2);
+        assertThat(page.locator(".map-popup").count()).isZero();
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().detailsOpen")).isEqualTo(false);
+        assertThat(page.locator("#map-selection").isHidden()).isTrue();
+        assertThat(page.url()).isEqualTo(selectedUrl);
+        assertThat(page.locator(".map-result-button").getAttribute("aria-current")).isEqualTo("true");
+        assertThat(page.locator("#refresh-start").evaluate("el => el === document.activeElement")).isEqualTo(true);
         browser.network().assertOnlyLocalhostRequests();
     }
 

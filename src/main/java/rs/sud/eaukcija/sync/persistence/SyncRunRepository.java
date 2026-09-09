@@ -36,6 +36,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import rs.sud.eaukcija.enrichment.EnrichmentInputSnapshot;
+import rs.sud.eaukcija.history.SourceHistoryPublisher;
 import rs.sud.eaukcija.snapshot.AuctionSourceCanonicalJson;
 import rs.sud.eaukcija.snapshot.CurrentAuctionSourceSnapshot;
 
@@ -1083,11 +1084,25 @@ public class SyncRunRepository {
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
+    public SourceHistoryPublisher.Publication prepareSourceHistory(
+            UUID runId, Instant observedAt, List<AuctionPromotionCandidate> candidates) {
+        return new SourceHistoryPublisher(jdbc).prepare(runId, Instant.now(clock), observedAt, candidates);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void publishSourceHistory(SourceHistoryPublisher.Publication publication, Duration grace) {
+        new SourceHistoryPublisher(jdbc).publish(publication, grace);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
     public void incrementAbsencesForUnobservedInScope(UUID runId) {
         jdbc.update("""
                 UPDATE auctions auction
-                   SET absence_count = absence_count + 1
-                  FROM sync_runs run
+                   SET absence_count = absence_count + 1,
+                       first_absent_at = coalesce(first_absent_at, publication.published_at),
+                       first_absence_publication = coalesce(first_absence_publication, publication.publication_id),
+                       last_absence_sync_run_id = run.id
+                  FROM sync_runs run JOIN source_publications publication ON publication.run_id = run.id
                  WHERE run.id = ?
                    AND NOT EXISTS (
                        SELECT 1
@@ -1140,7 +1155,8 @@ public class SyncRunRepository {
                 UPDATE sync_runs
                    SET status = 'SUCCEEDED', stage = 'COMPLETED',
                        heartbeat_at = ?,
-                       finished_at = GREATEST(?, started_at)
+                       finished_at = GREATEST(?, started_at,
+                           (SELECT published_at FROM source_publications WHERE run_id = sync_runs.id))
                  WHERE id = ?
                    AND status = 'RUNNING'
                    AND category_tree_sha256 IS NOT NULL

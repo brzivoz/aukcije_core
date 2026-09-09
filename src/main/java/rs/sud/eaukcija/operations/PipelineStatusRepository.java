@@ -60,11 +60,8 @@ public class PipelineStatusRepository {
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PersistedEvidence read() {
         DatabaseEvidence database = databaseEvidence();
-        PipelineStatus.RunMetric lastSyncAttempt = syncRun(false).orElse(null);
-        PipelineStatus.RunMetric lastSuccessfulSync = lastSyncAttempt != null
-                && "SUCCEEDED".equals(lastSyncAttempt.status())
-                ? lastSyncAttempt
-                : syncRun(true).orElse(null);
+        PipelineStatus.RunMetric lastSyncAttempt = syncRun(false, null).orElse(null);
+        PipelineStatus.RunMetric lastSuccessfulSync = syncRun(true, lastSyncAttempt).orElse(null);
         PipelineStatus.EnrichmentRunMetric lastEnrichmentAttempt = enrichmentRun(false).orElse(null);
         PipelineStatus.EnrichmentRunMetric lastSuccessfulEnrichment = enrichmentRun(true).orElse(null);
         String qualityParserVersion = lastSuccessfulEnrichment != null
@@ -134,10 +131,12 @@ public class PipelineStatusRepository {
                 info.pending().length == 0);
     }
 
-    private Optional<PipelineStatus.RunMetric> syncRun(boolean successfulOnly) {
+    private Optional<PipelineStatus.RunMetric> syncRun(boolean successfulOnly, PipelineStatus.RunMetric reusable) {
         String sql = SYNC_COLUMNS
                 + (successfulOnly ? " WHERE status = 'SUCCEEDED'" : "")
-                + " ORDER BY started_at DESC, id DESC LIMIT 1";
+                + (successfulOnly ? " ORDER BY (SELECT publication_id FROM source_publications p "
+                        + "WHERE p.run_id = pipeline_sync_run_metrics.id) DESC NULLS LAST, started_at DESC, id DESC LIMIT 1"
+                        : " ORDER BY started_at DESC, id DESC LIMIT 1");
         List<SyncBase> rows = jdbc.query(sql, (result, row) -> new SyncBase(
                 result.getObject("id", UUID.class),
                 result.getString("trigger_kind"),
@@ -160,6 +159,7 @@ public class PipelineStatusRepository {
             return Optional.empty();
         }
         SyncBase run = rows.get(0);
+        if (reusable != null && reusable.runId().equals(run.runId())) return Optional.of(reusable);
         PipelineStatus.SnapshotChanges changes = "SUCCEEDED".equals(run.status())
                 ? snapshotChanges(run.runId()) : null;
         return Optional.of(new PipelineStatus.RunMetric(
@@ -168,7 +168,7 @@ public class PipelineStatusRepository {
                 run.sourceCount(), run.sourceDelta(), run.listingRowsObserved(),
                 run.listingRowsQuarantined(), run.duplicateCount(),
                 run.detailsSucceeded(), run.detailsQuarantined(), run.retryCount(),
-                run.errorCount(), run.unresolvedErrorCount(), changes,
+                run.errorCount(), run.unresolvedErrorCount(), changes, sourcePublication(run.runId()),
                 counts("""
                         SELECT error_code, COUNT(*)
                           FROM sync_run_errors
@@ -177,52 +177,27 @@ public class PipelineStatusRepository {
                         """, run.runId())));
     }
 
+    private PipelineStatus.SourcePublication sourcePublication(UUID runId) {
+        return jdbc.query("""
+                SELECT p.*, l.lineage FROM source_publications p CROSS JOIN source_history_lineage l
+                JOIN sync_runs r ON r.id = ? AND r.status = 'SUCCEEDED' WHERE p.run_id = r.id
+                """, r -> r.next() ? new PipelineStatus.SourcePublication(
+                new rs.sud.eaukcija.history.SourceHistoryService.Reference(r.getObject("lineage", UUID.class),
+                        r.getLong("publication_id"), runId), instant(r, "published_at"),
+                r.getLong("absent_count"), r.getLong("closed_count"), r.getLong("reopened_count")) : null, runId);
+    }
+
     private PipelineStatus.SnapshotChanges snapshotChanges(UUID runId) {
         return jdbc.queryForObject("""
-                WITH current_observation AS (
-                    SELECT current.run_id,
-                           current.auction_id,
-                           COALESCE(
-                               current.source_snapshot_sha256,
-                               legacy_current.snapshot_sha256
-                           ) AS snapshot_sha256
-                      FROM sync_run_auction_observations current
-                      LEFT JOIN auction_enrichment_snapshot_observations legacy_current
-                        ON legacy_current.source_sync_run_id = current.run_id
-                       AND legacy_current.auction_id = current.auction_id
-                     WHERE current.run_id = ?
-                )
-                SELECT COUNT(*) FILTER (WHERE prior.snapshot_sha256 IS NULL) AS new_count,
-                       COUNT(*) FILTER (
-                           WHERE prior.snapshot_sha256 IS NOT NULL
-                             AND prior.snapshot_sha256 <> current.snapshot_sha256
-                       ) AS changed_count,
-                       COUNT(*) FILTER (
-                           WHERE prior.snapshot_sha256 = current.snapshot_sha256
-                       ) AS unchanged_count
-                  FROM current_observation current
-                  JOIN sync_runs current_run ON current_run.id = current.run_id
-                  LEFT JOIN LATERAL (
-                      SELECT COALESCE(
-                                 previous.source_snapshot_sha256,
-                                 legacy_previous.snapshot_sha256
-                             ) AS snapshot_sha256
-                        FROM sync_run_auction_observations previous
-                        JOIN sync_runs previous_run
-                          ON previous_run.id = previous.run_id
-                        LEFT JOIN auction_enrichment_snapshot_observations legacy_previous
-                          ON legacy_previous.source_sync_run_id = previous.run_id
-                         AND legacy_previous.auction_id = previous.auction_id
-                       WHERE previous.auction_id = current.auction_id
-                         AND (previous_run.started_at, previous_run.id)
-                             < (current_run.started_at, current_run.id)
-                       ORDER BY previous_run.started_at DESC, previous_run.id DESC
-                       LIMIT 1
-                  ) prior ON TRUE
+                SELECT COUNT(*) FILTER (WHERE content_delta = 'NEW') AS new_count,
+                       COUNT(*) FILTER (WHERE content_delta = 'UPDATED') AS changed_count,
+                       COUNT(*) FILTER (WHERE content_delta = 'UNCHANGED') AS unchanged_count,
+                       COUNT(*) FILTER (WHERE content_delta = 'BASELINE' OR content_delta IS NULL) AS baseline_count
+                  FROM sync_run_auction_observations WHERE run_id = ?
                 """, (result, row) -> new PipelineStatus.SnapshotChanges(
                 result.getLong("new_count"),
                 result.getLong("changed_count"),
-                result.getLong("unchanged_count")), runId);
+                result.getLong("unchanged_count"), result.getLong("baseline_count")), runId);
     }
 
     private Optional<PipelineStatus.EnrichmentRunMetric> enrichmentRun(boolean successfulOnly) {

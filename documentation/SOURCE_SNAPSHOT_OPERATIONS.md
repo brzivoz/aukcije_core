@@ -111,6 +111,17 @@ projection carries the source hash, structured `Place`, `Description`, and
 every normalized property reference back to the retained canonical source
 without refetching eAukcija.
 
+## Ordered source changes and review comparison
+
+V29 reuses these exact immutable hashes and observations for
+[source change history and lifecycle](SOURCE_CHANGE_HISTORY_OPERATIONS.md).
+Snapshot creation time is **not** last changed: A → B → A reuses A's row while
+retaining both ordered updates. A separate versioned comparison policy emits
+safe field codes and separates monetary representation changes/live bidding from
+substantive source changes without changing the audit hash. Legacy enrichment
+hashes are never compared with these source hashes. Ordered publication and
+coverage metadata are success-gated with the existing snapshot transaction.
+
 ## Retention, export, and redaction
 
 - **Retention:** keep source snapshots and observations indefinitely with the

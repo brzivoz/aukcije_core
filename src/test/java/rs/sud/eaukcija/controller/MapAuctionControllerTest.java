@@ -41,6 +41,8 @@ class MapAuctionControllerTest {
     @MockitoBean
     private MapAuctionRepository repository;
     @MockitoBean
+    private rs.sud.eaukcija.history.SourceHistoryService history;
+    @MockitoBean
     private rs.sud.eaukcija.repository.AuctionRepository auctions;
 
     @Test

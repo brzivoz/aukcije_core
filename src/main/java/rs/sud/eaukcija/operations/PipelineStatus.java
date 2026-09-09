@@ -72,6 +72,7 @@ public record PipelineStatus(
             long errorCount,
             long unresolvedErrorCount,
             SnapshotChanges rawSnapshotChanges,
+            SourcePublication sourcePublication,
             Map<String, Long> errorClasses) {
 
         public RunMetric {
@@ -79,7 +80,14 @@ public record PipelineStatus(
         }
     }
 
-    public record SnapshotChanges(long newCount, long changedCount, long unchangedCount) {
+    /** Lifecycle/absence are independent dimensions, never observed-content buckets. */
+    public record SourcePublication(rs.sud.eaukcija.history.SourceHistoryService.Reference reference,
+                                    Instant publishedAt, long absentCount, long closedCount, long reopenedCount) { }
+
+    public record SnapshotChanges(long newCount, long changedCount, long unchangedCount, long baselineCount) {
+        public SnapshotChanges(long newCount, long changedCount, long unchangedCount) {
+            this(newCount, changedCount, unchangedCount, 0);
+        }
     }
 
     public record Enrichment(

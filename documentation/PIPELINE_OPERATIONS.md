@@ -55,7 +55,8 @@ an active import; notices remain visible but do not turn fresh data into
 | Displayed evidence | Durable authority |
 |---|---|
 | Source counts, delta, retries, error classes, status, stage, duration | immutable terminal `sync_runs`, `sync_run_errors`, and `pipeline_sync_run_metrics` |
-| New/changed/unchanged raw local input snapshots | immutable `auction_enrichment_snapshot_observations` and `auction_enrichment_input_snapshots` |
+| NEW/UPDATED/UNCHANGED/BASELINE exact source observations | V29 classifications on `sync_run_auction_observations`, comparing V16 source hashes, never legacy enrichment hashes |
+| Ordered source publication, absence/closure/reopening dimensions | `source_publications` and `auction_lifecycle_transitions`; legacy runs have no fabricated publication |
 | Parser/resolver/dataset versions and run outcomes | immutable terminal `enrichment_runs` / `enrichment_run_items` |
 | Queue depth, oldest age, retry/error distribution | current durable `enrichment_state` work authority |
 | Parser quality results | persisted `property_references` grouped by parser version and extraction status |
@@ -84,6 +85,13 @@ If releasing the dedicated session reports an error after a terminal update,
 the terminal row remains authoritative and the importer emits only the fixed
 `IMPORT_LOCK_RELEASE_FAILED` signal. A committed successful import still runs
 its post-commit retention phase and returns success to the operator.
+
+`rawSnapshotChanges.baselineCount` includes old unclassified observations and known
+legacy identities establishing source evidence. The four content counts reconcile
+with accepted observations; `sourcePublication` separately retains ordered
+reference/time and absent/closed/reopened counts. Quarantines remain separate.
+See [source history operations](SOURCE_CHANGE_HISTORY_OPERATIONS.md) for clocks,
+coverage, review policy, and lifecycle semantics.
 
 ## Readiness and source-outage policy
 

@@ -17,11 +17,16 @@ import rs.sud.eaukcija.spatial.LocationPrecision;
 class MapAuctionServiceTest {
 
     private final MapAuctionRepository repository = mock(MapAuctionRepository.class);
-    private final MapAuctionService service = new MapAuctionService(repository);
+    private final rs.sud.eaukcija.history.SourceHistoryService history = mock(rs.sud.eaukcija.history.SourceHistoryService.class);
+    private final MapAuctionService service = new MapAuctionService(repository, history);
 
     @Test
     void returnsSafeGeoJsonFieldsWithoutDescriptionsOrSourcePayloads() throws Exception {
         MapAuctionRequest request = request(5);
+        var reference = new rs.sud.eaukcija.history.SourceHistoryService.Reference(java.util.UUID.randomUUID(), 1, java.util.UUID.randomUUID());
+        var frame = new rs.sud.eaukcija.history.SourceHistoryService.Frame(reference, request.filters().asOf(),
+                request.filters().asOf(), reference, request.filters().asOf(), "COMPLETE_SINCE_EMPTY");
+        when(history.capture(request.filters().asOf())).thenReturn(frame);
         when(repository.findWithin(request)).thenReturn(List.of(new MapAuctionRow(
                 "42:feature",
                 42,
@@ -35,6 +40,8 @@ class MapAuctionServiceTest {
 
         MapGeoJsonResponse response = service.findAuctions(request);
 
+        assertThat(response.sourceFrame()).isSameAs(frame);
+        assertThat(response.sourceFrame().evaluatedAt()).isEqualTo(response.asOf());
         assertThat(response.type()).isEqualTo("FeatureCollection");
         assertThat(response.numberReturned()).isOne();
         assertThat(response.truncated()).isFalse();

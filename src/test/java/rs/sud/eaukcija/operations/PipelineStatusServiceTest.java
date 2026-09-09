@@ -238,7 +238,7 @@ class PipelineStatusServiceTest {
                 589, 2L, 590, 0, 1, 10, 0, 2,
                 errors.values().stream().mapToLong(Long::longValue).sum(),
                 "SUCCEEDED".equals(status) ? 0 : 1,
-                "SUCCEEDED".equals(status) ? new PipelineStatus.SnapshotChanges(2, 3, 584) : null,
+                "SUCCEEDED".equals(status) ? new PipelineStatus.SnapshotChanges(2, 3, 584) : null, null,
                 errors);
     }
 

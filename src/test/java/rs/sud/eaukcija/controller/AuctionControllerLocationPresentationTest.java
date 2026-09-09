@@ -31,6 +31,7 @@ import rs.sud.eaukcija.service.SyncService;
 class AuctionControllerLocationPresentationTest {
     @Autowired private MockMvc mvc;
     @MockitoBean private AuctionRepository auctions;
+    @MockitoBean private rs.sud.eaukcija.history.SourceHistoryService history;
     @MockitoBean private AuctionSearchRepository search;
     @MockitoBean private SyncService syncService;
 

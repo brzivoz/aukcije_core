@@ -87,7 +87,41 @@ class DatabaseLifecycleIntegrationTest {
                         "V25__municipality_filter_index.sql",
                         "V26__honest_parser_quality_evidence.sql",
                         "V27__registry_precise_selection_guards.sql",
-                        "V28__versioned_invalid_cache_reevaluation.sql");
+                        "V28__versioned_invalid_cache_reevaluation.sql",
+                        "V29__source_publication_history_and_lifecycle.sql");
+    }
+
+    @Test
+    void sourceHistoryMigrationBackfillsOnlyReliableObservationAndLeavesOldBoundariesUnknown() {
+        PostgreSQLContainer<?> container = PostgisTestContainer.shared();
+        String jdbcUrl = PostgisTestContainer.createEmptyDatabase();
+        Flyway.configure().dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration").target(MigrationVersion.fromVersion("15")).load().migrate();
+        execute(jdbcUrl, container, """
+                INSERT INTO eaukcija_taxonomies VALUES (repeat('a',64), 'v1', '[]', '2026-08-24T10:00:00Z');
+                INSERT INTO auctions(id, auction_number, absence_count, first_sale, details_fetched)
+                VALUES (11, 'legacy', 7, false, false), (12, 'no-evidence', 0, false, false);
+                INSERT INTO sync_runs(id,idempotency_key_sha256,trigger_kind,status,stage,started_at,heartbeat_at,
+                    configured_roots,page_size,category_tree_sha256,category_tree_observed_at)
+                VALUES ('00000000-0000-0000-0000-000000000011', repeat('b',64), 'MANUAL','RUNNING','PROMOTING',
+                    '2026-08-24T09:00:00Z','2026-08-24T10:00:00Z','[7]',3000,repeat('a',64),'2026-08-24T10:00:00Z');
+                INSERT INTO sync_run_auction_observations(run_id,auction_id,listing_fingerprint,detail_refreshed,
+                    enrichment_eligible,enrichment_reason) VALUES
+                    ('00000000-0000-0000-0000-000000000011',11,repeat('c',64),true,true,'NEW');
+                UPDATE sync_runs SET status='SUCCEEDED',stage='COMPLETED',finished_at='2026-08-24T10:00:01Z';
+                """);
+        Flyway.configure().dataSource(jdbcUrl, container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration").load().migrate();
+        assertThat(queryBoolean(jdbcUrl, container, "SELECT legacy_coverage FROM source_history_lineage")).isTrue();
+        assertThat(queryBoolean(jdbcUrl, container, "SELECT NOT EXISTS(SELECT 1 FROM source_publications)")).isTrue();
+        assertThat(queryBoolean(jdbcUrl, container, """
+                SELECT first_reliable_observed_at = '2026-08-24T10:00:00Z' AND absence_count=7
+                    AND first_absent_at IS NULL AND last_source_change_publication IS NULL
+                    AND current_source_snapshot_sha256 IS NULL AND review_publication IS NULL
+                 FROM auctions WHERE id=11
+                """)).isTrue();
+        assertThat(queryBoolean(jdbcUrl, container, "SELECT first_reliable_observed_at IS NULL FROM auctions WHERE id=12")).isTrue();
+        assertThat(queryBoolean(jdbcUrl, container, "SELECT content_delta IS NULL AND publication_id IS NULL FROM sync_run_auction_observations")).isTrue();
     }
 
     @Test

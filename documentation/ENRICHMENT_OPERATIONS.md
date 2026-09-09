@@ -10,6 +10,12 @@ run/item evidence.
 The `local-h2` compatibility profile deliberately disables this subsystem. All
 commands below require the normal PostgreSQL/PostGIS runtime.
 
+#11's [source history and lifecycle](SOURCE_CHANGE_HISTORY_OPERATIONS.md) is an
+independent read/review contract. Meaningful-change flags never gate deterministic
+snapshot/version/dependency discovery, interrupted recovery, or bounded retries.
+Close-only and elapsed-end transitions do not refetch eAukcija, enqueue new work,
+or change immutable inputs. Resolver/parser upgrades do not become source updates.
+
 ## Publication and work identity
 
 Only the atomic promotion transaction of a `SUCCEEDED` synchronization run may
@@ -19,8 +25,9 @@ publish an enrichment input. It writes:
   `auction_enrichment_input_snapshots`, keyed by auction ID and SHA-256; input
   is `enrichment-location-input-v2` and contains the exact source-snapshot
   SHA-256, auction identity, structured `Place` fields, `Description`, and
-  `ShortDescription` consumed by the shipped stages. Price, status, and
-  sync-bookkeeping changes do not invent work;
+  `ShortDescription` consumed by the shipped stages. Source price/status updates
+  can change that exact source-backed identity; sync/lifecycle bookkeeping does
+  not invent immutable source input;
 - an immutable success-gated observation linking that snapshot to its source
   sync run; and
 - `auctions.current_enrichment_snapshot_sha256`, which is protected by a

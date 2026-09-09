@@ -92,6 +92,13 @@ GET /api/auctions/view?bbox=20.2,44.6,20.8,44.9&category=Кућа&parcelSize=ove
 
 ## GeoJSON response
 
+The response also carries `sourceFrame`: the lineage/sequence/run reference for
+committed source data, its recorded publication time, earliest supported boundary,
+coverage, and the same `evaluatedAt` as `asOf`. It is captured with the displayed
+rows inside one repeatable-read transaction, not by racing a separate latest-status
+request. It is not `mapDataVersion` and does not promise historical geometry replay.
+See the [read-only history contract](SOURCE_CHANGE_HISTORY_OPERATIONS.md).
+
 Default content type: `application/geo+json`; strict `Accept: application/json`
 receives JSON with the same body. Coordinates are WGS84 longitude/latitude.
 

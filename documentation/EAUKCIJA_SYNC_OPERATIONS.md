@@ -96,6 +96,17 @@ Progress moves through `CLAIMED`, `CATEGORIES`, `LISTINGS`, `DETAILS`,
 and `FAILED` retain the stage at which they stopped. Only `SUCCEEDED` is
 eligible to advance source-delta, absence, or downstream-enrichment state.
 
+## Source history and lifecycle
+
+Successful promotion now also publishes an ordered, lineage-validated source
+reference, exact NEW/UPDATED/UNCHANGED/BASELINE observation classifications, and
+independent lifecycle transitions. Absence closure needs two eligible successful
+observations plus inclusive grace from the first qualifying absence (default
+PT24H). Quarantine and out-of-scope runs freeze counters; reappearance cannot
+reopen a still-past-ended auction. #44 remains read-only and date-based.
+See [the full history contract](SOURCE_CHANGE_HISTORY_OPERATIONS.md) for clocks,
+coverage/migration, grace/reopening, metrics, and bounded consumer queries.
+
 ## Completeness and atomic promotion
 
 For each run the client fetches and hashes the current category tree, verifies
@@ -279,6 +290,7 @@ application startup before any source request is made.
 | `eaukcija.api.contact` | repository issues URL | Nonblank, single line, at most 200 characters; appended to the User-Agent. |
 | `eaukcija.sync.enabled` | `true` | Boolean master switch; disabled means no run may be claimed. |
 | `eaukcija.sync.detail-stale-after` | `P1D` | `PT1H`–`P30D`. |
+| `eaukcija.sync.absence-grace` | `PT24H` | `PT0S`–`P30D`, millisecond precision; `EAUKCIJA_ABSENCE_GRACE`. Inclusive from first qualifying absence; at least two eligible observations. |
 | `eaukcija.sync.running-stale-after` | `PT15M` | `PT5M`–`PT12H`; recovery also requires the advisory lock to be free. |
 | `eaukcija.sync.max-pages-per-root` | `10000` | `1`–`100000`; protects against corrupt or runaway source totals. |
 | `eaukcija.sync.max-quarantined-listings` | `10` | `0`–`100`; the next distinct positive-ID invalid listing row is unresolved and prevents promotion. |

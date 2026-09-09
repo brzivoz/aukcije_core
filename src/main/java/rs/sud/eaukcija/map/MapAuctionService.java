@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
+import rs.sud.eaukcija.history.SourceHistoryService;
 
 /** Maps the database projection to the deliberately safe public GeoJSON contract. */
 @Service
@@ -14,14 +15,17 @@ public class MapAuctionService {
     private static final String DETAIL_URL_PREFIX = "https://eaukcija.sud.rs/#/aukcije/";
 
     private final MapAuctionRepository repository;
+    private final SourceHistoryService history;
 
-    public MapAuctionService(MapAuctionRepository repository) {
+    public MapAuctionService(MapAuctionRepository repository, SourceHistoryService history) {
         this.repository = repository;
+        this.history = history;
     }
 
     @org.springframework.transaction.annotation.Transactional(readOnly = true,
             isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public MapGeoJsonResponse findAuctions(MapAuctionRequest request) {
+        var sourceFrame = history.capture(request.filters().asOf());
         List<MapAuctionRow> rows = repository.findWithin(request);
         boolean truncated = rows.size() > request.limit();
         int returned = Math.min(rows.size(), request.limit());
@@ -38,7 +42,7 @@ public class MapAuctionService {
         }
         return new MapGeoJsonResponse("FeatureCollection", List.copyOf(features), returned, request.limit(), truncated,
                 request.filters().asOf(), request.filters().timeScope(), repository.counts(request),
-                features.stream().map(f -> f.properties().auctionId()).distinct().count(), selection);
+                features.stream().map(f -> f.properties().auctionId()).distinct().count(), selection, sourceFrame);
     }
 
     private static MapGeoJsonResponse.Feature toFeature(MapAuctionRow row, MapAuctionRequest request) {

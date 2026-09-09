@@ -118,13 +118,13 @@ class OperatorStatusControllerTest {
                 "SCHEDULED", "SUCCEEDED", "COMPLETED",
                 Instant.parse("2026-08-25T08:00:00Z"), Instant.parse("2026-08-25T08:05:00Z"),
                 300_000L, 589, 2L, 590, 0, 1, 10, 0, 2, 0, 0,
-                new PipelineStatus.SnapshotChanges(2, 3, 584), Map.of());
+                new PipelineStatus.SnapshotChanges(2, 3, 584), null, Map.of());
         PipelineStatus.RunMetric partial = new PipelineStatus.RunMetric(
                 java.util.UUID.fromString("22222222-2222-4222-8222-222222222222"),
                 "SCHEDULED", "PARTIAL", "LISTINGS",
                 Instant.parse("2026-08-25T10:00:00Z"), Instant.parse("2026-08-25T10:01:00Z"),
                 60_000L, 200, -389L, 200, 0, 0, 0, 0, 3, 1, 1,
-                null, Map.of("TIMEOUT", 1L));
+                null, null, Map.of("TIMEOUT", 1L));
         return new PipelineStatus(
                 Instant.parse("2026-08-25T12:00:00Z"),
                 "SERVING_LAST_GOOD_DATA", true, true, List.of(),

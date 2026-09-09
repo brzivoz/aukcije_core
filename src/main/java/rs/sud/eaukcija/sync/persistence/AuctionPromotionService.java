@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import rs.sud.eaukcija.model.Auction;
@@ -20,6 +21,16 @@ public class AuctionPromotionService {
     private static final Duration POSTGRES_TIMESTAMP_PRECISION = Duration.ofNanos(1_000);
 
     private final SyncRunRepository runs;
+    private Duration absenceGrace = Duration.ofDays(1);
+
+    @Value("${eaukcija.sync.absence-grace:PT24H}")
+    public void setAbsenceGrace(Duration grace) {
+        if (grace == null || grace.isNegative() || grace.compareTo(Duration.ofDays(30)) > 0
+                || !grace.equals(Duration.ofMillis(grace.toMillis()))) {
+            throw new IllegalArgumentException("eaukcija.sync.absence-grace must be between PT0S and P30D at millisecond precision");
+        }
+        this.absenceGrace = grace;
+    }
 
     public AuctionPromotionService(SyncRunRepository runs) {
         this.runs = runs;
@@ -92,6 +103,7 @@ public class AuctionPromotionService {
         runs.assertCompleteChildren(runId);
         validateMembershipScope(run, runs.childResults(runId), candidates);
 
+        var publication = runs.prepareSourceHistory(runId, observedAt, candidates);
         for (AuctionPromotionCandidate candidate : candidates) {
             prepareAuction(runId, taxonomySha256, observedAt, candidate);
         }
@@ -103,6 +115,7 @@ public class AuctionPromotionService {
         runs.insertDetailQuarantines(runId, detailQuarantines);
         runs.insertListingQuarantines(runId, listingQuarantines);
         runs.incrementAbsencesForUnobservedInScope(runId);
+        runs.publishSourceHistory(publication, absenceGrace);
 
         // Mark success before queue insertion so the database trigger can prove
         // the success-only gate. Both statements are in this transaction, so a

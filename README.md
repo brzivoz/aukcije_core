@@ -454,6 +454,10 @@ enrichment reprocessing; pipeline/refresh evidence; and immutable minimized
 listing+detail source snapshots with current-state and run-observation lineage;
 plus versioned property-reference runs, memberships, current selection,
 source/input lineage, quality metrics, and reviewed-correction-safe replay.
+V29 adds ordered successful source publications, exact source-delta and safe
+review classifications, lifecycle/absence projections and append-only transitions,
+and bounded read-only comparison contracts. See
+[source history operations](documentation/SOURCE_CHANGE_HISTORY_OPERATIONS.md).
 V18 adds immutable per-reference extracted-KO results, structured/text
 reconciliation, current pointers, population-run membership, and enrichment
 observations.

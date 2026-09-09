@@ -15,7 +15,8 @@ public record MapGeoJsonResponse(
         String timeScope,
         MapAuctionRepository.Counts counts,
         long returnedAuctionCount,
-        Selection selection) {
+        Selection selection,
+        rs.sud.eaukcija.history.SourceHistoryService.Frame sourceFrame) {
 
     public record Selection(long auctionId, String state) {}
 

@@ -26,6 +26,7 @@ if (panel) {
         start: document.getElementById('refresh-start'),
         retry: document.getElementById('refresh-retry'),
         status: document.getElementById('refresh-status'),
+        progressSummary: document.getElementById('refresh-progress-summary'),
         polite: document.getElementById('refresh-polite'),
         alert: document.getElementById('refresh-alert'),
         startedAt: document.getElementById('refresh-started-at'),
@@ -195,6 +196,11 @@ if (panel) {
         panel.dataset.refreshEnabled = String(state.enabled);
         setActionBusy(busy || !state.enabled);
         renderStages(state);
+        elements.progressSummary.textContent = state.status === 'RUNNING'
+            ? `Напредак: ${stageLabels[state.stage]} ${countFor(state.stage, state)} — детаљи`
+            : state.status === 'FAILED'
+                ? 'Детаљи неуспелог покушаја и операторске контроле'
+                : 'Напредак и операторски детаљи';
         elements.startedAt.textContent = formatInstant(state.startedAt, 'Није покренуто');
         elements.lastSuccess.textContent = formatInstant(
             state.lastSuccessfulCompleteRefresh, 'Није забележено');

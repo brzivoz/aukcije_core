@@ -111,8 +111,10 @@ const state = {
     metadataSequence: 0,
     resourceWarnings: new Map(),
     pendingRefresh: false,
+    quietRefresh: false,
     sourcesReady: false,
     initializationPromise: null,
+    resizeObserver: null,
     appliedQuery: new URLSearchParams(elements.filterForm.dataset.query),
     selectionStatus: null,
     lastUsableQuery: new URLSearchParams(elements.filterForm.dataset.query),
@@ -123,7 +125,7 @@ const publicApi = {
     ready: false,
     map: null,
     refreshNow: () => refreshNow(),
-    getDiagnostics: () => ({...diagnostics}),
+    getDiagnostics: () => ({...diagnostics, requestInFlight: !!state.activeRequest}),
     renderedClusterCount: () => renderedClusterCount(),
     showCluster: cluster => showCluster(cluster),
     waitForMapLoad: (map, timeoutMs) => mapLoaded(map, {
@@ -153,7 +155,7 @@ if (Number.isFinite(autoRefreshMs) && autoRefreshMs >= 1000 && autoRefreshMs <= 
     window.setInterval(() => {
         if (!document.hidden && state.sourcesReady && state.map && !state.map.isMoving()
                 && !state.activeRequest && !state.debounceTimer && !state.pendingRefresh && !state.invalidFilter) {
-            requestRefresh();
+            requestRefresh({quiet: true});
             replayPendingRefresh();
         }
     }, autoRefreshMs);
@@ -201,6 +203,8 @@ async function initializeMap() {
             dragRotate: false,
             pitchWithRotate: false,
             touchPitch: false,
+            // One resize owner: MapLibre 6 also has a throttled container observer.
+            trackResize: false,
             fadeDuration: reducedMotion() ? 0 : 150
         });
         configureTwoDimensionalCamera(map);
@@ -217,8 +221,14 @@ async function initializeMap() {
         state.sourcesReady = true;
         synchronizeMinZoom(map);
         map.on('resize', () => synchronizeMinZoom(map));
+        observeMapSize(map);
         bindMapInteractions(map);
-        map.on('moveend', () => scheduleLoad());
+        map.on('moveend', event => {
+            // Status/selection text can itself resize a viewport-height map.
+            // Do not alternate loading/ready heights or auto-retry an error.
+            if (event.workspaceResize && diagnostics.lastState === 'error') return;
+            scheduleLoad(LOAD_DEBOUNCE_MS, {quiet: event.workspaceResize === true});
+        });
         requestRefresh();
         await replayPendingRefresh();
     } catch (error) {
@@ -231,10 +241,33 @@ async function initializeMap() {
 function failMapInitialization(error, message) {
     diagnostics.lastError = errorName(error);
     state.sourcesReady = false;
+    state.resizeObserver?.disconnect();
+    state.resizeObserver = null;
     state.map?.remove();
     state.map = null;
     publicApi.map = null;
     setMapState('error', message);
+}
+
+function observeMapSize(map) {
+    // Tag layout resizes rather than competing with MapLibre's own observer.
+    // Ignore zero dimensions and keep the table-mode map laid out but invisible,
+    // so background shared-view refreshes never use a collapsed/default canvas.
+    // Metadata/form enhancement may already have changed the layout while the
+    // style was loading, before the observer was installed.
+    map.resize();
+    let width = map.getContainer().clientWidth;
+    let height = map.getContainer().clientHeight;
+    state.resizeObserver = new ResizeObserver(() => {
+        const container = map.getContainer();
+        const nextWidth = container.clientWidth;
+        const nextHeight = container.clientHeight;
+        if (!nextWidth || !nextHeight || (width === nextWidth && height === nextHeight)) return;
+        width = nextWidth;
+        height = nextHeight;
+        map.resize({workspaceResize: true}); // Recalculate the safe minimum and reload without layout feedback.
+    });
+    state.resizeObserver.observe(map.getContainer());
 }
 
 function configureTwoDimensionalCamera(map) {
@@ -275,6 +308,7 @@ function bindFilterControls() {
     document.addEventListener('click', event => {
         const selected = event.target.closest('#shared-results .table-select');
         if (selected) {
+            window.dispatchEvent(new Event('eaukcija:show-map'));
             state.selectedAuctionId = selected.dataset.auctionId;
             writeUrlState();
             updateSelectionLayers();
@@ -373,11 +407,11 @@ function validAuctionId(value) {
     return typeof value === 'string' && /^[1-9][0-9]{0,18}$/.test(value);
 }
 
-function scheduleLoad(delay = LOAD_DEBOUNCE_MS) {
+function scheduleLoad(delay = LOAD_DEBOUNCE_MS, {quiet = false} = {}) {
     window.clearTimeout(state.debounceTimer);
     abortActiveRequest();
-    requestRefresh();
-    setMapState(
+    requestRefresh({quiet});
+    if (!quiet) setMapState(
             'loading',
             state.features.length
                     ? 'Освежавање видљивог дела карте; претходни резултати остају приказани…'
@@ -404,7 +438,9 @@ async function refreshNow() {
     return replayPendingRefresh();
 }
 
-function requestRefresh() {
+function requestRefresh({quiet = false} = {}) {
+    // A resize must not downgrade an already pending explicit filter refresh.
+    state.quietRefresh = quiet && (!state.pendingRefresh || state.quietRefresh);
     state.pendingRefresh = true;
     diagnostics.pendingRefresh = true;
 }
@@ -419,14 +455,15 @@ async function replayPendingRefresh() {
     if (!ensureRequestableViewport(state.map)) {
         return;
     }
+    const quiet = state.quietRefresh;
     state.pendingRefresh = false;
     diagnostics.pendingRefresh = false;
-    return loadViewport();
+    return loadViewport({quiet});
 }
 
-async function loadViewport() {
+async function loadViewport({quiet = false} = {}) {
     if (!state.map || !state.sourcesReady || !state.map.isStyleLoaded()) {
-        requestRefresh();
+        requestRefresh({quiet});
         return;
     }
     abortActiveRequest();
@@ -435,7 +472,7 @@ async function loadViewport() {
     const sequence = ++state.requestSequence;
     diagnostics.requestsStarted++;
     diagnostics.lastError = null;
-    setMapState(
+    if (!quiet) setMapState(
             'loading',
             state.features.length
                     ? 'Освежавање видљивог дела карте; претходни резултати остају приказани…'
@@ -458,7 +495,7 @@ async function loadViewport() {
         // never source description text from GeoJSON. The form is deliberately not replaced.
         const fragment = new DOMParser().parseFromString(view.resultsHtml, 'text/html').querySelector('#shared-results');
         if (!fragment) throw new Error('INVALID_VIEW_RESPONSE');
-        document.getElementById('shared-results').replaceWith(fragment);
+        replaceTableResults(fragment);
         refreshOptions(view.options);
         if (view.catalogue) {
             document.getElementById('catalogue-count').textContent = String(view.catalogue.total);
@@ -523,6 +560,23 @@ async function loadViewport() {
         if (state.activeRequest === controller) {
             state.activeRequest = null;
         }
+    }
+}
+
+function replaceTableResults(fragment) {
+    const previous = document.getElementById('shared-results');
+    const scrollLeft = previous.querySelector('.table-scroll')?.scrollLeft || 0;
+    const focused = previous.contains(document.activeElement) ? document.activeElement : null;
+    const sortIndex = [...previous.querySelectorAll('th a')].indexOf(focused);
+    const auctionId = focused?.matches('.table-select') ? focused.dataset.auctionId : null;
+    previous.replaceWith(fragment);
+    const scroll = fragment.querySelector('.table-scroll');
+    if (scroll) scroll.scrollLeft = scrollLeft;
+    if (focused) {
+        const next = sortIndex >= 0 ? fragment.querySelectorAll('th a')[sortIndex]
+            : validAuctionId(auctionId) ? fragment.querySelector(`.table-select[data-auction-id="${auctionId}"]`)
+                : null;
+        (next || scroll)?.focus({preventScroll: true});
     }
 }
 
@@ -1293,7 +1347,7 @@ async function loadMetadata() {
         elements.dataVersion.textContent = data.value.dataVersion || 'Без ознаке верзије';
         elements.lastSync.textContent = formatEndTime(data.value.lastSuccessfulSync);
         if (data.value.stale) {
-            state.metadataWarnings.add('Подаци су старији од дозвољеног периода свежине. Време последњег успешног освежавања остаје приказано.');
+            state.metadataWarnings.add(`Подаци су старији од дозвољеног периода свежине. Последње успешно освежавање карте: ${formatEndTime(data.value.lastSuccessfulSync)}.`);
         }
     } else {
         elements.dataVersion.textContent = 'Нема успешне верзије';

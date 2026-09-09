@@ -22,6 +22,15 @@ public final class BrowserHarnessExtension implements BeforeEachCallback, TestWa
     private BrowserContext context;
     private Page page;
     private LocalhostOnlyNetwork network;
+    private final boolean javaScriptEnabled;
+
+    public BrowserHarnessExtension() {
+        this(true);
+    }
+
+    public BrowserHarnessExtension(boolean javaScriptEnabled) {
+        this.javaScriptEnabled = javaScriptEnabled;
+    }
 
     @Override
     public void beforeEach(ExtensionContext extensionContext) {
@@ -29,7 +38,7 @@ public final class BrowserHarnessExtension implements BeforeEachCallback, TestWa
         playwright = Playwright.create();
         browser = playwright.chromium().launch(
                 new BrowserType.LaunchOptions().setHeadless(headless));
-        context = browser.newContext();
+        context = browser.newContext(new Browser.NewContextOptions().setJavaScriptEnabled(javaScriptEnabled));
         network = new LocalhostOnlyNetwork(context);
         context.tracing().start(new Tracing.StartOptions()
                 .setScreenshots(true)

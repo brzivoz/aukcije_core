@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.ViewportSize;
+import com.microsoft.playwright.options.ReducedMotion;
 import com.microsoft.playwright.options.WaitUntilState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -273,7 +274,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 () => {
                   const sidebar = document.querySelector('.map-sidebar').getBoundingClientRect();
                   const canvas = document.querySelector('.map-canvas-frame').getBoundingClientRect();
-                  return sidebar.bottom <= canvas.top + 2 && canvas.height >= 390;
+                  return canvas.bottom <= sidebar.top + 2 && canvas.height >= 390;
                 }
                 """)).isTrue();
         Path narrow = evidence.resolve("issue-27-auction-map-narrow.png");
@@ -317,6 +318,9 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 window.__auctionMap?.ready === true
                   && window.__auctionMap.getDiagnostics().lastState === 'ready'
                   && window.__auctionMap.getDiagnostics().requestsCompleted >= 1
+                  && !window.__auctionMap.getDiagnostics().pendingRefresh
+                  && !window.__auctionMap.getDiagnostics().requestInFlight
+                  && window.__auctionMap.map.getCanvas().clientHeight === window.__auctionMap.map.getContainer().clientHeight
                 """);
 
         assertThat(((Number) page.evaluate("window.__mapFetchAborts")).intValue()).isPositive();
@@ -325,6 +329,10 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-limit-warning").isVisible()).isTrue();
         assertThat(page.locator("#map-state").textContent()).contains("ограничен");
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
+        page.waitForFunction("!window.__auctionMap.getDiagnostics().pendingRefresh && !window.__auctionMap.getDiagnostics().requestInFlight");
+        int settledRequests = ((Number) page.evaluate("window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
+        page.waitForTimeout(600); // Negative assertion: a wrapped/limit notice must not cause a resize/request loop.
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().requestsStarted")).isEqualTo(settledRequests);
 
         int beforeDeferredFilter = ((Number) page.evaluate(
                 "window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
@@ -388,6 +396,9 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-state").textContent())
                 .contains("bbox", "1000000", "Промените приказ или филтер")
                 .doesNotContain("Покушајте поново");
+        int rejectedRequests = ((Number) page.evaluate("window.__auctionMap.getDiagnostics().requestsStarted")).intValue();
+        page.waitForTimeout(600);
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().requestsStarted")).isEqualTo(rejectedRequests);
 
         page.evaluate("""
                 () => window.__mapResponses.push({status: 503, delay: 0})
@@ -475,12 +486,13 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                   };
                 }
                 """);
-        assertThat(dimensions.get("layoutHeight").doubleValue()).isBetween(579.0, 581.0);
-        assertThat(dimensions.get("canvasHeight").doubleValue()).isBetween(579.0, 581.0);
+        assertThat(dimensions.get("layoutHeight").doubleValue()).isGreaterThanOrEqualTo(320);
+        assertThat(dimensions.get("canvasHeight").doubleValue())
+                .isBetween(dimensions.get("layoutHeight").doubleValue() - 2, dimensions.get("layoutHeight").doubleValue());
         assertThat(dimensions.get("resultsScrollHeight").doubleValue())
                 .isGreaterThan(dimensions.get("resultsHeight").doubleValue());
         assertThat(dimensions.get("resultsHeight").doubleValue())
-                .isLessThan(dimensions.get("canvasHeight").doubleValue());
+                .isLessThanOrEqualTo(dimensions.get("canvasHeight").doubleValue() + 1);
 
         browser.network().assertOnlyLocalhostRequests();
         assertThat(browser.network().contactedHosts()).containsExactly("localhost");
@@ -533,6 +545,146 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
     }
 
     @Test
+    void desktopWorkspaceFillsTheViewportAndDisclosuresAndModesAreKeyboardOperable() throws Exception {
+        Page page = browser.page();
+        page.emulateMedia(new Page.EmulateMediaOptions().setReducedMotion(ReducedMotion.REDUCE));
+        page.setViewportSize(1366, 768);
+        page.navigate(applicationUri().toString());
+        waitForReadyMap(page);
+        Path evidence = evidenceDirectory();
+        Files.createDirectories(evidence);
+        var measurements = new java.util.LinkedHashMap<String, Object>();
+        for (ViewportSize size : List.of(new ViewportSize(1366, 768), new ViewportSize(1920, 1080),
+                new ViewportSize(2560, 1080))) {
+            page.setViewportSize(size.width, size.height);
+            page.waitForFunction("""
+                    () => {
+                      const map = window.__auctionMap.map, container = map.getContainer(), canvas = map.getCanvas();
+                      return canvas.clientWidth === container.clientWidth && canvas.clientHeight === container.clientHeight && map.areTilesLoaded();
+                    }
+                    """);
+            waitForReadyMap(page);
+            @SuppressWarnings("unchecked")
+            Map<String, Number> bounds = (Map<String, Number>) page.evaluate("""
+                    () => {
+                      const rect = selector => document.querySelector(selector).getBoundingClientRect();
+                      const map = rect('#auction-map'), rail = rect('.map-sidebar'), container = rect('#workspace');
+                      const attribution = rect('#auction-map .maplibregl-ctrl-attrib');
+                      return {mapWidth: map.width, mapHeight: map.height, mapTop: map.top, mapBottom: map.bottom,
+                        mapRight: map.right, attributionBottom: attribution.bottom, attributionRight: attribution.right,
+                        railWidth: rail.width, containerWidth: container.width, scrollWidth: document.documentElement.scrollWidth,
+                        applyBottom: rect('#shared-filters button[type=submit]').bottom};
+                    }
+                    """);
+            assertThat(bounds.get("containerWidth").doubleValue()).isEqualTo(size.width);
+            assertThat(bounds.get("railWidth").doubleValue()).isBetween(320.0, 380.0);
+            assertThat(bounds.get("mapWidth").doubleValue()).isGreaterThan(size.width - 430.0);
+            assertThat(bounds.get("mapHeight").doubleValue()).isGreaterThanOrEqualTo(320);
+            assertThat(bounds.get("mapBottom").doubleValue()).isBetween(size.height - 24.0, (double) size.height);
+            assertThat(bounds.get("applyBottom").doubleValue()).isLessThan(bounds.get("mapTop").doubleValue());
+            assertThat(bounds.get("attributionBottom").doubleValue()).isLessThanOrEqualTo(bounds.get("mapBottom").doubleValue());
+            assertThat(bounds.get("attributionRight").doubleValue()).isLessThanOrEqualTo(bounds.get("mapRight").doubleValue());
+            assertThat(bounds.get("scrollWidth").intValue()).isLessThanOrEqualTo(size.width);
+            assertThat(page.locator("#refresh-details").getAttribute("open")).isNull();
+            assertThat(page.locator("#map-reference").getAttribute("open")).isNull();
+            assertThat(page.locator("#auction-map .maplibregl-ctrl-attrib").isVisible()).isTrue();
+            String label = size.width + "x" + size.height;
+            Path image = evidence.resolve("issue-45-workspace-" + label + ".png");
+            page.screenshot(new Page.ScreenshotOptions().setPath(image));
+            measurements.put(label, Map.of("bounds", bounds, "screenshot", fileEvidence(image)));
+        }
+        new ObjectMapper().writerWithDefaultPrettyPrinter().writeValue(
+                evidence.resolve("issue-45-workspace-bounds.json").toFile(), measurements);
+
+        page.locator("#workspace-rail-toggle").focus();
+        page.locator("#workspace-rail-toggle").press("Space");
+        assertThat(page.locator("#workspace-rail-toggle").getAttribute("aria-expanded")).isEqualTo("false");
+        assertThat(page.locator("#mode-map").getAttribute("aria-pressed")).isEqualTo("true");
+        assertThat(page.locator(".map-sidebar").isHidden()).isTrue();
+        assertThat(page.locator("#workspace-rail-toggle").evaluate("el => el === document.activeElement && el.matches(':focus-visible')")).isEqualTo(true);
+        page.locator("#workspace-rail-toggle").press("Enter");
+        assertThat(page.locator(".map-sidebar").isVisible()).isTrue();
+        page.locator("#mode-table").press("Enter");
+        assertThat(page.locator("#table-view").isVisible()).isTrue();
+        assertThat(page.locator("#auction-map canvas").isHidden()).isTrue();
+        page.locator("#mode-table").press("Tab");
+        assertThat(page.locator("#workspace-filter-toggle").evaluate("el => el === document.activeElement")).isEqualTo(true);
+        page.locator("#mode-results").press("Space");
+        page.locator("#map-reference summary").press("Enter");
+        assertThat(page.locator(".map-legend li").first().isVisible()).isTrue();
+        assertThat(page.locator("#basemap-version").isVisible()).isTrue();
+        page.locator("#map-reference summary").press("Escape");
+        assertThat(page.locator("#map-reference").getAttribute("open")).isNull();
+        assertThat(page.locator("#auction-map-description").isVisible()).isTrue();
+        page.locator(".map-result-button").first().press("Enter");
+        assertThat(page.locator("#map-selection").textContent()).contains("Парцела", "Проверена граница");
+        page.locator("#mode-map").press("Enter");
+        assertThat(page.locator("#map-selection").isVisible()).isTrue();
+        assertThat(page.evaluate("matchMedia('(prefers-reduced-motion: reduce)').matches")).isEqualTo(true);
+        assertThat(page.locator("#mode-map").evaluate("el => getComputedStyle(el).transitionDuration")).isEqualTo("0s");
+
+        // 200% zoom's CSS viewport equivalent, plus a small phone-width window.
+        for (ViewportSize size : List.of(new ViewportSize(683, 384), new ViewportSize(390, 844))) {
+            page.setViewportSize(size.width, size.height);
+            page.locator("#mode-table").press("Enter");
+            waitForReadyMap(page);
+            assertThat(page.evaluate("document.documentElement.scrollWidth <= innerWidth")).isEqualTo(true);
+            assertThat(page.locator(".table-scroll").evaluate("el => el.scrollWidth > el.clientWidth")).isEqualTo(true);
+            page.locator(".table-scroll").focus();
+            page.locator(".table-scroll").press("ArrowRight");
+            page.waitForFunction("document.querySelector('.table-scroll').scrollLeft > 0");
+            page.evaluate("window.__auctionMap.refreshNow()");
+            waitForReadyMap(page);
+            assertThat(page.locator(".table-scroll").evaluate("el => el.scrollLeft > 0 && el === document.activeElement")).isEqualTo(true);
+            page.locator("#mode-results").press("Enter");
+            assertThat(page.evaluate("document.documentElement.scrollWidth <= innerWidth")).isEqualTo(true);
+        }
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
+    void railModeAndViewportResizingRecalculateTheMinimumAndNeverExceedTheApiCeiling() {
+        Page page = browser.page();
+        var areas = new java.util.ArrayList<Double>();
+        var statuses = new java.util.ArrayList<Integer>();
+        page.onResponse(response -> {
+            if (!response.url().contains("/api/auctions/view?")) return;
+            statuses.add(response.status());
+            String bbox = java.net.URLDecoder.decode(response.url().split("bbox=")[1].split("&")[0], java.nio.charset.StandardCharsets.UTF_8);
+            double[] b = java.util.Arrays.stream(bbox.split(",")).mapToDouble(Double::parseDouble).toArray();
+            areas.add(6371.0088 * 6371.0088 * Math.toRadians(b[2] - b[0])
+                    * Math.abs(Math.sin(Math.toRadians(b[3])) - Math.sin(Math.toRadians(b[1]))));
+        });
+        page.setViewportSize(1366, 768);
+        page.navigate(applicationUri().toString());
+        waitForReadyMap(page);
+        double firstMinimum = ((Number) page.evaluate("window.__auctionMap.map.getMinZoom()")).doubleValue();
+        for (String action : List.of(
+                "window.__auctionMap.map.jumpTo({zoom: window.__auctionMap.map.getMinZoom()})",
+                "document.querySelector('#workspace-rail-toggle').click()",
+                "document.querySelector('#workspace-filter-toggle').click()")) {
+            int before = ((Number) page.evaluate("window.__auctionMap.getDiagnostics().requestsCompleted")).intValue();
+            page.evaluate("() => {" + action + ";}");
+            page.waitForFunction("before => window.__auctionMap.getDiagnostics().requestsCompleted > before", before);
+            waitForReadyMap(page);
+        }
+        assertThat(((Number) page.evaluate("window.__auctionMap.map.getMinZoom()")).doubleValue()).isGreaterThan(firstMinimum);
+        page.locator("#mode-table").press("Enter");
+        page.setViewportSize(2560, 1440);
+        page.waitForFunction("window.__auctionMap.map.getCanvas().clientWidth === document.querySelector('#auction-map').clientWidth");
+        page.evaluate("() => { window.__auctionMap.map.jumpTo({zoom: window.__auctionMap.map.getMinZoom()}); }");
+        page.evaluate("window.__auctionMap.refreshNow()");
+        waitForReadyMap(page);
+        page.locator("#mode-results").press("Enter");
+        page.evaluate("window.__auctionMap.refreshNow()");
+        waitForReadyMap(page);
+        assertThat(areas).hasSizeGreaterThanOrEqualTo(5).allSatisfy(area -> assertThat(area).isBetween(1.0, 1_000_000.0));
+        assertThat(statuses).allSatisfy(status -> assertThat(status).isEqualTo(200));
+        assertThat(page.evaluate("window.__auctionMap.getDiagnostics().lastError")).isNull();
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
     void precisionContractFailureNamesTheApplicationContractNotTheBasemap() {
         Page page = browser.page();
         page.addInitScript("""
@@ -559,6 +711,29 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.evaluate("window.__auctionMap.map")).isNull();
         assertThat(page.evaluate("window.__auctionMap.getDiagnostics().lastError"))
                 .isEqualTo("MAP_PRECISION_CONTRACT_MISMATCH");
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
+    void staleLastGoodMapRemainsExplicitOutsideCollapsedDiagnosticsInEveryMode() {
+        Page page = browser.page();
+        page.route("**/api/map/status", route -> route.fulfill(new com.microsoft.playwright.Route.FulfillOptions()
+                .setContentType("application/json").setBody("""
+                        {"available":true,"stale":true,"dataVersion":"retained-last-good",
+                         "lastSuccessfulSync":"2026-08-21T09:00:00Z"}
+                        """)));
+        page.setViewportSize(1366, 768);
+        page.navigate(applicationUri().toString());
+        waitForReadyMap(page);
+        String lastGood = page.locator("#map-last-sync").textContent();
+        for (String mode : List.of("map", "table", "results")) {
+            page.locator("#mode-" + mode).press("Enter");
+            assertThat(page.locator("#map-reference").getAttribute("open")).isNull();
+            assertThat(page.locator("#refresh-details").getAttribute("open")).isNull();
+            assertThat(page.locator("#map-freshness-warning").isVisible()).isTrue();
+            assertThat(page.locator("#map-freshness-warning").textContent()).contains("старији", lastGood);
+            assertThat(page.locator("#refresh-start").isVisible()).isTrue();
+        }
         browser.network().assertOnlyLocalhostRequests();
     }
 
@@ -806,6 +981,9 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                 window.__auctionMap?.ready === true
                   && window.__auctionMap.getDiagnostics().lastState === 'ready'
                   && window.__auctionMap.getDiagnostics().lastFeatureCount === 6
+                  && !window.__auctionMap.getDiagnostics().pendingRefresh
+                  && !window.__auctionMap.getDiagnostics().requestInFlight
+                  && window.__auctionMap.map.getCanvas().clientHeight === window.__auctionMap.map.getContainer().clientHeight
                 """, null, new Page.WaitForFunctionOptions().setTimeout(30_000));
     }
 
@@ -922,7 +1100,10 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
                     const url = new URL(typeof input === 'string' ? input : input.url, location.href);
                     if (url.pathname !== '/api/auctions/view') return originalFetch(input, init);
                     window.__mapFetchStarted++;
-                    const response = window.__mapResponses.shift();
+                    // Layout-only follow-up requests see the same controlled backend
+                    // state until this test explicitly queues the next transition.
+                    const response = window.__mapResponses.shift() || window.__lastMapResponse;
+                    window.__lastMapResponse = response ? {...response, delay: 0} : null;
                     if (!response) return originalFetch(input, init);
                     return new Promise((resolve, reject) => {
                       const finish = () => resolve(new Response(

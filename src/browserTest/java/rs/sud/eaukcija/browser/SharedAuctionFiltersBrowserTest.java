@@ -78,6 +78,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("0");
         assertThat(page.locator("#map-selection").textContent()).contains("Избор је сачуван");
         page.selectOption("#map-precision-filter", ""); apply(page);
+        page.click("#mode-table");
         page.locator("#shared-results th a").filter(new com.microsoft.playwright.Locator.FilterOptions().setHasText("Почетна цена")).click();
         ready(page);
         assertThat(page.url()).contains("sortDir=desc", "from=2026-08-28", "to=2026-08-28", "search=vikend");
@@ -175,6 +176,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#map-result-count").textContent()).isEqualTo("1");
         assertThat(page.locator("#active-criteria").textContent()).contains("Општине: Нови Сад, Чачак");
         String filtered = page.url();
+        page.click("#mode-table");
         page.locator("#shared-results th a").filter(new com.microsoft.playwright.Locator.FilterOptions().setHasText("Почетна цена")).click();
         ready(page);
         page.reload(); ready(page);
@@ -195,6 +197,48 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         assertThat(page.evaluate("document.documentElement.scrollWidth <= innerWidth")).isEqualTo(true);
         page.fill("#municipality-search", "no such municipality");
         assertThat(page.locator("#municipality-empty").isVisible()).isTrue();
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test void workspaceModesPreserveAppliedCriteriaDraftsSelectionCameraSortAndPagination() {
+        Page page = browser.page();
+        page.setViewportSize(1366, 768);
+        page.navigate(applicationUri() + "?category=Викендица&timeScope=ended&from=2026-08-28&to=2026-08-28&page=1&sortBy=startingPrice&sortDir=desc&auction=179415");
+        ready(page);
+        String applied = page.url();
+        page.fill("#search-filter", "несачуван нацрт");
+        page.selectOption("#map-precision-filter", "PARCEL");
+        page.click("#municipality-filter summary");
+        page.fill("#municipality-search", "cacak");
+        page.getByLabel("Чачак", new Page.GetByLabelOptions().setExact(true)).check();
+        page.locator("#municipality-search").press("Escape");
+        Object camera = page.evaluate("[window.__auctionMap.map.getCenter().toArray(), window.__auctionMap.map.getZoom()]");
+        page.evaluate("window.__retainedMap = window.__auctionMap.map; window.__retainedForm = document.querySelector('#shared-filters')");
+        for (String mode : java.util.List.of("map", "table", "results", "table", "map", "results")) {
+            page.locator("#mode-" + mode).press("Enter");
+            ready(page);
+            assertThat(page.locator("#mode-" + mode).getAttribute("aria-pressed")).isEqualTo("true");
+            assertThat(page.locator("[data-workspace-mode][aria-pressed=true]").count()).isOne();
+            assertThat(page.locator("#mode-" + mode).evaluate("el => el === document.activeElement")).isEqualTo(true);
+            assertThat(page.url()).isEqualTo(applied);
+            assertThat(page.locator("#search-filter").inputValue()).isEqualTo("несачуван нацрт");
+            assertThat(page.locator("#map-precision-filter").inputValue()).isEqualTo("PARCEL");
+            assertThat(page.locator("input[name=municipality][value='Чачак']").isChecked()).isTrue();
+            assertThat(page.locator("#shared-results tbody tr[data-auction-id]").count()).isEqualTo(6);
+            assertThat(page.locator("#map-selection").isVisible()).isTrue();
+            assertThat(page.locator("#map-selection").textContent()).contains("Центар катастарске општине", "ово није адреса ни парцела");
+            assertThat(page.evaluate("[window.__auctionMap.map.getCenter().toArray(), window.__auctionMap.map.getZoom()]")).isEqualTo(camera);
+            assertThat(page.evaluate("window.__retainedMap === window.__auctionMap.map && window.__retainedForm === document.querySelector('#shared-filters')")).isEqualTo(true);
+        }
+        page.locator("#workspace-filter-toggle").press("Space");
+        assertThat(page.locator("#shared-filters").isHidden()).isTrue();
+        page.locator("#workspace-filter-toggle").press("Enter");
+        assertThat(page.locator("#search-filter").inputValue()).isEqualTo("несачуван нацрт");
+        page.locator("#mode-table").press("Enter");
+        page.locator(".table-select").first().press("Enter");
+        assertThat(page.locator("#mode-results").getAttribute("aria-pressed")).isEqualTo("true");
+        assertThat(page.locator("#map-selection").isVisible()).isTrue();
+        assertThat(page.url()).contains("page=1", "sortBy=startingPrice", "sortDir=desc", "from=2026-08-28");
         browser.network().assertOnlyLocalhostRequests();
     }
 

@@ -49,6 +49,16 @@ class RefreshWorkflowBrowserTest extends PostgisBrowserFixture {
             stage.set(current);
             first.waitForFunction("expected => document.querySelector(`[data-refresh-stage='${expected}']`)?.dataset.state === 'active'", current);
             assertThat(first.locator("#refresh-status").textContent()).doesNotContain("Карта је спремна", "Завршено");
+            assertThat(first.locator("#refresh-status").isVisible()).isTrue();
+            assertThat(first.locator("#refresh-details").getAttribute("open")).isNull();
+            assertThat(first.locator("#refresh-progress-summary").textContent()).contains("Напредак:");
+            if (!current.equals("PREPARE_MAP")) {
+                assertThat(first.locator("#refresh-progress-summary").textContent()).contains("4 / 10");
+            }
+            first.locator("#refresh-progress-summary").press("Enter");
+            assertThat(first.locator("[data-refresh-stage='" + current + "']").isVisible()).isTrue();
+            first.locator("#refresh-progress-summary").press("Escape");
+            assertThat(first.locator("#refresh-progress-summary").evaluate("el => el === document.activeElement")).isEqualTo(true);
             assertThat(first.locator("#refresh-result").isHidden()).isTrue();
             first.reload(new Page.ReloadOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
             first.waitForFunction("expected => document.querySelector(`[data-refresh-stage='${expected}']`)?.dataset.state === 'active'", current);
@@ -111,6 +121,16 @@ class RefreshWorkflowBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("[data-refresh-stage=PROCESS_LOCATIONS]").getAttribute("data-state"))
                 .isEqualTo("error");
         assertThat(page.locator("#refresh-last-success").textContent()).doesNotContain("Није");
+        assertThat(page.locator("#refresh-details").getAttribute("open")).isNull();
+        assertThat(page.locator("#refresh-last-success").isVisible()).isTrue();
+        assertThat(page.locator("#refresh-status").isVisible()).isTrue();
+        page.locator("#mode-table").press("Enter");
+        assertThat(page.locator("#refresh-status").isVisible()).isTrue();
+        page.locator("#refresh-progress-summary").press("Enter");
+        assertThat(page.locator("#refresh-started-at").isVisible()).isTrue();
+        page.locator(".advanced-operator summary").press("Enter");
+        assertThat(page.locator("#advanced-source-sync").isVisible()).isTrue();
+        page.locator("#refresh-progress-summary").press("Escape");
         page.locator("#refresh-retry").focus();
         assertFocusContrast(page, "#refresh-retry");
         page.locator("#refresh-retry").hover();

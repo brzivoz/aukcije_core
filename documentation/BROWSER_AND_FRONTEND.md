@@ -126,6 +126,50 @@ auctions, but the map-style assertion deliberately excludes it: NONE must never
 invent a pin. #28 extends these same models for normalized taxonomy, KO and
 richer counterpart/camera navigation; it must not introduce another filter form.
 
+## Map-first desktop workspace (#45)
+
+`auction-workspace.mjs` owns presentation only: native pressed buttons switch
+**Карта + резултати**, **Само карта**, and **Табела**; separate disclosure buttons
+collapse the results rail or the one shared form. It does not write URL criteria,
+submit drafts, recreate MapLibre, or replace filter controls. Modes start at
+Map + results on page load; switching them does not add history entries. Table
+selection returns to Map + results. Without JavaScript the native GET form and
+server-rendered table remain available.
+
+`auction-workspace.css` uses modest gutters and a 350px results rail (320px on
+smaller desktops), with the map flexing into the remaining viewport. The same
+selected-feature summary stays visible in all modes, including its textual
+precision/explanation. Full legend and technical versions are a native details
+panel with Escape-to-summary focus restoration. Smaller/zoomed windows reflow
+vertically, map before results; the table has its own focusable horizontal scroll
+region. This is not the separate mobile bottom-sheet or advanced-filter/chip UX.
+
+The refresh strip keeps one-action start/retry, live announcements and persisted
+last complete success outside its progress/operator disclosure. Running progress
+includes the current stage/count on its visible summary; failures and stale-map
+warnings (with last-good map time) never depend on opening diagnostics.
+
+One `ResizeObserver` on the map container handles rail, filter, selection and
+viewport changes (`trackResize: false` avoids competing with MapLibre 6's
+throttled observer). Initial resize also catches layout changes during style
+load. Layout-only follow-up requests retain the status text instead of creating
+a loading/ready height-feedback loop; resizing an error notice does not retry a
+rejected request. Table fragment refreshes retain horizontal scroll and keyboard
+focus. Size containment prevents long result lists from enlarging the map.
+The table-mode map is invisible but remains laid out at its existing dimensions,
+so shared-view requests retain the camera/bbox rather than using a zero-sized
+container. Every resize recalculates the existing requestable minimum zoom;
+every request still passes the 1,000,000 km² ceiling guard. A safety-required
+minimum-zoom increase is the only camera change caused by a mode/size change.
+Attribution remains within the map frame.
+
+Browser coverage measures default map/rail/container/attribution bounds at
+1366×768, 1920×1080 and 2560×1080, retains screenshots and JSON measurements under
+`build/browser-test-results/evidence/issue-45-*`, exercises keyboard modes,
+rail/filter toggles, disclosures, retained drafts/sort/page/selection/camera,
+reduced motion, 200%-zoom-equivalent reflow, no-JavaScript GET fallback, and
+actual resized minimum-zoom API responses under the localhost-only guard.
+
 ## Shared-filter evidence
 
 `SharedAuctionFiltersBrowserTest` uses real PostGIS, the local basemap and the

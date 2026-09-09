@@ -135,6 +135,16 @@ GET  http://127.0.0.1:8082/actuator/health/readiness  loopback-only fail-closed 
 GET  /basemap/*             same-origin PMTiles, style, sprites, and glyphs
 ```
 
+The desktop page is a full-width, viewport-sized investigation workspace. Use
+**Карта + резултати**, **Само карта**, or **Табела** to change presentation without
+losing applied filters, unsaved edits, selection, camera, sort or page. The results
+rail and the single filter form can be collapsed independently. Refresh/retry,
+last complete success and failures remain visible; progress/operator details and
+the extended legend/version information expand on demand. Narrow or zoomed
+windows reflow, with horizontal scrolling confined to the table region.
+See [#45 verification](documentation/2026-09-08-issue-45-verification.md) for
+measured desktop/ultrawide bounds and the keyboard/resize regression coverage.
+
 The table and map use one filter form and server contract. Both visibly default
 to **Нису завршене** (`endDate > asOf`); choose **Завршене** or **Све** for
 history without losing category, dates, search, RSD prices or precision.
@@ -388,7 +398,8 @@ system libraries. To watch the suite locally:
 Reports land in `build/reports/tests/browserTest/index.html`. Failed tests retain
 `failure.png` and `trace.zip` under `build/browser-test-results/artifacts/`; CI
 publishes those files as `playwright-failure-evidence`. Successful map proofs
-retain the #25 basemap screenshot and #27 desktop/narrow product screenshots
+retain the #25 basemap screenshot, #27 desktop/narrow product screenshots,
+and #45 workspace screenshots at 1366×768, 1920×1080 and 2560×1080 with measured bounds
 plus JSON manifests under `build/browser-test-results/evidence/`; CI publishes
 that directory in `browser-test-report`. The shared network guard
 aborts every non-loopback HTTP(S) request, closes every non-loopback WebSocket,

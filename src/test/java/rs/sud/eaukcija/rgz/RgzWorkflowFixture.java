@@ -42,6 +42,7 @@ public final class RgzWorkflowFixture implements AutoCloseable {
     public volatile String descriptionOverride;
     public volatile String shortDescriptionOverride;
     public volatile String placeOverride;
+    public volatile String municipalityOverride;
     public final List<Example> additionalLookups = new CopyOnWriteArrayList<>();
 
     public RgzWorkflowFixture() {
@@ -72,7 +73,12 @@ public final class RgzWorkflowFixture implements AutoCloseable {
                             Example example = java.util.stream.Stream.concat(population.stream(), additionalLookups.stream())
                                     .filter(e -> e.filter().equals(filter))
                                     .findFirst().orElseThrow();
-                            return wfs(example, overrideScenario == null ? example.scenario() : overrideScenario);
+                            String scenario = overrideScenario == null ? example.scenario() : overrideScenario;
+                            if ("native-crs-recovery".equals(scenario)) {
+                                return json(NativeCrsFixture.response("EPSG:25834".equals(
+                                        request.getRequestUrl().queryParameter("srsName")), example.koCode(), example.parcel()));
+                            }
+                            return wfs(example, scenario);
                         }
                         if (path.endsWith("/GetCategories")) {
                             return json(Fixtures.read("eaukcija/categories.json"));
@@ -149,7 +155,8 @@ public final class RgzWorkflowFixture implements AutoCloseable {
         data.remove(List.of("ExecutorName", "Images"));
         ObjectNode place = (ObjectNode) data.get("Place");
         String sourcePlace = placeOverride == null ? example.name() : placeOverride;
-        place.put("Name", sourcePlace).put("Municipality", sourcePlace).put("Cadastral", example.name());
+        place.put("Name", sourcePlace).put("Municipality", municipalityOverride == null ? sourcePlace : municipalityOverride)
+                .put("Cadastral", example.name());
         return data;
     }
 

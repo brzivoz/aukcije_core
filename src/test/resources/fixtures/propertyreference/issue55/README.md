@@ -1,4 +1,11 @@
-# Known #55 full-context regression
+# Known #55 full-context regressions
+
+`181158-current.json` retains the complete minimized input for the narrow field
+parcel/locality case inspected on 2026-09-09. Its regression verifies that parsing
+already succeeds and that `број дела 1` is not invented as a house number. The
+failure was geographic-output rounding, not extraction. Native-recovery workflow
+and browser tests use a synthetic boundary, never the captured real polygon.
+
 
 `181104-current.json` is the complete minimized enrichment input retained locally
 for auction 181104 on 2026-09-09. It includes the **entire** Description and

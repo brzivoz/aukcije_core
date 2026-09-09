@@ -19,7 +19,7 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 | eAukcija ingest (complete durable runs) | working (#17) |
 | Deterministic enrichment reprocessing | working (single-threaded, restart-safe, #29) |
 | Shared table/map filters | working (#44; explicit Not ended / Ended / All, retained raw categories, unified search/precision/counts/URL) |
-| Property reference extraction | working (#19/#55; full-description v2, independent v2 quality evaluation pending) |
+| Property reference extraction | working (#19/#55; full-description v3, independent quality evaluation pending) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
 | Structured auction KO matching | working (auditable PostgreSQL results, #37) |
@@ -247,6 +247,8 @@ See [location refinement operations](documentation/LOCATION_REFINEMENT_OPERATION
 for #55's full-description parser, reviewed KO spelling reconciliation, exact
 registry address/street fallbacks, cache-recheck control, activation steps,
 per-reference diagnostics, and honest limits of the new quality evaluation.
+The [59-auction no-reference audit](documentation/2026-09-09-no-reference-audit.md)
+records v3's contextual extractions, review-only candidates and missing-source limits.
 See [RGZ parcel operations](documentation/RGZ_PARCEL_OPERATIONS.md) and
 [#21 verification](documentation/2026-09-08-issue-21-verification.md) for the
 complete local WFS → ordinary refresh → rendered polygon workflow, V22

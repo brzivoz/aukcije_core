@@ -72,7 +72,8 @@ public class LocationRefinementRepository {
                 : references.isEmpty() ? explanation("NO_FINER_REFERENCE")
                 : String.join(" ", references.stream().map(Reference::explanationSr).distinct().limit(4).toList());
         if (parseFailed && !references.isEmpty()) summary += " Приказана је последња доступна локација.";
-        if (!registryAvailable && references.stream().anyMatch(r -> r.selectedPrecision() == null)) {
+        if (!registryAvailable && references.stream().anyMatch(r -> r.selectedPrecision() == null)
+                && !summary.contains(explanation("REGISTRY_UNAVAILABLE"))) {
             summary += " " + explanation("REGISTRY_UNAVAILABLE");
         }
         return new Report(auctionId, registryAvailable, processing, summary, references);
@@ -85,14 +86,14 @@ public class LocationRefinementRepository {
             case "ADDRESS" -> "Пронађена је званична адресна тачка, не граница парцеле.";
             case "STREET" -> "Потврђена је улица, али не и тачан кућни број.";
             case "PARSE_FAILED" -> "Текст огласа није успешно обрађен; прецизнија локација није проверена.";
-            case "REFERENCE_NEEDS_REVIEW" -> "Веза парцеле или адресе са КО захтева проверу текста огласа.";
+            case "REFERENCE_NEEDS_REVIEW" -> "Издвојена парцела или адреса, односно њихова веза са КО, захтева проверу текста огласа.";
             case "KO_UNRESOLVED" -> "КО није једнозначно потврђена; противречни подаци нису аутоматски изабрани.";
             case "REGISTRY_UNAVAILABLE" -> "Адресни регистар није увезен; прецизнија адресна локација још није проверена.";
             case "AUTHORITATIVE_NOT_FOUND" -> "РГЗ није вратио парцелу за наведени КО и број.";
             case "REGISTRY_ADDRESS_NOT_FOUND" -> "Адреса није пронађена у активном званичном регистру.";
             case "REGISTRY_ADDRESS_AMBIGUOUS", "REGISTRY_STREET_AMBIGUOUS", "MULTIPLE_FEATURES" ->
                     "Више званичних локација одговара подацима; ниједна није произвољно изабрана.";
-            case "INVALID_CRS", "INVALID_GEOMETRY", "INVALID_RING", "INVALID_POLYGON", "INVALID_MULTIPOLYGON",
+            case "INVALID_CRS", "INVALID_GEOMETRY", "INVALID_TRANSFORMED_GEOMETRY", "INVALID_RING", "INVALID_POLYGON", "INVALID_MULTIPOLYGON",
                  "OPEN_RING", "INVALID_POSITION", "OUTSIDE_SERBIA_BOUNDS", "UNSUPPORTED_GEOMETRY_TYPE" ->
                     "Одговор РГЗ није прошао проверу координата или геометрије; приказана је приближна локација.";
             case "LOGICAL_LOOKUP_ALREADY_CLAIMED", "RUN_REQUEST_CEILING_REACHED", "REFINEMENT_PENDING" ->
@@ -141,7 +142,7 @@ public class LocationRefinementRepository {
         return java.util.Map.of("timeScope", "NOT_ENDED", "asOf", jdbc.queryForObject("SELECT CURRENT_TIMESTAMP", java.time.OffsetDateTime.class),
                 "processingStatusCounts", processing, "auctionPrecisionCounts", precision,
                 "latestDeclinedReferenceTierCounts", declines,
-                "parserEvaluation", "V2_FULL_DESCRIPTION_HELD_OUT_NOT_YET_EVALUATED");
+                "parserEvaluation", rs.sud.eaukcija.propertyreference.PropertyReferenceParser.VERSION + ":FULL_DESCRIPTION_HELD_OUT_NOT_YET_EVALUATED");
     }
 
     private java.util.Map<String, Long> counts(String sql) {

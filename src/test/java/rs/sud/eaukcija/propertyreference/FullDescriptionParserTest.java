@@ -15,7 +15,7 @@ class FullDescriptionParserTest {
                 rs.sud.eaukcija.testsupport.Fixtures.read("propertyreference/issue55/181104-current.json"));
         String description = input.path("description").asText();
         var result = parser.parse(input);
-        assertThat(result.parserVersion()).isEqualTo("property-reference-v2");
+        assertThat(result.parserVersion()).isEqualTo("property-reference-v3");
         assertThat(ofType(result, PropertyReferenceType.PARCEL))
                 .extracting(ParsedPropertyReference::canonicalParcelNumber).containsExactly("4411/2", "4411/20");
         assertThat(ofType(result, PropertyReferenceType.PARCEL))
@@ -33,6 +33,22 @@ class FullDescriptionParserTest {
                 assertThat(description.substring(reference.sourceOffsetStart(), reference.sourceOffsetEnd()))
                         .isEqualTo(reference.rawEvidence());
             }
+        });
+    }
+
+    @Test
+    void fieldParcelAndLocalityAreExtractedWithoutInventingAHouseFromThePartNumber() throws Exception {
+        var result = parser.parse(new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                rs.sud.eaukcija.testsupport.Fixtures.read("propertyreference/issue55/181158-current.json")));
+        assertThat(ofType(result, PropertyReferenceType.PARCEL))
+                .extracting(ParsedPropertyReference::canonicalParcelNumber).containsExactly("1285");
+        var address = ofType(result, PropertyReferenceType.ADDRESS);
+        assertThat(address).hasSize(1);
+        assertThat(address.get(0).addressStreet()).isEqualTo("СЕЈАЧКИ ПОТОК");
+        assertThat(address.get(0).addressHouseNumber()).isNull();
+        assertThat(result.references()).allSatisfy(r -> {
+            assertThat(r.rawKo()).isEqualTo("ЉУПТЕН");
+            assertThat(r.status()).isEqualTo(PropertyReferenceExtractionStatus.EXTRACTED);
         });
     }
 

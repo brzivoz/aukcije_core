@@ -27,5 +27,8 @@ class LocationCoverageAuditCliTest {
         assertThat(report.path("measurement").asText()).contains("not independent accuracy");
         assertThat(report.path("parsers").path("property-reference-v1").path("auctionsWithEligibleParcel").asInt()).isZero();
         assertThat(report.path("parsers").path("property-reference-v2").path("auctionsWithEligibleParcel").asInt()).isOne();
+        assertThat(report.path("parsers").path("property-reference-v3").path("auctionsWithEligibleParcel").asInt()).isOne();
+        assertThat(report.path("currentParserVersion").asText()).isEqualTo("property-reference-v3");
+        assertThat(report.has("unresolvedCurrent")).isTrue();
     }
 }

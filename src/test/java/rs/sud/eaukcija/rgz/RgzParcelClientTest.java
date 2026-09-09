@@ -276,7 +276,72 @@ class RgzParcelClientTest {
     }
 
     @Test
+    void nativeCrsRecoveryKeepsIdentityAndUsesTheSamePhysicalBudgetAndRateGate() throws Exception {
+        server.enqueue(json(NativeCrsFixture.response(false, "701165", "1285")));
+        server.enqueue(json(NativeCrsFixture.response(true, "701165", "1285")));
+        var result = client().fetch("701165", "1285", () -> true);
+        assertThat(result.status()).isEqualTo(RgzParcelResult.Status.RESOLVED);
+        assertThat(result.geometrySrid()).isEqualTo(25834);
+        assertThat(result.sourceProjection()).isEqualTo("GK7"); // not the payload CRS
+        assertThat(result.physicalAttempts()).isEqualTo(2);
+        assertThat(result.evidence().get("representationAttempts").toString()).contains("INVALID_GEOMETRY", "25834", "4326");
+        var first = server.takeRequest(); var second = server.takeRequest();
+        assertThat(first.getRequestUrl().queryParameter("srsName")).isEqualTo("EPSG:4326");
+        assertThat(second.getRequestUrl().queryParameter("srsName")).isEqualTo("EPSG:25834");
+        assertThat(first.getRequestUrl().queryParameter("cql_filter"))
+                .isEqualTo(second.getRequestUrl().queryParameter("cql_filter"));
+        assertThat(timing.sleeps()).contains(Duration.ofMillis(200));
+    }
+
+    @Test
+    void nativeRecoveryNeverRelabelsCrsRepairsGeometryOrChangesIdentity() {
+        for (String bad : List.of(
+                NativeCrsFixture.response(true, "999999", "1285"),
+                NativeCrsFixture.response(true, "701165", "1285").replace("EPSG:25834", "EPSG:4326"),
+                NativeCrsFixture.response(true, "701165", "1285").replace("500040,4900003", "500040,4900001"))) {
+            server.enqueue(json(NativeCrsFixture.response(false, "701165", "1285")));
+            server.enqueue(json(bad));
+            var result = client().fetch("701165", "1285", () -> true);
+            assertThat(result.status()).isNotEqualTo(RgzParcelResult.Status.RESOLVED);
+            assertThat(result.physicalAttempts()).isEqualTo(2);
+            assertThat(result.geometryJson()).isNull();
+        }
+    }
+
+    @Test
+    void emptyNativeAlternativeIsNotAnAuthoritativeNegativeAndTransportRetriesStayBounded() throws Exception {
+        server.enqueue(json(NativeCrsFixture.response(false, "701165", "1285")));
+        server.enqueue(json("{\"type\":\"FeatureCollection\",\"features\":[],\"numberMatched\":0}"));
+        var inconsistent = client().fetch("701165", "1285", () -> true);
+        assertThat(inconsistent.reason()).isEqualTo("INCONSISTENT_REPRESENTATION");
+        assertThat(inconsistent.cacheable()).isFalse();
+        server.takeRequest(); server.takeRequest();
+        server.enqueue(json(NativeCrsFixture.response(false, "701165", "1285")));
+        server.enqueue(new MockResponse().setResponseCode(503));
+        server.enqueue(json(NativeCrsFixture.response(true, "701165", "1285")));
+        var recovered = client().fetch("701165", "1285", () -> true);
+        assertThat(recovered.physicalAttempts()).isEqualTo(3);
+        assertThat(recovered.status()).isEqualTo(RgzParcelResult.Status.RESOLVED);
+        assertThat(server.takeRequest().getRequestUrl().queryParameter("srsName")).isEqualTo("EPSG:4326");
+        assertThat(server.takeRequest().getRequestUrl().queryParameter("srsName")).isEqualTo("EPSG:25834");
+        assertThat(server.takeRequest().getRequestUrl().queryParameter("srsName")).isEqualTo("EPSG:25834");
+    }
+
+    @Test
+    void nativeRecoveryHonorsKillSwitchAndOneAttemptCeiling() {
+        server.enqueue(json(NativeCrsFixture.response(false, "701165", "1285")));
+        AtomicInteger checks = new AtomicInteger();
+        assertThat(client().fetch("701165", "1285", () -> checks.incrementAndGet() <= 2).reason())
+                .isEqualTo("KILL_SWITCH_ENGAGED");
+        properties.setMaxAttempts(1); properties.setRetryDelays(List.of());
+        server.enqueue(json(NativeCrsFixture.response(false, "701165", "1285")));
+        assertThat(client().fetch("701165", "1285", () -> true).reason()).isEqualTo("INVALID_GEOMETRY");
+        assertThat(server.getRequestCount()).isEqualTo(2);
+    }
+
+    @Test
     void geometryForeignMembersAreNotExportedAndInvalidRingsAreasAndCrsFailClosed() {
+        properties.setMaxAttempts(1); properties.setRetryDelays(List.of());
         String valid = polygon("713848", "1572");
         server.enqueue(json(valid.replace("\"type\":\"Polygon\"",
                 "\"type\":\"Polygon\",\"futurePersonalField\":\"secret\"")));

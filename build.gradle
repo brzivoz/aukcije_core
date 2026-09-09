@@ -176,7 +176,7 @@ def propertyReferenceParserMetrics = layout.buildDirectory.file(
 
 tasks.register('auditLocationCoverage', JavaExec) {
     group = 'verification'
-    description = 'Compare frozen v1 and current full-description eligibility over one private NDJSON snapshot frame (offline)'
+    description = 'Compare frozen v1/v2 and current full-description eligibility over one private NDJSON snapshot frame (offline)'
     dependsOn tasks.named('classes')
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'rs.sud.eaukcija.komatching.LocationCoverageAuditCli'

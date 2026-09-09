@@ -44,7 +44,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class RgzParcelClient {
 
-    private static final String OUTPUT_CRS = "EPSG:4326";
+    private static final int GEOGRAPHIC_SRID = 4326;
+    private static final int NATIVE_SRID = 25834;
     private static final int MAX_FEATURES = 2;
     private static final int MAX_POSITIONS = 200_000;
     private static final double MIN_LONGITUDE = 18.0;
@@ -100,8 +101,10 @@ public class RgzParcelClient {
             String koCode,
             String canonicalParcelNumber,
             BooleanSupplier networkAllowed) {
-        RgzParcelResult result = fetchBounded(koCode, canonicalParcelNumber, networkAllowed);
+        List<Map<String, Object>> representations = new ArrayList<>();
+        RgzParcelResult result = fetchBounded(koCode, canonicalParcelNumber, networkAllowed, representations);
         Map<String, Object> evidence = new LinkedHashMap<>(result.evidence());
+        evidence.put("representationAttempts", List.copyOf(representations));
         if (koCode != null && koCode.matches("[0-9]{1,16}")) {
             evidence.put("requestedKoCode", koCode);
         }
@@ -116,11 +119,12 @@ public class RgzParcelClient {
         return new RgzParcelResult(result.status(), result.reason(), result.rawResponseSha256(),
                 result.sourceFeatureId(), result.geometryType(), result.geometryJson(),
                 result.areaSquareMetres(), result.sourceProjection(), result.scale(),
-                result.physicalAttempts(), evidence);
+                result.physicalAttempts(), evidence, result.geometrySrid());
     }
 
     private RgzParcelResult fetchBounded(
-            String koCode, String canonicalParcelNumber, BooleanSupplier networkAllowed) {
+            String koCode, String canonicalParcelNumber, BooleanSupplier networkAllowed,
+            List<Map<String, Object>> representations) {
         if (koCode == null || !koCode.matches("[0-9]{1,16}")) {
             return terminal(RgzParcelResult.Status.INVALID, "INVALID_KO_CODE", null, 0);
         }
@@ -130,6 +134,7 @@ public class RgzParcelClient {
         }
 
         int physicalAttempts = 0;
+        int requestedSrid = GEOGRAPHIC_SRID;
         for (int attempt = 1; attempt <= properties.getMaxAttempts(); attempt++) {
             if (!networkAllowed.getAsBoolean()) {
                 return terminal(RgzParcelResult.Status.ERROR, "KILL_SWITCH_ENGAGED", null, physicalAttempts);
@@ -141,7 +146,7 @@ public class RgzParcelClient {
                             "KILL_SWITCH_ENGAGED", null, physicalAttempts);
                 }
                 physicalAttempts++;
-                try (Response response = http.newCall(request(koCode, canonicalParcelNumber)).execute()) {
+                try (Response response = http.newCall(request(koCode, canonicalParcelNumber, requestedSrid)).execute()) {
                     if (!response.isSuccessful()) {
                         int status = response.code();
                         if (RETRYABLE_STATUSES.contains(status)
@@ -158,8 +163,25 @@ public class RgzParcelClient {
                                 "HTTP_" + status, null, physicalAttempts);
                     }
                     byte[] raw = boundedBody(response);
-                    return parse(raw, response.body() == null ? null : response.body().contentType(),
-                            koCode, canonicalParcelNumber, physicalAttempts);
+                    RgzParcelResult parsed = parse(raw, response.body() == null ? null : response.body().contentType(),
+                            koCode, canonicalParcelNumber, physicalAttempts, requestedSrid);
+                    representations.add(Map.of("requestedSrid", requestedSrid, "status", parsed.status().name(),
+                            "reason", parsed.reason(), "rawResponseSha256", parsed.rawResponseSha256()));
+                    if (requestedSrid == GEOGRAPHIC_SRID && "INVALID_GEOMETRY".equals(parsed.reason())
+                            && attempt < properties.getMaxAttempts()) {
+                        // GeoServer can round geographic output enough to collapse narrow parcels.
+                        // Ask for the SAME exact identity in the advertised native CRS, once.
+                        // This consumes the existing physical budget/rate/kill gates, not a repair.
+                        requestedSrid = NATIVE_SRID;
+                        continue;
+                    }
+                    if (requestedSrid == NATIVE_SRID && parsed.status() == RgzParcelResult.Status.NOT_FOUND) {
+                        // One representation already returned this identity: an empty
+                        // alternative is not authoritative evidence of parcel absence.
+                        return terminal(RgzParcelResult.Status.ERROR, "INCONSISTENT_REPRESENTATION",
+                                parsed.rawResponseSha256(), physicalAttempts);
+                    }
+                    return parsed;
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
@@ -234,7 +256,7 @@ public class RgzParcelClient {
     /** Raw XML stays transient and is never passed to persistence or operator status. */
     public record MetadataResponse(byte[] body, String sha256, String failureCode) { }
 
-    private Request request(String koCode, String parcelNumber) {
+    private Request request(String koCode, String parcelNumber, int requestedSrid) {
         HttpUrl base = HttpUrl.get(properties.getBaseUrl());
         HttpUrl url = base.newBuilder()
                 .addQueryParameter("service", "WFS")
@@ -242,7 +264,7 @@ public class RgzParcelClient {
                 .addQueryParameter("request", "GetFeature")
                 .addQueryParameter("typeNames", properties.getFeatureType())
                 .addQueryParameter("outputFormat", "application/json")
-                .addQueryParameter("srsName", OUTPUT_CRS)
+                .addQueryParameter("srsName", "EPSG:" + requestedSrid)
                 .addQueryParameter("count", Integer.toString(MAX_FEATURES))
                 .addQueryParameter(
                         "cql_filter",
@@ -330,7 +352,7 @@ public class RgzParcelClient {
             MediaType mediaType,
             String requestedKoCode,
             String requestedParcel,
-            int physicalAttempts) {
+            int physicalAttempts, int requestedSrid) {
         String rawSha256 = sha256(raw);
         if (mediaType == null || mediaType.type() == null
                 || !"application".equalsIgnoreCase(mediaType.type())
@@ -395,7 +417,7 @@ public class RgzParcelClient {
         // An internally consistent empty collection has no coordinates whose
         // CRS could be wrong. GeoServer may omit/null CRS on zero matches.
         // Nonempty geometry still requires the explicit reviewed CRS contract.
-        if (!validCrs(payload.path("crs"))) {
+        if (!validCrs(payload.path("crs"), requestedSrid)) {
             return terminal(RgzParcelResult.Status.ERROR, "INVALID_CRS", rawSha256, physicalAttempts);
         }
         JsonNode feature = features.get(0);
@@ -421,9 +443,13 @@ public class RgzParcelClient {
                     "INVALID_AREA", rawSha256, physicalAttempts);
         }
 
+        JsonNode rawGeometry = feature.path("geometry");
+        if (rawGeometry.has("crs") && !validCrs(rawGeometry.get("crs"), requestedSrid)) {
+            return terminal(RgzParcelResult.Status.ERROR, "INVALID_CRS", rawSha256, physicalAttempts);
+        }
         Geometry geometry;
         try {
-            geometry = geometry(feature.path("geometry"));
+            geometry = geometry(rawGeometry, requestedSrid);
         } catch (GeometryFailure invalidGeometry) {
             return terminal(
                     RgzParcelResult.Status.INVALID,
@@ -431,10 +457,6 @@ public class RgzParcelClient {
         }
         String geometryJson;
         try {
-            JsonNode rawGeometry = feature.path("geometry");
-            if (rawGeometry.has("crs") && !validCrs(rawGeometry.get("crs"))) {
-                return terminal(RgzParcelResult.Status.ERROR, "INVALID_CRS", rawSha256, physicalAttempts);
-            }
             // GeoJSON foreign members are not part of the persistence/export whitelist.
             geometryJson = objectMapper.writeValueAsString(objectMapper.createObjectNode()
                     .put("type", geometry.getGeometryType())
@@ -451,6 +473,7 @@ public class RgzParcelClient {
         evidence.put("returnedKoCode", returnedKoCode);
         evidence.put("returnedParcelNumber", returnedParcel);
         evidence.put("geometryType", geometry.getGeometryType());
+        evidence.put("geometrySrid", requestedSrid);
         evidence.put("areaSquareMetres", area);
         String sourceProjection = safeScalar(values.get("source_projection"));
         String scale = safeScalar(values.get("scale"));
@@ -473,13 +496,13 @@ public class RgzParcelClient {
                 sourceProjection,
                 scale,
                 physicalAttempts,
-                evidence);
+                evidence, requestedSrid);
     }
 
-    private static boolean validCrs(JsonNode crs) {
+    private static boolean validCrs(JsonNode crs, int requestedSrid) {
         String name = crs.path("properties").path("name").asText();
         return crs.isObject() && "name".equals(crs.path("type").asText())
-                && ("EPSG:4326".equals(name) || "urn:ogc:def:crs:EPSG::4326".equals(name));
+                && (("EPSG:" + requestedSrid).equals(name) || ("urn:ogc:def:crs:EPSG::" + requestedSrid).equals(name));
     }
 
     private static String textualNumber(JsonNode value) {
@@ -516,18 +539,18 @@ public class RgzParcelClient {
         return text.matches("[A-Za-z0-9_.:-]{1,256}") ? text : null;
     }
 
-    private static Geometry geometry(JsonNode value) throws GeometryFailure {
+    private static Geometry geometry(JsonNode value, int srid) throws GeometryFailure {
         if (!value.isObject()) {
             throw new GeometryFailure("INVALID_GEOMETRY");
         }
         GeometryFactory factory = new GeometryFactory();
         PositionCounter counter = new PositionCounter();
         Geometry geometry = switch (value.path("type").asText()) {
-            case "Polygon" -> polygon(factory, value.path("coordinates"), counter);
-            case "MultiPolygon" -> multiPolygon(factory, value.path("coordinates"), counter);
+            case "Polygon" -> polygon(factory, value.path("coordinates"), counter, srid);
+            case "MultiPolygon" -> multiPolygon(factory, value.path("coordinates"), counter, srid);
             default -> throw new GeometryFailure("UNSUPPORTED_GEOMETRY_TYPE");
         };
-        geometry.setSRID(4326);
+        geometry.setSRID(srid);
         if (geometry.isEmpty() || geometry.getArea() <= 1e-15 || !new IsValidOp(geometry).isValid()) {
             throw new GeometryFailure("INVALID_GEOMETRY");
         }
@@ -537,13 +560,13 @@ public class RgzParcelClient {
     private static MultiPolygon multiPolygon(
             GeometryFactory factory,
             JsonNode coordinates,
-            PositionCounter counter) throws GeometryFailure {
+            PositionCounter counter, int srid) throws GeometryFailure {
         if (!coordinates.isArray() || coordinates.isEmpty()) {
             throw new GeometryFailure("INVALID_MULTIPOLYGON");
         }
         List<Polygon> polygons = new ArrayList<>();
         for (JsonNode polygon : coordinates) {
-            polygons.add(polygon(factory, polygon, counter));
+            polygons.add(polygon(factory, polygon, counter, srid));
         }
         return factory.createMultiPolygon(polygons.toArray(Polygon[]::new));
     }
@@ -551,14 +574,14 @@ public class RgzParcelClient {
     private static Polygon polygon(
             GeometryFactory factory,
             JsonNode coordinates,
-            PositionCounter counter) throws GeometryFailure {
+            PositionCounter counter, int srid) throws GeometryFailure {
         if (!coordinates.isArray() || coordinates.isEmpty()) {
             throw new GeometryFailure("INVALID_POLYGON");
         }
-        LinearRing shell = ring(factory, coordinates.get(0), counter);
+        LinearRing shell = ring(factory, coordinates.get(0), counter, srid);
         LinearRing[] holes = new LinearRing[Math.max(0, coordinates.size() - 1)];
         for (int index = 1; index < coordinates.size(); index++) {
-            holes[index - 1] = ring(factory, coordinates.get(index), counter);
+            holes[index - 1] = ring(factory, coordinates.get(index), counter, srid);
         }
         return factory.createPolygon(shell, holes);
     }
@@ -566,7 +589,7 @@ public class RgzParcelClient {
     private static LinearRing ring(
             GeometryFactory factory,
             JsonNode positions,
-            PositionCounter counter) throws GeometryFailure {
+            PositionCounter counter, int srid) throws GeometryFailure {
         if (!positions.isArray() || positions.size() < 4) {
             throw new GeometryFailure("INVALID_RING");
         }
@@ -582,8 +605,13 @@ public class RgzParcelClient {
             }
             double longitude = position.get(0).doubleValue();
             double latitude = position.get(1).doubleValue();
-            if (longitude < MIN_LONGITUDE || longitude > MAX_LONGITUDE
-                    || latitude < MIN_LATITUDE || latitude > MAX_LATITUDE) {
+            // Conservative projected envelope; PostGIS also checks the transformed
+            // canonical geometry against the exact existing geographic bounds.
+            if (srid == GEOGRAPHIC_SRID
+                    ? longitude < MIN_LONGITUDE || longitude > MAX_LONGITUDE
+                        || latitude < MIN_LATITUDE || latitude > MAX_LATITUDE
+                    : longitude < 200_000 || longitude > 800_000
+                        || latitude < 4_500_000 || latitude > 5_300_000) {
                 throw new GeometryFailure("OUTSIDE_SERBIA_BOUNDS");
             }
             coordinates[index] = new Coordinate(longitude, latitude);

@@ -44,7 +44,8 @@ public final class LocationCoverageAuditCli {
                 if (++population > 10_000 || line.length() > 1_000_000) throw new IllegalArgumentException("audit frame limit exceeded");
                 digest.update((line + "\n").getBytes(StandardCharsets.UTF_8));
                 JsonNode canonical = mapper.readTree(line);
-                for (PropertyReferenceParser parser : List.of(PropertyReferenceParser.legacyV1(), new PropertyReferenceParser())) {
+                for (PropertyReferenceParser parser : List.of(PropertyReferenceParser.legacyV1(),
+                        PropertyReferenceParser.legacyV2(), new PropertyReferenceParser())) {
                     var parsed = parser.parse(canonical);
                     Totals count = totals.computeIfAbsent(parsed.parserVersion(), ignored -> new Totals());
                     long auction = canonical.path("auctionId").asLong();
@@ -88,10 +89,10 @@ public final class LocationCoverageAuditCli {
                 }
             }
         }
-        Map<String, Object> report = Map.of("schemaVersion", "location-coverage-audit-v1", "population", population,
+        Map<String, Object> report = Map.of("schemaVersion", "location-coverage-audit-v2", "population", population,
                 "inputFrameSha256", HexFormat.of().formatHex(digest.digest()), "dictionaryVersion", dictionary.version(),
                 "measurement", "same-input pipeline eligibility, not independent accuracy or verified geometry coverage",
-                "parsers", totals, "unresolvedV2", unresolved);
+                "parsers", totals, "currentParserVersion", PropertyReferenceParser.VERSION, "unresolvedCurrent", unresolved);
         Files.createDirectories(output.toAbsolutePath().getParent());
         mapper.writerWithDefaultPrettyPrinter().writeValue(output.toFile(), report);
     }

@@ -33,7 +33,7 @@ import rs.sud.eaukcija.spatial.ParcelIdentityNormalizer;
 public class RgzParcelResolutionService {
 
     public static final String RESOLVER = "RGZ_WFS_PARCEL";
-    public static final String RESOLVER_VERSION = "rgz-parcel-v5";
+    public static final String RESOLVER_VERSION = "rgz-parcel-v6";
     public static final String SOURCE_DATASET = "RGZ_REGDKP_WFS";
     public static final String DECISION_VERSION =
             "2026-09-08-issue-41-private-poc-v4";
@@ -198,11 +198,33 @@ public class RgzParcelResolutionService {
             useCache(candidate, inputFingerprint, cached, item.enrichmentRunId());
             return outcome(candidate, inputFingerprint, cached.status(), true);
         }
+        fetched = validateCanonicalGeometry(fetched);
         CacheRecord persisted = fetched.cacheable()
                 ? persistCache(inputFingerprint, candidate, fetched)
                 : null;
         createAttempt(candidate, inputFingerprint, persisted, fetched, item.enrichmentRunId());
         return outcome(candidate, inputFingerprint, fetched.status(), false);
+    }
+
+    private RgzParcelResult validateCanonicalGeometry(RgzParcelResult fetched) {
+        if (fetched.status() != RgzParcelResult.Status.RESOLVED) return fetched;
+        String rejection = jdbc.queryForObject("""
+                WITH transformed AS (
+                    SELECT ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(?), ?), 4326) AS g
+                ) SELECT CASE
+                    WHEN ST_IsEmpty(g) OR NOT ST_IsValid(g) OR ST_Area(g) <= 1e-15
+                        THEN 'INVALID_TRANSFORMED_GEOMETRY'
+                    WHEN ST_XMin(Box3D(g)) < 18 OR ST_XMax(Box3D(g)) > 24
+                      OR ST_YMin(Box3D(g)) < 41 OR ST_YMax(Box3D(g)) > 47
+                        THEN 'OUTSIDE_SERBIA_BOUNDS'
+                    ELSE NULL END FROM transformed
+                """, String.class, fetched.geometryJson(), fetched.geometrySrid());
+        if (rejection == null) return fetched;
+        Map<String, Object> evidence = new LinkedHashMap<>(fetched.evidence());
+        evidence.put("reason", rejection);
+        return new RgzParcelResult(RgzParcelResult.Status.INVALID, rejection, fetched.rawResponseSha256(),
+                fetched.sourceFeatureId(), null, null, fetched.areaSquareMetres(), fetched.sourceProjection(),
+                fetched.scale(), fetched.physicalAttempts(), evidence, fetched.geometrySrid());
     }
 
     private ReferenceResult outcome(
@@ -303,11 +325,12 @@ public class RgzParcelResolutionService {
                         source_crs_definition, canonical_geometry,
                         original_geometry_valid, make_valid_applied, make_valid_reason
                     ) VALUES (
-                        ?, ST_SetSRID(ST_GeomFromGeoJSON(?), 4326), 'EPSG', 4326,
-                        'EPSG:4326', ST_SetSRID(ST_GeomFromGeoJSON(?), 4326),
+                        ?, ST_SetSRID(ST_GeomFromGeoJSON(?), ?), 'EPSG', ?,
+                        ?, ST_Transform(ST_SetSRID(ST_GeomFromGeoJSON(?), ?), 4326),
                         TRUE, FALSE, NULL
                     ) ON CONFLICT (id) DO NOTHING
-                    """, geometryId, fetched.geometryJson(), fetched.geometryJson());
+                    """, geometryId, fetched.geometryJson(), fetched.geometrySrid(), fetched.geometrySrid(),
+                    "EPSG:" + fetched.geometrySrid(), fetched.geometryJson(), fetched.geometrySrid());
         }
 
         String evidenceJson = evidenceJson(fetched, candidate);
@@ -536,7 +559,7 @@ public class RgzParcelResolutionService {
     private String evidenceJson(RgzParcelResult result, Candidate candidate) {
         Map<String, Object> evidence = new LinkedHashMap<>();
         for (String key : List.of("schemaVersion", "reason", "returnedKoCode", "returnedParcelNumber",
-                "geometryType", "areaSquareMetres", "sourceProjection", "scale",
+                "geometryType", "geometrySrid", "representationAttempts", "areaSquareMetres", "sourceProjection", "scale",
                 "rawResponseSha256", "physicalAttempts", "retrievedAt")) {
             if (result.evidence().containsKey(key)) {
                 evidence.put(key, result.evidence().get(key));
@@ -556,7 +579,7 @@ public class RgzParcelResolutionService {
         }
         evidence.put("capabilitiesSha256", properties.getCapabilitiesSha256());
         evidence.put("schemaSha256", properties.getSchemaSha256());
-        evidence.put("propertyWhitelistVersion", "issue-41-rgz-parcel-v1");
+        evidence.put("propertyWhitelistVersion", "issue-41-rgz-parcel-v2");
         return AuctionSourceCanonicalJson.write(objectMapper.valueToTree(evidence));
     }
 

@@ -29,23 +29,34 @@ import rs.sud.eaukcija.spatial.ParcelIdentityNormalizer;
 @Component
 public final class PropertyReferenceParser {
 
-    public static final String VERSION = "property-reference-v2";
+    public static final String VERSION = "property-reference-v3";
+    public static final String PREVIOUS_VERSION = "property-reference-v2";
     public static final String LEGACY_VERSION = "property-reference-v1";
 
     private final boolean legacy;
+    private final boolean extended;
+    private final String parserVersion;
 
     public PropertyReferenceParser() {
-        this(false);
+        this(3);
     }
 
-    private PropertyReferenceParser(boolean legacy) {
-        this.legacy = legacy;
+    private PropertyReferenceParser(int generation) {
+        this.legacy = generation == 1;
+        this.extended = generation >= 3;
+        this.parserVersion = legacy ? LEGACY_VERSION : extended ? VERSION : PREVIOUS_VERSION;
     }
 
     /** Frozen snippet evaluation only; never wired into production enrichment. */
     public static PropertyReferenceParser legacyV1() {
-        return new PropertyReferenceParser(true);
+        return new PropertyReferenceParser(1);
     }
+
+    /** Reproducible full-description v2 baseline; never production wiring. */
+    public static PropertyReferenceParser legacyV2() {
+        return new PropertyReferenceParser(2);
+    }
+
     public static final int MAX_FIELD_CHARACTERS = 32_768;
     public static final int MAX_TOTAL_CHARACTERS = 65_536;
     public static final int MAX_REFERENCES = 256;
@@ -162,6 +173,10 @@ public final class PropertyReferenceParser {
         List<TextMatch> matches = new ArrayList<>();
         extract("detail.Description", input.description(), 0, matches);
         extract("detail.ShortDescription", input.shortDescription(), 1, matches);
+        if (extended) {
+            extractUnlabelled("detail.Description", input.description(), 0, input, matches);
+            extractUnlabelled("detail.ShortDescription", input.shortDescription(), 1, input, matches);
+        }
         matches.sort(Comparator.comparingInt(TextMatch::fieldOrder)
                 .thenComparingInt(TextMatch::start)
                 .thenComparing(match -> match.type().ordinal())
@@ -230,7 +245,7 @@ public final class PropertyReferenceParser {
                     match.start(),
                     match.end(),
                     match.rawEvidence(),
-                    context.conflict() ? PropertyReferenceExtractionStatus.NEEDS_REVIEW
+                    context.conflict() || match.reviewRequired() ? PropertyReferenceExtractionStatus.NEEDS_REVIEW
                             : PropertyReferenceExtractionStatus.EXTRACTED,
                     canonicalKey,
                     context.conflict());
@@ -245,7 +260,7 @@ public final class PropertyReferenceParser {
             ordered.add(withOrder(reference, order++));
         }
 
-        String version = legacy ? LEGACY_VERSION : VERSION;
+        String version = parserVersion;
         String outputHash = hash(ordered, version);
         return new PropertyReferenceParseResult(
                 version,
@@ -271,6 +286,17 @@ public final class PropertyReferenceParser {
         extractAddresses(sourceField, text, fieldOrder, matches);
     }
 
+    private void extractUnlabelled(String field, String text, int order, Input input, List<TextMatch> matches) {
+        for (var candidate : UnlabelledParcelPatterns.detect(text, order, input)) {
+            if (falseParcelContext(text, candidate.start())) continue;
+            // A supplemental detector cannot reinterpret already typed spans.
+            if (matches.stream().anyMatch(value -> value.fieldOrder() == order
+                    && value.start() < candidate.end() && value.end() > candidate.start())) continue;
+            addParcel(field, text, order, candidate.start(), candidate.end(), candidate.number(),
+                    matches, candidate.reviewRequired());
+        }
+    }
+
     private static void extractParcels(
             String sourceField,
             String text,
@@ -283,7 +309,7 @@ public final class PropertyReferenceParser {
                 continue;
             }
             addParcel(sourceField, text, fieldOrder, matcher.start(), matcher.end("number"),
-                    matcher.group("number"), matches);
+                    matcher.group("number"), matches, false);
             int cursor = matcher.end("number");
             int remaining = Math.min(text.length(), cursor + 160);
             while (cursor < remaining) {
@@ -298,7 +324,7 @@ public final class PropertyReferenceParser {
                 int numberStart = cursor + next.start("number");
                 int numberEnd = cursor + next.end("number");
                 addParcel(sourceField, text, fieldOrder, numberStart, numberEnd,
-                        next.group("number"), matches);
+                        next.group("number"), matches, false);
                 cursor += next.end();
             }
         }
@@ -311,7 +337,7 @@ public final class PropertyReferenceParser {
             int evidenceStart,
             int evidenceEnd,
             String rawNumber,
-            List<TextMatch> matches) {
+            List<TextMatch> matches, boolean reviewRequired) {
         String canonical;
         try {
             canonical = ParcelIdentityNormalizer.canonicalParcelNumber(rawNumber);
@@ -328,7 +354,7 @@ public final class PropertyReferenceParser {
                 text.substring(evidenceStart, evidenceEnd),
                 fieldOrder,
                 null,
-                null));
+                null, reviewRequired));
     }
 
     private static boolean falseParcelContext(String text, int start) {
@@ -421,7 +447,7 @@ public final class PropertyReferenceParser {
      * A structured/text spelling difference is NOT an extraction failure: #33
      * compares official identities before granting lookup eligibility.
      */
-    private static KoContext scopedKoContext(
+    private KoContext scopedKoContext(
             TextMatch match, List<TextMatch> matches, Input input,
             TextMatch soleKo, String structuredNormalizedKo) {
         if (match.type() == PropertyReferenceType.CADASTRAL_MUNICIPALITY) {
@@ -497,16 +523,16 @@ public final class PropertyReferenceParser {
         return new KoContext(ko.rawValue(), ko.canonicalValue(), false);
     }
 
-    private static int blockStart(String text, int offset) {
+    private int blockStart(String text, int offset) {
         for (int index = offset - 1; index >= 0; index--) {
-            if (";\\n\\r".indexOf(text.charAt(index)) >= 0) return index + 1;
+            if ((extended ? ";\n\r" : ";\\n\\r").indexOf(text.charAt(index)) >= 0) return index + 1;
         }
         return 0;
     }
 
-    private static int blockEnd(String text, int offset) {
+    private int blockEnd(String text, int offset) {
         for (int index = offset; index < text.length(); index++) {
-            if (";\\n\\r".indexOf(text.charAt(index)) >= 0) return index;
+            if ((extended ? ";\n\r" : ";\\n\\r").indexOf(text.charAt(index)) >= 0) return index;
         }
         return text.length();
     }
@@ -689,7 +715,13 @@ public final class PropertyReferenceParser {
             String rawEvidence,
             int fieldOrder,
             String addressStreet,
-            String addressHouseNumber) {
+            String addressHouseNumber,
+            boolean reviewRequired) {
+        TextMatch(PropertyReferenceType type, String rawValue, String canonicalValue, String sourceField,
+                  int start, int end, String rawEvidence, int fieldOrder, String addressStreet, String houseNumber) {
+            this(type, rawValue, canonicalValue, sourceField, start, end, rawEvidence, fieldOrder,
+                    addressStreet, houseNumber, false);
+        }
     }
 
     private record KoContext(String rawKo, String normalizedKo, boolean conflict) {

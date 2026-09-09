@@ -127,7 +127,7 @@ class EnrichmentPipelinePostgisIntegrationTest {
         EnrichmentItemResult replay = pipeline.process(item);
 
         assertThat(versions).isEqualTo(pipeline.activeVersions());
-        assertThat(versions.parserVersion()).isEqualTo("property-reference-v2");
+        assertThat(versions.parserVersion()).isEqualTo("property-reference-v3");
         assertThat(first.status()).isEqualTo(EnrichmentStateStatus.SUCCEEDED);
         assertThat(replay).isEqualTo(first);
         assertThat(derivedRows(29_001L)).isEqualTo(rowsAfterFirst);

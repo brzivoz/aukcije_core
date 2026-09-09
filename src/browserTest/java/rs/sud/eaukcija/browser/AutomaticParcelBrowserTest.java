@@ -36,6 +36,7 @@ class AutomaticParcelBrowserTest extends PostgisBrowserFixture {
 
     @RegisterExtension final BrowserHarnessExtension browser = new BrowserHarnessExtension();
     @Autowired JdbcTemplate jdbc;
+    @Autowired rs.sud.eaukcija.rgz.RgzParcelProperties rgz;
 
     @BeforeEach @AfterEach void resetPopulation() throws Exception {
         jdbc.execute("""
@@ -49,6 +50,7 @@ class AutomaticParcelBrowserTest extends PostgisBrowserFixture {
         FIXTURE.descriptionOverride = null;
         FIXTURE.placeOverride = null;
         FIXTURE.overrideScenario = null;
+        rgz.setMaxAttempts(1); rgz.setRetryDelays(java.util.List.of());
         Files.deleteIfExists(FIXTURE.killSwitch);
     }
 
@@ -79,6 +81,29 @@ class AutomaticParcelBrowserTest extends PostgisBrowserFixture {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM rgz_parcel_cache_keys", Long.class)).isEqualTo(3);
         assertThat(FIXTURE.parcelRequests).containsExactlyInAnyOrderElementsOf(
                 RgzWorkflowFixture.SUCCESSES.stream().map(RgzWorkflowFixture.Example::filter).toList());
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test void narrowParcelNativeCrsRecoveryRendersTheTransformedBoundaryNotItsKoCenter() {
+        FIXTURE.population = java.util.List.of(RgzWorkflowFixture.DIMITROVGRAD);
+        FIXTURE.overrideScenario = "native-crs-recovery";
+        rgz.setMaxAttempts(2); rgz.setRetryDelays(java.util.List.of(java.time.Duration.ofMillis(1)));
+        Page page = browser.page();
+        page.navigate(applicationUri().toString());
+        page.locator("#refresh-start").click();
+        page.waitForFunction("document.querySelector('#refresh-status')?.textContent.includes('Карта је спремна')");
+        page.waitForFunction("window.__auctionMap?.ready === true");
+        var center = jdbc.queryForMap("""
+                SELECT ST_X(ST_Centroid(canonical_geometry)) AS lon, ST_Y(ST_Centroid(canonical_geometry)) AS lat
+                FROM spatial_resolution_geometries WHERE source_crs_code=25834
+                """);
+        page.evaluate("coordinates => { window.__auctionMap.map.jumpTo({center: coordinates, zoom: 19}); }",
+                java.util.List.of(center.get("lon"), center.get("lat")));
+        page.waitForFunction("window.__auctionMap.map.queryRenderedFeatures({layers: ['auction-area-parcel']}).length > 0");
+        assertThat(page.locator("#map-result-list li[data-precision='PARCEL']").count()).isEqualTo(1);
+        assertThat(page.locator("#map-result-list li[data-precision='CADASTRAL_MUNICIPALITY']").count()).isZero();
+        assertThat(FIXTURE.parcelRequests).containsExactly(RgzWorkflowFixture.DIMITROVGRAD.filter(),
+                RgzWorkflowFixture.DIMITROVGRAD.filter());
         browser.network().assertOnlyLocalhostRequests();
     }
 

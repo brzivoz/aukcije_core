@@ -34,6 +34,8 @@ class LocationResolutionCoverageIntegrationTest {
             181104, "ВЕЛИКА ПЛАНА I", "708585", "4411/2", "success");
     private static final RgzWorkflowFixture.Example LAND = new RgzWorkflowFixture.Example(
             181104, "ВЕЛИКА ПЛАНА I", "708585", "4411/20", "success");
+    private static final RgzWorkflowFixture.Example FIELD = new RgzWorkflowFixture.Example(
+            181158, "ЉУПТЕН", "701165", "1285", "native-crs-recovery");
     private static final RgzWorkflowFixture FIXTURE = fixture();
     private static final String DATABASE = PostgisTestContainer.createEmptyDatabase();
 
@@ -66,12 +68,98 @@ class LocationResolutionCoverageIntegrationTest {
         FIXTURE.descriptionOverride = source.path("description").asText();
         FIXTURE.shortDescriptionOverride = source.path("shortDescription").asText();
         FIXTURE.placeOverride = "Велика Плана";
+        FIXTURE.municipalityOverride = null;
+        properties.setMaxAttempts(1);
+        properties.setRetryDelays(List.of());
         FIXTURE.overrideScenario = null; FIXTURE.parcelRequests.clear();
         properties.setDatasetVersion("synthetic-parcels-v1");
         properties.setInvalidResultRecheckVersion("");
         Files.deleteIfExists(FIXTURE.killSwitch);
     }
     @AfterAll static void close() throws Exception { FIXTURE.close(); }
+
+    @Test void narrowFieldRecoversThroughNativeCrsWithoutReparsingOrRepairingRejectedGeometry() throws Exception {
+        var source = new ObjectMapper().readTree(rs.sud.eaukcija.testsupport.Fixtures.read(
+                "propertyreference/issue55/181158-current.json"));
+        FIXTURE.population = List.of(FIELD);
+        FIXTURE.descriptionOverride = source.path("description").asText();
+        FIXTURE.shortDescriptionOverride = source.path("shortDescription").asText();
+        FIXTURE.placeOverride = source.path("placeName").asText();
+        FIXTURE.municipalityOverride = source.path("municipality").asText();
+        runRefresh(); // One-request budget reproduces the retained old rejection.
+        assertThat(locations.findBestByAuctionIds(List.of(181158L)).get(181158L).precision())
+                .isEqualTo(LocationPrecision.CADASTRAL_MUNICIPALITY);
+        assertThat(diagnostics.find(181158).summarySr().split("Адресни регистар није увезен", -1)).hasSize(2);
+        var originalCache = jdbc.queryForObject("SELECT id FROM location_resolution_cache_records WHERE resolver='RGZ_WFS_PARCEL'", UUID.class);
+        properties.setMaxAttempts(2);
+        properties.setRetryDelays(List.of(java.time.Duration.ofMillis(1)));
+        properties.setInvalidResultRecheckVersion("native-crs-recovery-v1");
+        runEnrichment();
+        assertThat(FIXTURE.parcelRequests).containsExactly(FIELD.filter(), FIELD.filter(), FIELD.filter());
+        assertThat(locations.findBestByAuctionIds(List.of(181158L)).get(181158L).precision()).isEqualTo(LocationPrecision.PARCEL);
+        assertThat(jdbc.queryForObject("SELECT resolution_status FROM location_resolution_cache_records WHERE id=?",
+                String.class, originalCache)).isEqualTo("INVALID");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM location_resolution_cache_records WHERE resolver='RGZ_WFS_PARCEL'", Long.class)).isEqualTo(2);
+        assertThat(jdbc.queryForObject("""
+                SELECT bool_and(source_crs_code=25834 AND ST_SRID(source_geometry)=25834
+                    AND ST_SRID(canonical_geometry)=4326 AND original_geometry_valid AND NOT make_valid_applied
+                    AND ST_Equals(canonical_geometry, ST_Transform(source_geometry,4326)))
+                FROM spatial_resolution_geometries WHERE source_crs_code=25834
+                """, Boolean.class)).isTrue();
+        var evidence = new ObjectMapper().readTree(jdbc.queryForObject("""
+                SELECT candidate_evidence::text FROM location_resolution_cache_records
+                WHERE resolver='RGZ_WFS_PARCEL' AND resolution_status='RESOLVED'
+                """, String.class));
+        assertThat(evidence.path("geometrySrid").asInt()).isEqualTo(25834);
+        assertThat(evidence.path("representationAttempts").size()).isEqualTo(2);
+        assertThat(evidence.path("representationAttempts").get(0).path("reason").asText()).isEqualTo("INVALID_GEOMETRY");
+        assertThat(evidence.path("propertyWhitelistVersion").asText()).isEqualTo("issue-41-rgz-parcel-v2");
+        assertThat(diagnostics.find(181158).references()).anySatisfy(r -> {
+            assertThat(r.type()).isEqualTo("PARCEL"); assertThat(r.extractionStatus()).isEqualTo("EXTRACTED");
+            assertThat(r.selectedPrecision()).isEqualTo("PARCEL");
+        });
+        runEnrichment();
+        assertThat(FIXTURE.parcelRequests).hasSize(3); // Native success is still fetch-once cache evidence.
+    }
+
+    @Test void unlabelledCandidateCannotQueryRgzOrUseRegistryUntilSourceSuppliesParcelContext() throws Exception {
+        var example = new RgzWorkflowFixture.Example(181104, HOUSE.name(), HOUSE.koCode(), "81/2", "success");
+        FIXTURE.population = List.of(example);
+        FIXTURE.additionalLookups.clear();
+        FIXTURE.descriptionOverride = "652м2";
+        FIXTURE.shortDescriptionOverride = "81/2 Велика Плана I";
+        UUID snapshot = RegistryResolutionFixture.snapshot(jdbc);
+        RegistryResolutionFixture.point(jdbc, snapshot, 1, HOUSE.koCode(), "Велика Плана", "Тестна", "7", "81/2", "ST1");
+        runRefresh();
+        assertThat(FIXTURE.parcelRequests).isEmpty();
+        assertThat(locations.findBestByAuctionIds(List.of(181104L)).get(181104L).coarse()).isTrue();
+        assertThat(diagnostics.find(181104).references()).anySatisfy(r -> {
+            assertThat(r.parcelNumber()).isEqualTo("81/2");
+            assertThat(r.extractionStatus()).isEqualTo("NEEDS_REVIEW");
+            assertThat(r.selectedPrecision()).isNull();
+        });
+        FIXTURE.descriptionOverride = "81/2 ЊИВА ДРУГЕ КЛАСЕ";
+        FIXTURE.shortDescriptionOverride = "ПАРЦЕЛА";
+        runRefresh();
+        assertThat(FIXTURE.parcelRequests).containsExactly(example.filter());
+        assertThat(locations.findBestByAuctionIds(List.of(181104L)).get(181104L).precision()).isEqualTo(LocationPrecision.PARCEL);
+        runEnrichment();
+        assertThat(FIXTURE.parcelRequests).hasSize(1);
+    }
+
+    @Test void contextualParcelExtractionDoesNotOverrideContradictingOfficialKoEvidence() throws Exception {
+        FIXTURE.descriptionOverride = "ПОЉОПРИВРЕДНО ЗЕМЉИШТЕ 81/2 КО ЉУПТЕН";
+        FIXTURE.shortDescriptionOverride = "ПАРЦЕЛА";
+        runRefresh();
+        assertThat(FIXTURE.parcelRequests).isEmpty();
+        assertThat(locations.findBestByAuctionIds(List.of(181104L)).get(181104L).coarse()).isTrue();
+        assertThat(diagnostics.find(181104).references()).anySatisfy(r -> {
+            assertThat(r.parcelNumber()).isEqualTo("81/2");
+            assertThat(r.extractionStatus()).isEqualTo("EXTRACTED");
+            assertThat(r.koStatus()).isNotEqualTo("MATCHED");
+            assertThat(r.selectedPrecision()).isNull();
+        });
+    }
 
     @Test void reportedCaseReconcilesReviewedAliasesAndLooksUpBothExactParcels() throws Exception {
         runRefresh();
@@ -188,7 +276,7 @@ class LocationResolutionCoverageIntegrationTest {
             var json = new ObjectMapper().readTree(Path.of("config/address-registry/ko-alias-overrides.json").toFile());
             List<Object> aliases = new java.util.ArrayList<>();
             json.path("koAliases").forEach(alias -> { if (HOUSE.koCode().equals(alias.path("koCode").asText())) aliases.add(alias); });
-            return new RgzWorkflowFixture(List.of(HOUSE), aliases);
+            return new RgzWorkflowFixture(List.of(HOUSE, FIELD), aliases);
         } catch (Exception error) { throw new IllegalStateException(error); }
     }
 }

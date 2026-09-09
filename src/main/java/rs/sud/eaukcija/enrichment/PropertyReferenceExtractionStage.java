@@ -32,7 +32,7 @@ public final class PropertyReferenceExtractionStage implements EnrichmentStage {
 
     @Override
     public String activeDatasetVersion() {
-        return "full-description-v2-evaluation-pending";
+        return "full-description-v3-evaluation-pending";
     }
 
     @Override

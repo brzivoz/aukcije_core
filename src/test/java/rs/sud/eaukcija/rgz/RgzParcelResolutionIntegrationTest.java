@@ -199,6 +199,21 @@ class RgzParcelResolutionIntegrationTest {
     }
 
     @Test
+    void nativeGeometryMustAlsoPassTheCanonicalSerbiaBoundsBeforeItCanBeCachedAsResolved() {
+        var item = seed(41_093L, "Чајетина", "Насеље А", "Општина А", "КО Чајетина; парцела број 1572");
+        koMatches.run();
+        when(client.fetch(anyString(), anyString(), any(BooleanSupplier.class))).thenReturn(new RgzParcelResult(
+                RgzParcelResult.Status.RESOLVED, "EXACT_KO_PARCEL_MATCH", "d".repeat(64), "synthetic.outside",
+                "Polygon", "{\"type\":\"Polygon\",\"coordinates\":[[[200010,5299990],[200020,5299990],[200020,5299995],[200010,5299990]]]}",
+                java.math.BigDecimal.TEN, "GK7", "2500", 2, Map.of("geometrySrid", 25834), 25834));
+        stage.process(item.forRun(insertEnrichmentRun()));
+        assertThat(jdbc.queryForObject("SELECT confidence_reason FROM location_resolution_cache_records", String.class))
+                .isEqualTo("OUTSIDE_SERBIA_BOUNDS");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM current_location_resolutions", Long.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM spatial_resolution_geometries", Long.class)).isZero();
+    }
+
+    @Test
     void automaticStagePersistsSelectsCachesAndRefetchesOnlyForANewDatasetVersion() {
         EnrichmentWorkItem item = seed(
                 41_001L, "Чајетина", "Насеље А", "Општина А",

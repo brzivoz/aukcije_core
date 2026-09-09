@@ -7,11 +7,17 @@ centroid; it does not assert that the advertised property was precisely located.
 
 ## Behavior
 
-- `property-reference-v2` stops KO names at property prose, retains UTF-16 evidence
+- `property-reference-v3` retains v2's full-description handling: it stops KO names at property prose, retains UTF-16 evidence
   spans, recognizes spaced house suffixes, and binds explicit postfix KO/parcel
   groups and isolated property clauses. A repeated parcel in the short description
   can reuse one explicit association from the full description. No nearest-KO
   guess is made across ambiguous groups.
+- V3 additionally recognizes land-use/parcel-title context for unlabelled parcel
+  fractions. A bare number + exact structured place title is retained only as
+  `NEEDS_REVIEW`; it cannot trigger RGZ or registry resolution. Proper ownership
+  fractions, areas, cadastral-part/unit numbers and bare person/street names are
+  not promoted. Newlines are actual clause boundaries, not Latin `n`/`r` letters.
+  See the [59-auction audit](2026-09-09-no-reference-audit.md).
 - Lexically extracted names remain raw. The existing #33 matcher compares
   official codes, so reviewed aliases can agree with structured metadata even
   when their strings differ. True identity conflicts remain `AMBIGUOUS`; unknown
@@ -82,6 +88,11 @@ resolution was unavailable, rather than claiming that the street did not exist.
 
 ## RGZ errors and bounded cache recovery
 
+V6 adds a bounded native-CRS recovery path for geographic rounding failures;
+see [the 181158 diagnosis](2026-09-09-native-crs-recovery.md). The native geometry
+and its local WGS84 transform must both validate. The following v5 envelope fix
+and cache-recheck safeguards remain in force.
+
 `rgz-parcel-v5` validates the collection/count envelope before requiring CRS.
 An internally consistent empty collection has no coordinates and may legitimately
 omit/null CRS: it is `AUTHORITATIVE_NOT_FOUND`, not an indefinitely retrying
@@ -114,7 +125,7 @@ other references defer and consume the eventual cached result in a later run.
   secrets are exposed.
 - `GET /api/operator/location-refinement`: loopback-only no-store snapshot of
   not-ended auction precision counts, separate processing status counts, declined
-  reference-tier counts, and explicit v2 evaluation status.
+  reference-tier counts, and explicit current-parser evaluation status.
 - Map/rail details fetch explanations without reopening dismissed details or
   moving focus. Selection/precision changes invalidate stale responses. The
   operator page shows the aggregate refinement evidence separately from workflow
@@ -144,7 +155,9 @@ SQL
 ```
 
 The audit has no Spring context, database writes, or network client. It compares
-frozen v1 and current v2 against the **same** input frame and dictionary. It pins
+frozen v1/v2 and current v3 against the **same** input frame and dictionary.
+The v2 report schema uses `currentParserVersion` and `unresolvedCurrent` rather
+than the old parser-specific `unresolvedV2` field. It pins
 the normalized-LF frame SHA-256 and dictionary version and emits aggregate counts
 plus an unresolved ledger of auction/snapshot/reference hashes and fixed status
 codes, never descriptions. Keep the input file private/uncommitted.

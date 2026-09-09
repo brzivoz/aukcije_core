@@ -1,5 +1,15 @@
 # Automatic parcel geometry (#21)
 
+## Native-CRS recovery (v6)
+
+`rgz-parcel-v6` can recover a narrow parcel whose geographic output was rounded
+into invalid topology by requesting the same exact identity in the advertised
+EPSG:25834 CRS. This uses the existing physical-attempt budget and gates, not a
+geometry repair. Native and transformed canonical geometry are both validated;
+source CRS is retained separately from survey metadata. See the
+[181158 diagnosis and general recovery procedure](2026-09-09-native-crs-recovery.md),
+including the opt-in epoch for already cached invalid results.
+
 ## #55 validator/recovery update
 
 `rgz-parcel-v5` classifies a consistent empty feature collection before checking
@@ -94,7 +104,9 @@ listed in `application.properties`. The #41 defaults are:
 
 The wire User-Agent is
 `aukcije-core/0.0.1 (+https://github.com/brzivoz/aukcije_core/issues/41)`.
-Retries apply only to transport failures and HTTP `429/502/503/504`; all wire
+Transient retries apply to transport failures and HTTP `429/502/503/504`; v6
+also permits one geographic-invalid → native-CRS representation change within
+the same maximum physical-attempt budget. All wire
 requests, including retries, pass the rate/concurrency/kill gates. Redirects
 and HTTP-library automatic follow-ups are prohibited. The logical ceiling
 allows at most 300 physical attempts per run at the defaults. Cache hits and
@@ -151,7 +163,8 @@ a startup configuration change, not the live control.
 - Protocol errors, ceiling deferrals, and killed lookups continue into the
   existing #23/#38 fallback ladder, not a failed auction/run. Discovery resumes
   after the switch is removed and prioritizes quota deferrals to avoid starvation.
-- Exact success requires one identity-matching feature, declared `EPSG:4326`,
+- Exact success requires one identity-matching feature, the explicitly requested
+  `EPSG:4326` (or `EPSG:25834` on native recovery),
   a nonempty valid positive-area `Polygon`/`MultiPolygon`, positive declared
   area, finite closed coordinate rings, and broad Serbia bounds (18–24°E,
   41–47°N). Declared multiple matches remain ambiguous even if truncated to one

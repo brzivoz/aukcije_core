@@ -100,27 +100,28 @@ location. Filter edits never call RGZ, ingestion, or enrichment.
 ## Selection and map details (#46)
 
 Selection and transient details are independent. Click a map object or its
-result/table button to select it and open non-modal details. With a keyboard,
-use Enter or Space on a result/table button, **Отвори детаље** in the selection
-summary, or the compact **Избор** control. Since #54, Map + results shows details
-inside the rail; Map-only reuses the same article in a popup. The selection summary
+result button or table **Опис и детаљи** link to select it and open non-modal details.
+With a keyboard, use Enter on the table link, Enter/Space on a result button,
+**Отвори детаље** in the selection summary, or the compact **Избор** control.
+Since #51, explicit opening from any mode reveals details inside the results rail;
+long descriptions never travel into a popup over the geometry. The selection summary
 is also in the rail, never above the map. Dismissal hides details and the summary;
 auction identity and map/list/table highlighting remain. The compact selection
 control stays available for deliberate reopening, including an explicit reason
 when the selected property is unavailable. No separate detail/query state is added.
 
-- **Escape**, **Назад на резултате** in the rail, **×** in the popup (accessible
-  name **Затвори детаље аукције**, 44×44 px), or a
+- **Escape**, **Назад на резултате** in the rail (accessible
+  name **Затвори детаље аукције — назад на резултате**, minimum 44px height), or a
   blank-map/outside click closes both details surfaces. Content and safe
   source-link clicks do not close them. The eAukcija and Google Maps links are
   displayed on separate lines. Activating the same or another object opens it.
 - Keyboard opening focuses the details article's safe source link, or the labelled
   article itself if no allowlisted link exists. There is no modal focus trap. Escape
-  and × return focus to the connected, visible opening control where possible;
+  and Back return focus to the connected, visible opening control where possible;
   if a result was replaced, a table/summary trigger hidden, or a cluster choice
   removed, use the current matching property result, then the map canvas.
   Pointer click-away never returns focus from the clicked control. Background
-  refresh never transfers focus into details; open popup/summary controls remain
+  refresh never transfers focus into details; open rail/summary controls remain
   connected and focused result/table positions are retained where applicable.
 - Panning/zooming, periodic updates, source-refresh completion and source/layer
   redraws do not reopen dismissed details or clear criteria/selection. Within
@@ -129,13 +130,30 @@ when the selected property is unavailable. No separate detail/query state is add
   and explain the absence, without substituting another property.
 - The URL stores **only the auction identity**, not a property DOM reference or
   open/dismissed state. Reload/copied links and back/forward restore the auction
-  and criteria **with the popup closed**. The restored selection summary is
+  and criteria **with details closed**. The restored selection summary is
   initially available for reopening or explaining an unavailable selection;
-  Escape/click-away can dismiss that summary too, even without a popup.
+  Escape/click-away can dismiss that summary too, even without open details.
   An available auction initially selects its first returned property;
   explicitly select another if needed. Closing or
   reopening the same selection creates no history entry or query parameter.
-  Back/forward is not an undo stack for transient popup visibility.
+  Back/forward is not an undo stack for transient detail visibility.
+
+Mode buttons hide/reveal the same connected details nodes without dismissing them.
+Back/dismissal never changes the selected property, filters, drafts or result scroll.
+Unmapped/off-screen/limited selections can load auction-level descriptions without
+restoring geometry or substituting a sibling property. Table links also work without
+JavaScript, using an escaped local page and a canonical Back link retaining criteria,
+sort and page. Secondary table columns use a native checkbox; sort arrows and text
+state direction, and headers stick inside the focusable table scroll region.
+
+Cards label price as **Почетна цена аукције**, not a per-parcel price. Multiple returned
+locations are explicitly a viewport count, not the total legal sale scope. Category and
+locality are source fields, never inferred from prose/centroid location. Details display
+the full retained Description and ShortDescription as plain text, and available valuation,
+start/publication/end times and first-sale metadata. Missing values are explicit.
+Source status captions (e.g. **Проверено на извору**) describe portal workflow, not
+local geometry verification or ended/not-ended time scope. Unknown codes are labelled
+**Непознат изворни статус: …**; retained values and filter URLs remain unchanged.
 
 Municipality and other native disclosures retain their own Escape/outside-click
 behavior; these are not modal dialogs. Operator confirmations/cancellation and

@@ -228,7 +228,10 @@ receives JSON with the same body. Coordinates are WGS84 longitude/latitude.
     "marker": {"type": "Point", "coordinates": [20.457273, 44.787197]},
     "properties": {
       "auctionId": 179415,
-      "title": "Н179415",
+      "title": "Викендица",
+      "auctionNumber": "Н179415",
+      "municipality": null,
+      "placeName": null,
       "amount": 125000.50,
       "currency": "RSD",
       "endTime": "2026-08-28T11:00:00Z",
@@ -258,7 +261,11 @@ receives JSON with the same body. Coordinates are WGS84 longitude/latitude.
 `category` is raw category, nullable when unknown (never inferred from prose or
 generic property type). `propertyKind` is a deprecated JSON alias for it,
 **not normalized property kind or sale scope**. `amount` is starting price in
-RSD. End times display in Europe/Belgrade, with an explicit unknown fallback.
+RSD, always auction-level, never a per-parcel allocation. `title` is the safe raw
+category or an explicit unknown caption; `auctionNumber` is a nullable secondary
+identifier. Nullable `municipality`/`placeName` are source locality labels, not inferred
+from geometry. Each display string is bounded to 256 Unicode code points. End times
+display in Europe/Belgrade with a UTC offset and explicit unknown fallback.
 
 `geometry` is the unchanged canonical Point/Polygon/MultiPolygon. The additive
 GeoJSON foreign member `marker` is a presentation-only Point on that geometry,
@@ -287,8 +294,8 @@ browser keeps that selection and explains exclusions instead of clearing filters
 or fabricating a pin. This is selection metadata, **not popup visibility**.
 The browser retains the current property by the existing feature ID within the
 page. `auction` is still the only shareable selection parameter; reload/history
-restore it with details closed. #54 presents details in the results rail (or a
-Map-only popup), with a compact reopen/exclusion control; this does not change
+restore it with details closed. #51 presents details only in the results rail,
+with a compact reopen/exclusion control; this does not change
 selection metadata. No open/dismissed or DOM state is sent to the API.
 See the [details/focus contract](SHARED_FILTERS.md#selection-and-map-details-46).
 
@@ -322,6 +329,44 @@ form, and rejects stale/cancelled responses. The table has at most 25 hydrated
 entities, fetched in bulk. Corresponding result/count/time-scope state refreshes
 on panning, automatic local updates and source-refresh completion. This endpoint
 and the page use `Cache-Control: no-store, private`.
+
+## Deliberate local auction details (#51)
+
+`GET /api/auctions/{id}/details` is a separate, read-only, same-origin projection for
+one deliberately opened auction. It accepts one canonical positive signed-64-bit
+integer ID, rejects malformed/zero/negative/overflow IDs with 400 and missing IDs with
+404; all responses use `Cache-Control: no-store, private`. No collection, pagination,
+source fetch, mutation, geometry/evidence hydration or catalogue download is added.
+One primary-key JDBC query selects exactly these public columns; an entity is never
+serialized. The 15-field DTO contains:
+
+* `auctionId`, nullable `auctionNumber`, `category` (unknown caption if missing),
+  nullable `municipality`, `placeName` (display strings <=256 code points).
+* Nullable decimal `startingPrice`, `estimatedPrice`; nullable UTC `startTime`,
+  `endTime`, `publicationTime`; localized `statusLabel`; retained `firstSale` boolean.
+* Nullable `description` (<=4000 code points), `shortDescription` (<=2000).
+* `detailUrl`, derived only from numeric ID and the fixed eAukcija origin/path.
+
+Privacy review: Description/ShortDescription are the existing promoted **user-facing
+source fields**, not raw snapshots or parser excerpts. Source ingestion already rejects
+values exceeding their VARCHAR bounds; the complete retained text is displayed, with
+paragraphs/spacing preserved and unsafe control/format characters removed. Markup is
+literal text (`textContent` / escaped Thymeleaf), never HTML, auto-linked URLs or loaded
+images. No executor/person fields, thumbnails, source payloads, hashes, internal IDs,
+reference/candidate evidence or historical before/after description values are returned.
+Descriptions are not added to GeoJSON, map sources, default table fragments, browser
+storage, comparison evidence or bulk APIs. No new acquisition or retention policy.
+
+`GET /auctions/{id}` renders the same projection for no-JavaScript/unavailable-map
+access. Canonical shared query fields carry a validated local Back link; no arbitrary
+return URL/redirect is accepted. The rail reuses selected auction/property identity and
+open/dismissed state. Only one selected detail request is active, with abort/identity
+checks on replacement/dismissal; failure is explicit and retryable. Open details refresh
+alongside accepted local views, never reopening a dismissed panel. Map primary fields
+continue to use the atomic shared view; the separately labelled local description read
+cannot change map eligibility, camera, criteria, selection or comparison references.
+For unavailable properties the rail shows auction metadata and the retained selection
+reason, with no Google Maps geometry link or fabricated replacement property.
 
 ## Publication, deduplication, spatial bounds and privacy
 

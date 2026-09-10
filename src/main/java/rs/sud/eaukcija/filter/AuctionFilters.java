@@ -79,7 +79,8 @@ public record AuctionFilters(
             if (labels.containsKey(key)) active.put(labels.get(key), key.equals("firstSale")
                     ? (value.equals("true") ? "Да" : "Не") : key.equals("precision")
                     ? rs.sud.eaukcija.spatial.LocationPrecisionPresentation.labelSr(precision)
-                    : key.equals("parcelSize") ? parcelSize.label() : value);
+                    : key.equals("parcelSize") ? parcelSize.label()
+                    : key.equals("status") ? rs.sud.eaukcija.presentation.AuctionPresentation.statusLabel(value) : value);
         });
         if (changes.active()) {
             active.put("Промене од", changes.label());
@@ -99,6 +100,25 @@ public record AuctionFilters(
         values.set("sortBy", field);
         values.set("sortDir", field.equals(sortBy) && sortDir.equals("asc") ? "desc" : "asc");
         return "/?" + query(values);
+    }
+    public String sortName() {
+        return switch (sortBy) {
+            case "auctionNumber" -> "Број аукције";
+            case "startingPrice" -> "Почетна цена аукције";
+            case "estimatedPrice" -> "Процена аукције";
+            case "startDate" -> "Почетак";
+            case "endDate" -> "Завршетак";
+            default -> "Идентификатор аукције";
+        };
+    }
+    public String sortAria(String field) {
+        return !field.equals(sortBy) ? "none" : sortDir.equals("asc") ? "ascending" : "descending";
+    }
+    public String sortIndicator(String field) {
+        return !field.equals(sortBy) ? "↕" : sortDir.equals("asc") ? "↑" : "↓";
+    }
+    public String sortLabel(String field) {
+        return !field.equals(sortBy) ? "Није сортирано" : sortDir.equals("asc") ? "Растуће" : "Опадајуће";
     }
     public String resetUrl() {
         MultiValueMap<String, String> values = new LinkedMultiValueMap<>();

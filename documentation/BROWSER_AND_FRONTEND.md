@@ -295,13 +295,12 @@ property totals and returned/unmapped/outside breakdown. Warnings remain outside
 a separate view retry never triggers acquisition. Existing-result loading retains
 height and uses a quiet indicator. Result refresh retains the rail's scroll offset.
 
-Selection summary/details live in the rail. Map-only uses a small **Избор** overlay
-and transports the same details article into MapLibre's popup on explicit opening.
-Table-mode reopening reveals Map + results. Both transports reuse #46's state,
-source-link allowlist, dismissal and focus return; periodic updates retain connected
-controls. Late cluster responses are discarded after another selection/dismissal.
-This does not add #51's richer auction descriptions/projections or #48's broader
-keyed result reconciliation, nor #53's mobile bottom-sheet workflow.
+Selection summary/details live in the rail. Map-only uses a small **Избор** overlay.
+The original #54 popup transport is superseded by #51 below: explicit opening from
+Map-only/Table reveals the rail instead, so full descriptions never cover geometry.
+This reuses #46's state, source-link allowlist, dismissal and focus return; periodic
+updates retain connected controls. Late cluster responses are discarded after another
+selection/dismissal. #53's mobile bottom-sheet workflow remains separate.
 
 `CompactWorkspaceBrowserTest` measures map bounds and retains `issue-54-*` screenshots
 and JSON under `build/browser-test-results/evidence/`. It covers defaults, preferences,
@@ -312,7 +311,57 @@ resize/minimum-zoom, precision, hostile-text/link safety, source refresh, keyboa
 reduced-motion, no-JavaScript and localhost-only coverage. See the
 [verification record](2026-09-09-issue-54-verification.md).
 
+## Readable results and deliberate details (#51)
+
+`auction-presentation.mjs` and `AuctionPresentation` supply display-only captions.
+Cards prioritize raw source category, locality, auction-level starting price and absolute
+Belgrade end time (including offset), with auction number secondary. Missing fields are
+explicit rather than inferred. Precision is labelled in text; descriptions clarify that
+parcel boundaries/address points/area centroids are not necessarily the auctioned object.
+Multiple loaded locations share one auction price, never a per-parcel allocation; the
+viewport location count is not presented as the legal number of properties for sale.
+
+The selected article stays in the workspace rail, with a separately scrollable body and
+an always-available 44px **Назад на резултате** footer. Explicit opening from Map-only or
+Table reveals Map + results rather than covering the parcel with a large popup. Modes
+hide/reveal the same connected article without creating another detail selection/state.
+The legacy `auction-popup-details` ID / `.map-popup` class remain DOM compatibility names,
+not a MapLibre popup. Escape/Back/outside click still use #46 dismissal/focus restoration.
+Result buttons reconcile by canonical property ID, preserving unchanged nodes/text;
+table replacement restores equivalent control focus, secondary-column choice and both
+scroll axes, including refreshes while hidden. Draft filters, sort/page, camera, property
+identity and auction-only reload/history semantics are unchanged.
+
+`auction-detail-content.mjs` fetches the bounded local detail API only on deliberate
+opening (then after accepted refreshes while open). Aborted/replaced/dismissed requests
+cannot populate another selection or reopen details. It uses DOM text, not source HTML;
+failed reads show a retry without claiming the previous description is fresh. The full
+retained description and short description wrap in Cyrillic/Latin, alongside available
+valuation/start/publication/first-sale metadata. Primary map values remain the shared
+view projection. Even unmapped/off-screen/limited properties can show auction-level
+text with a truthful selection reason and no invented geometry or substitute sibling.
+See [API field allowlist and privacy review](MAP_API.md#deliberate-local-auction-details-51).
+
+Table defaults to five useful columns. A native checkbox reveals valuation/source
+status/first-sale columns, including the valuation sort link. All sorts retain their
+existing URLs/page behavior and expose arrows, Serbian direction text and `aria-sort`;
+the current order is visible even for secondary or URL-only sort fields. Headers stick
+inside the focusable two-axis table scrollport. **Опис и детаљи** is a native link,
+progressively enhanced into the same rail lifecycle. Without JS/map availability it
+opens the escaped local page, with canonical criteria/page/sort in its Back link.
+No hover-only description, raw status styling class or inferred taxonomy is used.
+
+Verification: `AuctionDetailsIntegrationTest`, `AuctionPresentationTest`,
+`AuctionReadabilityBrowserTest`, plus extended map/details/compact/comparison/native
+GET suites. Desktop, 390px and 200%-equivalent viewport checks cover text wrapping,
+15px metadata, contrast, keyboard/touch/source/Back flow, request races, unknown values,
+multi-property price scope, sorting/scroll and localhost-only traffic. Screenshots are
+retained under `build/browser-test-results/evidence/issue-51-*`.
+
 ## Transient map details (#46)
+
+This records the original lifecycle implementation. #51 above supersedes its popup
+transport/× with rail/Back, not its selection, dismissal or URL semantics.
 
 `auction-map.mjs` keeps `selectedAuctionId`/the existing GeoJSON
 `selectedFeatureId` separate from `detailsOpen`, `detailsDismissed` and the

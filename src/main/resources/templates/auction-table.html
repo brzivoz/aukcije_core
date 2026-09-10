@@ -1,0 +1,5 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="sr"><body>
+<a th:fragment="sortLink(field, label)" th:href="${filters.sortUrl(field)}" th:attr="data-sort-field=${field}"><span th:text="${label}"></span>
+    <span aria-hidden="true" th:text="${filters.sortIndicator(field)}"></span><span class="sr-only" th:text="${' — ' + filters.sortLabel(field)}"></span></a>
+</body></html>

@@ -1,0 +1,53 @@
+/* Readable cards and one non-obstructing detail surface in the workspace rail. */
+.map-result-title { font-size: 1rem; white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; line-height: 1.4; }
+.map-result-meta { font-size: .9375rem; color: #374151; line-height: 1.45; overflow-wrap: anywhere; }
+.map-result-amount { font-weight: 650; }
+.map-result-number { margin-top: 8px; }
+.map-result-precision { border-top: 1px solid #c7d0d9; padding-top: 5px; }
+.map-result-meta:empty { display: none; }
+.map-result-button { padding: 12px; }
+#rail-details { display: flex; flex-direction: column; flex: 1 1 65%; min-height: 0; max-height: 70%; overflow: hidden; padding: 0; }
+#rail-details .map-popup { flex: 1; overflow: auto; min-height: 0; padding: 12px; max-width: none; width: 100%; min-width: 0; }
+#rail-details .map-popup h3 { font-size: 1.125rem; margin: 0 0 10px; line-height: 1.4; }
+#rail-details .map-popup h4 { font-size: 1rem; margin: 16px 0 8px; }
+#rail-details .map-popup dl { font-size: .9375rem; line-height: 1.5; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+#rail-details .map-popup dd { margin-bottom: 8px; }
+#rail-details .map-popup dt { color: #374151; }
+#rail-details .map-popup p { color: #374151; font-size: .9375rem; line-height: 1.55; }
+#rail-details .map-popup a { font-size: .9375rem; min-height: 44px; padding: 8px 2px; }
+.detail-links { margin-bottom: 12px; }
+.auction-description { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rail-details-close { flex: none; min-height: 44px; width: 100%; margin: 0; border-radius: 0; font-size: 1rem; }
+.local-auction-details button { min-height: 44px; padding: 6px 10px; font: inherit; max-width: 100%; }
+#rail-details .auction-change, #rail-details .auction-change summary { font-size: .9375rem; }
+
+/* Five primary columns. Native checkbox works without JS and is retained on refresh. */
+.table-columns { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: .9375rem; color: #17243a; }
+.table-columns input { width: 20px; height: 20px; flex: none; }
+.table-price-note { font-size: .9375rem; color: #374151; margin-bottom: 8px; }
+#shared-results .secondary-column { display: none; }
+#shared-results:has(#table-secondary:checked) .secondary-column { display: table-cell; }
+#shared-results .table-scroll { max-height: 65dvh; overflow: auto; border: 1px solid #aab5c0; border-radius: 0; }
+#auction-table { overflow: visible; border-radius: 0; border-collapse: separate; border-spacing: 0; table-layout: fixed; min-width: 900px; }
+#shared-results:has(#table-secondary:checked) #auction-table { min-width: 1250px; }
+#auction-table th { position: sticky; top: 0; z-index: 1; background: #eef2f6; color: #17243a; font-size: .9375rem; white-space: normal; text-transform: none; overflow-wrap: anywhere; }
+#auction-table th a { display: inline-block; padding: 8px 0; color: #162a83; text-decoration: underline; }
+#auction-table th:first-child { width: 26%; }
+#auction-table td { vertical-align: top; font-size: .9375rem; line-height: 1.5; color: #17243a; overflow-wrap: anywhere; }
+#auction-table .price { white-space: normal; }
+#auction-table .precision-badge { font-size: .9375rem; white-space: normal; padding: 0; }
+.table-category, .table-locality, .table-select { display: block; }
+.table-select { min-height: 44px; padding: 8px 0; color: #162a83; }
+#auction-table .auction-change { font-size: .875rem; }
+#auction-table .auction-change summary { font-size: .875rem; }
+@media (max-width: 760px) {
+    #rail-details { flex: none; height: 65dvh; min-height: 300px; max-height: 600px; }
+}
+
+/* No-JavaScript / unavailable-map detail route shares the exact safe projection. */
+.standalone-details { margin: 0; background: #f5f5f5; color: #17243a; font: 1rem/1.55 system-ui, sans-serif; }
+.standalone-details main { box-sizing: border-box; max-width: 760px; margin: auto; padding: 20px; background: #fff; overflow-wrap: anywhere; }
+.standalone-details a { display: inline-block; min-height: 44px; color: #162a83; }
+.standalone-details a:focus-visible { outline: 3px solid #0b2e59; outline-offset: 3px; }
+.standalone-details dt { font-weight: 650; }
+.standalone-details dd { margin: 0 0 12px; }

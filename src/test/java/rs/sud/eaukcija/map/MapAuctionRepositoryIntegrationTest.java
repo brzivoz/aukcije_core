@@ -265,8 +265,8 @@ class MapAuctionRepositoryIntegrationTest {
         JsonNode body = json.readTree(response.getBody());
         assertThat(body.path("type").asText()).isEqualTo("FeatureCollection");
         assertThat(body.path("features")).hasSize(1);
-        assertThat(body.at("/features/0/properties/title").asText())
-                .isEqualTo("<script>Н301</script>");
+        assertThat(body.at("/features/0/properties/title").asText()).isEqualTo("Парцела");
+        assertThat(body.at("/features/0/properties/auctionNumber").asText()).isEqualTo("<script>Н301</script>");
         assertThat(body.at("/features/0/properties/amount").decimalValue())
                 .isEqualByComparingTo("98765.43");
         assertThat(body.at("/features/0/properties/currency").asText()).isEqualTo("RSD");

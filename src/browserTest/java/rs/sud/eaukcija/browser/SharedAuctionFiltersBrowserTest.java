@@ -67,7 +67,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#shared-results tbody").textContent()).contains("Н179415", "28.08.2026. 13:00", "Центар катастарске општине");
         assertThat(page.locator(".map-popup").count()).isZero();
         page.locator(".map-selection-reopen").press("Enter");
-        assertThat(page.locator(".map-popup").textContent()).contains("InPrediction", "Центар катастарске општине");
+        assertThat(page.locator(".map-popup").textContent()).contains("У најави", "Центар катастарске општине");
         page.selectOption("#time-scope-filter", "ended");
         page.fill("#search-filter", "vikend kuca");
         page.fill("#min-price-filter", "120000"); page.fill("#max-price-filter", "130000");
@@ -240,7 +240,7 @@ class SharedAuctionFiltersBrowserTest extends PostgisBrowserFixture {
         page.locator("#mode-table").press("Enter");
         page.locator(".table-select").first().press("Enter");
         assertThat(page.locator("#mode-results").getAttribute("aria-pressed")).isEqualTo("true");
-        assertThat(page.locator("#map-selection").isVisible()).isTrue();
+        assertThat(page.locator("#rail-details .map-popup").isVisible()).isTrue();
         assertThat(page.url()).contains("page=1", "sortBy=startingPrice", "sortDir=desc", "from=2026-08-28");
         browser.network().assertOnlyLocalhostRequests();
     }

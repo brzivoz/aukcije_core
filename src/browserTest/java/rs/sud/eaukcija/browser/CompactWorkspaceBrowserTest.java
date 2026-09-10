@@ -121,9 +121,10 @@ class CompactWorkspaceBrowserTest extends PostgisBrowserFixture {
             page.locator("#mode-map").press("Enter");
             ready(page);
             page.locator("#selection-toggle").press("Enter");
-            assertThat(page.locator(".maplibregl-popup .map-popup").isVisible()).isTrue();
+            assertThat(page.locator("#rail-details .map-popup").isVisible()).isTrue();
+            assertThat(page.locator(".maplibregl-popup").count()).isZero();
             assertTop(page, bounds);
-            page.locator(".maplibregl-popup-close-button").press("Enter");
+            page.locator(".rail-details-close").press("Enter");
             periodic(page);
             assertThat(page.locator(".map-popup").count()).isZero();
             assertThat(page.locator("#selection-toggle").isVisible()).isTrue();
@@ -175,7 +176,7 @@ class CompactWorkspaceBrowserTest extends PostgisBrowserFixture {
         assertThat(page.locator("#advanced-filters").getAttribute("open")).isNotNull();
         assertThat(page.locator("#search-filter").inputValue()).isEmpty(); // Drafts are deliberately not persisted.
         page.goBack(); ready(page);
-        assertThat(page.locator(".filter-chip[data-field=status]").textContent()).contains("Verified");
+        assertThat(page.locator(".filter-chip[data-field=status]").textContent()).contains("Проверено на извору");
         page.goForward(); ready(page);
         assertThat(page.locator(".filter-chip[data-field=status]").count()).isZero();
         page.locator("#applied-filter-reset").click(); ready(page);
@@ -238,8 +239,8 @@ class CompactWorkspaceBrowserTest extends PostgisBrowserFixture {
         page.waitForFunction("document.querySelector('#selection-toggle').textContent.includes('ван приказа')");
         assertThat(page.locator("#selection-toggle").isVisible()).isTrue();
         page.locator("#selection-toggle").press("Enter");
-        assertThat(page.locator("#map-selection").isVisible()).isTrue();
-        assertThat(page.locator("#map-selection").textContent()).contains("ван видљивог дела");
+        assertThat(page.locator("#rail-details .map-popup").isVisible()).isTrue();
+        assertThat(page.locator("#rail-details .map-popup").textContent()).contains("ван видљивог дела");
         page.locator("#mode-map").click();
         page.route("**/api/auctions/view?*", route -> route.fulfill(new Route.FulfillOptions().setStatus(503)));
         page.evaluate("window.__auctionMap.refreshNow()");

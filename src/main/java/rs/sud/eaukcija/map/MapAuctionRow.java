@@ -17,5 +17,11 @@ public record MapAuctionRow(
         String sourceStatus,
         String propertyKind,
         LocationPrecision precision,
-        Geometry geometry) {
+        Geometry geometry,
+        String municipality,
+        String placeName) {
+    public MapAuctionRow(String featureId, long auctionId, String auctionNumber, BigDecimal amount, Instant endTime,
+                         String sourceStatus, String propertyKind, LocationPrecision precision, Geometry geometry) {
+        this(featureId, auctionId, auctionNumber, amount, endTime, sourceStatus, propertyKind, precision, geometry, null, null);
+    }
 }

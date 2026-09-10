@@ -39,7 +39,10 @@ public record MapGeoJsonResponse(
             String sourceStatus,
             String propertyKind,
             String precision,
-            String detailUrl) {
+            String detailUrl,
+            String auctionNumber,
+            String municipality,
+            String placeName) {
         /** Unambiguous name; propertyKind remains a deprecated raw-category JSON alias. */
         @com.fasterxml.jackson.annotation.JsonProperty("category")
         public String category() { return propertyKind; }

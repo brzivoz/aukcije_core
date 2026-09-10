@@ -100,7 +100,7 @@
         <div class="filter-grid">
         <div class="filter-group"><label for="map-status-filter">Изворни статус (није временски опсег)</label>
             <select id="map-status-filter" name="status"><option value="">Сви статуси</option>
-                <option th:each="v : ${statuses}" th:value="${v}" th:text="${v}" th:selected="${v == filters.status}"></option>
+                <option th:each="v : ${statuses}" th:value="${v}" th:text="${T(rs.sud.eaukcija.presentation.AuctionPresentation).statusLabel(v)}" th:selected="${v == filters.status}"></option>
             </select>
         </div>
         <div class="filter-group"><label for="map-precision-filter">Прецизност локације</label>

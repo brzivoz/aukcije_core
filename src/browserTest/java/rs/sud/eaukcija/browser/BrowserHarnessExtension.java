@@ -24,13 +24,17 @@ public final class BrowserHarnessExtension implements BeforeEachCallback, AfterT
     private Page page;
     private LocalhostOnlyNetwork network;
     private final boolean javaScriptEnabled;
+    private final boolean hasTouch;
 
     public BrowserHarnessExtension() {
         this(true);
     }
 
-    public BrowserHarnessExtension(boolean javaScriptEnabled) {
+    public BrowserHarnessExtension(boolean javaScriptEnabled) { this(javaScriptEnabled, false); }
+
+    public BrowserHarnessExtension(boolean javaScriptEnabled, boolean hasTouch) {
         this.javaScriptEnabled = javaScriptEnabled;
+        this.hasTouch = hasTouch;
     }
 
     @Override
@@ -39,7 +43,7 @@ public final class BrowserHarnessExtension implements BeforeEachCallback, AfterT
         playwright = Playwright.create();
         browser = playwright.chromium().launch(
                 new BrowserType.LaunchOptions().setHeadless(headless));
-        context = browser.newContext(new Browser.NewContextOptions().setJavaScriptEnabled(javaScriptEnabled));
+        context = browser.newContext(new Browser.NewContextOptions().setJavaScriptEnabled(javaScriptEnabled).setHasTouch(hasTouch));
         network = new LocalhostOnlyNetwork(context);
         context.tracing().start(new Tracing.StartOptions()
                 .setScreenshots(true)

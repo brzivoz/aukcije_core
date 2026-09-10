@@ -14,9 +14,9 @@ public final class MapAuctionFilterOptions {
     private static final List<Option> STATUSES = List.of(
             new Option("InPrediction", "У најави"),
             new Option("Published", "Објављено"),
-            new Option("Verification", "Провера"),
-            new Option("Verified", "Проверено"),
-            new Option("Closed", "Closed"));
+            new Option("Verification", "У провери"),
+            new Option("Verified", "Проверено на извору"),
+            new Option("Closed", "Затворено на извору"));
     private static final List<Option> KINDS = List.of(
             option("Викендица"),
             option("Гаража"),

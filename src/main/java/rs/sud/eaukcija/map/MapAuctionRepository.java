@@ -43,6 +43,7 @@ public class MapAuctionRepository {
                 SELECT a.id || ':' || md5(w.property_key) AS feature_id,
                        a.id AS auction_id, a.auction_number, a.starting_price AS amount,
                        a.end_date, a.status AS source_status, a.category_name AS property_kind,
+                       a.municipality, a.place_name,
                        w.location_precision, ST_AsBinary(geometry.canonical_geometry) AS geometry_wkb
                 """ + within(request) + " ORDER BY a.id, md5(w.property_key) LIMIT :featureLimit";
     }
@@ -95,7 +96,8 @@ public class MapAuctionRepository {
             return new MapAuctionRow(rs.getString("feature_id"), rs.getLong("auction_id"),
                     rs.getString("auction_number"), rs.getBigDecimal("amount"),
                     endTime == null ? null : endTime.toInstant(), rs.getString("source_status"),
-                    rs.getString("property_kind"), LocationPrecision.valueOf(rs.getString("location_precision")), geometry);
+                    rs.getString("property_kind"), LocationPrecision.valueOf(rs.getString("location_precision")), geometry,
+                    rs.getString("municipality"), rs.getString("place_name"));
         } catch (ParseException e) { throw new SQLException("PostGIS returned invalid map geometry WKB", e); }
     }
 }

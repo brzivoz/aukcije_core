@@ -130,6 +130,8 @@ GET  /api/locations/{id}/refinement per-reference finer-tier reasons and Serbian
 GET  /api/operator/location-refinement loopback-only processing/precision/fallback counts
 GET  /api/map/auctions      shared-filter GeoJSON subset for one WGS84 viewport
 GET  /api/auctions/view     atomic table/map/count/options/change-evidence refresh
+GET  /api/auctions/{id}/details bounded local user-facing description/metadata (deliberate access)
+GET  /auctions/{id}         escaped no-JavaScript detail page with canonical Back navigation
 POST /api/auctions/reviews  bounded read-only per-auction revision comparisons (no mutation)
 GET  /api/map/status        retained map-data version and freshness state
 GET  /api/basemap/status    active immutable basemap version and health
@@ -154,9 +156,15 @@ zoomed windows reflow, with horizontal scrolling confined to the table region.
 See [#45 verification](documentation/2026-09-08-issue-45-verification.md) for
 measured desktop/ultrawide bounds and the keyboard/resize regression coverage.
 
-Selected details now use the results rail, not a banner above the map. Map-only
-mode reuses the same details article in a popup. **Escape**, **Назад на резултате**,
-**×**, or an outside click closes transient details without clearing selection.
+Cards prioritize source category, locality, auction-level starting price and absolute
+Belgrade end time, with auction number secondary and explicit location precision.
+Selected details use the results rail, never a large popup over the parcel. Explicit
+opening from Map-only/Table reveals that rail. **Escape**, **Назад на резултате**,
+or an outside click closes transient details without clearing selection.
+Full retained descriptions load only on deliberate access, outside GeoJSON. Table mode
+starts with five columns; a native checkbox reveals valuation, localized source status
+and first-sale fields. Sort direction is textual and headers stay within the table scrollport.
+See [#51 verification](documentation/2026-09-10-issue-51-verification.md).
 A compact **Избор** control reopens them and explains unavailable selections.
 Updates never reopen dismissed details; reload/history restore selection with
 details closed. See [#54 verification](documentation/2026-09-09-issue-54-verification.md), the

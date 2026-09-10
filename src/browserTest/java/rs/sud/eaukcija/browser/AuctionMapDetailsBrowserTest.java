@@ -318,7 +318,7 @@ class AuctionMapDetailsBrowserTest extends PostgisBrowserFixture {
         for (String unsafe : List.of("javascript:window.__popupXss=true", "https://example.invalid/#/aukcije/34002",
                 "https://eaukcija.sud.rs.evil.invalid/#/aukcije/34002", "http://eaukcija.sud.rs/#/aukcije/34002",
                 "https://eaukcija.sud.rs/path#/aukcije/34002", "https://eaukcija.sud.rs/?redirect=bad#/aukcije/34002",
-                "https://eaukcija.sud.rs/#/aukcije/99999")) {
+                "https://eaukcija.sud.rs/#/aukcije/99999", "https://name:secret@eaukcija.sud.rs/#/aukcije/34002")) {
             page.evaluate("value => { window.__sourceUrl = value; }", unsafe);
             page.evaluate("window.__auctionMap.refreshNow()");
             ready(page);

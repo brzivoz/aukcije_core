@@ -67,12 +67,6 @@
         td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 0.85rem; }
         tr:hover { background: #fafafa; }
         .price { font-weight: 600; white-space: nowrap; }
-        .status-badge { padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 500; }
-        .status-Verified { background: #e8f5e9; color: #2e7d32; }
-        .status-InProgress { background: #fff3e0; color: #ef6c00; }
-        .status-Completed { background: #e3f2fd; color: #1565c0; }
-        .first-sale { color: #d32f2f; font-weight: 600; font-size: 0.75rem; }
-        .desc-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .precision-badge { display: inline-block; padding: 3px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 600; white-space: nowrap; }
         .precision-coarse { background: #fff8e1; color: #8d6e00; border: 1px solid #ffe082; }
         .precision-none { background: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
@@ -89,6 +83,7 @@
         @media (max-width: 760px) { .refresh-stages { grid-template-columns: 1fr; } }
     </style>
     <link rel="stylesheet" href="/auction-workspace.css"/>
+    <link rel="stylesheet" href="/auction-details.css"/>
 </head>
 <body>
 <header class="workspace-header">
@@ -280,30 +275,31 @@
         Ознака „центар“ је приближна локација области, не адреса, улица или парцела.
     </p>
 
+    <p id="table-sort-summary" role="status" th:text="${'Редослед: ' + filters.sortName() + ' — ' + filters.sortLabel(filters.sortBy) + ' ' + filters.sortIndicator(filters.sortBy)}"></p>
+    <label class="table-columns"><input type="checkbox" id="table-secondary" aria-controls="auction-table"/> Додатне колоне: процена, изворни статус и прва продаја</label>
+    <p class="table-price-note">Почетна цена је за аукцију, не за појединачну парцелу/објекат. Обим продаје проверите у опису.</p>
     <div class="table-scroll" role="region" aria-label="Табеларни резултати аукција" tabindex="0">
-    <table>
+    <table id="auction-table">
         <thead>
         <tr>
-            <th><a th:href="${filters.sortUrl('auctionNumber')}">Број</a></th>
-            <th>Опис</th>
-            <th>Општина</th>
-            <th>Место</th>
-            <th>Прецизност локације</th>
-            <th>Категорија</th>
-            <th><a th:href="${filters.sortUrl('startingPrice')}">Почетна цена</a></th>
-            <th><a th:href="${filters.sortUrl('estimatedPrice')}">Процена</a></th>
-            <th><a th:href="${filters.sortUrl('endDate')}">Завршетак (Београд)</a></th>
-            <th>Статус</th>
-            <th>Прва</th>
+            <th scope="col" th:attr="aria-sort=${filters.sortAria('auctionNumber')}">Непокретност · <a th:replace="~{auction-table :: sortLink('auctionNumber', 'Број аукције')}"></a></th>
+            <th scope="col">Место / општина</th>
+            <th scope="col" th:attr="aria-sort=${filters.sortAria('startingPrice')}"><a th:replace="~{auction-table :: sortLink('startingPrice', 'Почетна цена аукције')}"></a></th>
+            <th scope="col" th:attr="aria-sort=${filters.sortAria('endDate')}"><a th:replace="~{auction-table :: sortLink('endDate', 'Завршетак (Београд)')}"></a></th>
+            <th scope="col">Прецизност локације</th>
+            <th scope="col" class="secondary-column" th:attr="aria-sort=${filters.sortAria('estimatedPrice')}"><a th:replace="~{auction-table :: sortLink('estimatedPrice', 'Процена аукције')}"></a></th>
+            <th scope="col" class="secondary-column">Изворни статус</th>
+            <th scope="col" class="secondary-column">Прва продаја</th>
         </tr>
         </thead>
         <tbody>
         <tr th:each="a : ${auctions}" th:attr="data-auction-id=${a.id}">
             <td>
-                <a class="auction-link"
+                <strong class="table-category" th:text="${T(rs.sud.eaukcija.presentation.AuctionPresentation).category(a.categoryName)}"></strong>
+                <span>Број аукције: <a class="auction-link"
                    th:href="'https://eaukcija.sud.rs/#/aukcije/' + ${a.id}"
-                   th:text="${a.auctionNumber}" target="_blank" rel="noopener noreferrer"></a>
-                <button type="button" class="table-select" th:attr="data-auction-id=${a.id}">Изабери на карти</button>
+                   th:text="${T(rs.sud.eaukcija.presentation.AuctionPresentation).text(a.auctionNumber, 256) ?: 'није наведен'}" target="_blank" rel="noopener noreferrer"></a></span>
+                <a class="table-select" th:href="${'/auctions/' + a.id + '?' + filters.query()}" th:attr="data-auction-id=${a.id},aria-label=${'Опис и детаљи аукције ' + a.id}">Опис и детаљи</a>
                 <div class="auction-change" th:with="e=${evidence.get(a.id)}">
                     <strong class="change-badge" th:if="${e != null and e.bucket != null}" th:text="${e.badge()}"></strong>
                     <details th:if="${e != null and !e.explanation().isEmpty()}"><summary>Докази промена / стање</summary><p th:text="${e.explanation()}"></p></details>
@@ -314,23 +310,21 @@
                     <button type="button" class="clear-reviewed" disabled th:attr="data-review-id=${a.id},aria-label=${'Обриши потврду прегледа аукције ' + a.id}">Обриши потврду</button>
                 </div>
             </td>
-            <td class="desc-cell" th:text="${a.shortDescription}"></td>
-            <td th:text="${a.municipality ?: '—'}"></td>
-            <td th:text="${a.placeName ?: '—'}"></td>
+            <td><span class="table-locality" th:text="${'Место: ' + (T(rs.sud.eaukcija.presentation.AuctionPresentation).text(a.placeName, 256) ?: 'није наведено')}"></span>
+                <span th:text="${'Општина: ' + (T(rs.sud.eaukcija.presentation.AuctionPresentation).text(a.municipality, 256) ?: 'није наведена')}"></span></td>
+            <td class="price" th:text="${a.startingPrice != null ? #numbers.formatDecimal(a.startingPrice, 1, 'POINT', 2, 'COMMA') + ' РСД' : 'Цена није наведена'}"></td>
+            <td th:text="${a.endDate == null ? 'Непознат завршетак' : #temporals.format(a.endDate.atZone(displayZone), 'dd.MM.yyyy. HH:mm XXX')}"></td>
             <td>
                 <span th:each="precision : ${precisionsByAuctionId.get(a.id)}" class="precision-badge"
                       th:text="${precisionLabels.get(precision)}"></span>
                 <span th:unless="${precisionsByAuctionId.containsKey(a.id)}" class="precision-badge precision-none">Нема објављиве локације</span>
             </td>
-            <td th:text="${a.categoryName ?: '—'}"></td>
-            <td class="price" th:text="${a.startingPrice != null ? #numbers.formatDecimal(a.startingPrice, 1, 'POINT', 0, 'POINT') + ' РСД' : '—'}"></td>
-            <td class="price" th:text="${a.estimatedPrice != null ? #numbers.formatDecimal(a.estimatedPrice, 1, 'POINT', 0, 'POINT') + ' РСД' : '—'}"></td>
-            <td th:text="${a.endDate == null ? 'Непознат завршетак' : #temporals.format(a.endDate.atZone(displayZone), 'dd.MM.yyyy. HH:mm')}"></td>
-            <td><span class="status-badge" th:classappend="'status-' + ${a.status}" th:text="${a.status}"></span></td>
-            <td><span class="first-sale" th:if="${a.firstSale}">Да</span></td>
+            <td class="price secondary-column" th:text="${a.estimatedPrice != null ? #numbers.formatDecimal(a.estimatedPrice, 1, 'POINT', 2, 'COMMA') + ' РСД' : 'Није наведена'}"></td>
+            <td class="secondary-column" th:text="${T(rs.sud.eaukcija.presentation.AuctionPresentation).statusLabel(a.status)}"></td>
+            <td class="secondary-column" th:text="${a.firstSale ? 'Да' : 'Не'}"></td>
         </tr>
         <tr th:if="${auctions.isEmpty()}">
-            <td colspan="11" style="text-align:center; padding:30px;">Нема резултата за пресек изабраних критеријума. Проверите временски опсег и датуме завршетка; ниједан услов није аутоматски уклоњен.</td>
+            <td colspan="8" style="text-align:center; padding:30px;">Нема резултата за пресек изабраних критеријума. Проверите временски опсег и датуме завршетка; ниједан услов није аутоматски уклоњен.</td>
         </tr>
         </tbody>
     </table>

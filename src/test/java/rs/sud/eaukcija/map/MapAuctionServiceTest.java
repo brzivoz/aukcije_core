@@ -51,8 +51,8 @@ class MapAuctionServiceTest {
             assertThat(feature.geometry().type()).isEqualTo("Polygon");
             assertThat(feature.marker()).isEqualTo(new GeoJsonGeometry("Point", List.of(20.5, 44.5)));
             assertThat(feature.properties().auctionId()).isEqualTo(42);
-            assertThat(feature.properties().title())
-                    .isEqualTo("<script>alert('x')</script> Н42");
+            assertThat(feature.properties().title()).isEqualTo("Парцела & кућа");
+            assertThat(feature.properties().auctionNumber()).isEqualTo("<script>alert('x')</script> Н42");
             assertThat(feature.properties().sourceStatus())
                     .isEqualTo("<img src=x onerror=alert(1)>");
             assertThat(feature.properties().propertyKind()).isEqualTo("Парцела & кућа");
@@ -72,6 +72,9 @@ class MapAuctionServiceTest {
                 "42:feature", 42, "Н42", BigDecimal.TEN, null, "InPrediction", null,
                 LocationPrecision.CADASTRAL_MUNICIPALITY, new WKTReader().read("POINT(20.5 44.75)"))));
         assertThat(service.findAuctions(request).features()).singleElement().satisfies(feature -> {
+            assertThat(feature.properties().title()).isEqualTo("Категорија није наведена");
+            assertThat(feature.properties().municipality()).isNull();
+            assertThat(feature.properties().placeName()).isNull();
             assertThat(feature.properties().category()).isNull();
             assertThat(feature.properties().propertyKind()).isNull();
             assertThat(feature.marker()).isEqualTo(feature.geometry());

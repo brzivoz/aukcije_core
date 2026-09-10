@@ -140,7 +140,9 @@ class AuctionComparisonsBrowserTest extends PostgisBrowserFixture {
         assertThat(json.readTree((String) page.evaluate("JSON.stringify(JSON.parse(localStorage.getItem('" + KEY + "')).reviews['5601'].review)"))).isEqualTo(oldReview);
         page.waitForFunction("document.querySelector('.map-popup .review-reasons')?.textContent.includes('Опис')");
         assertThat(page.locator(".map-popup .review-state").textContent()).contains("Промењена од прегледа");
-        assertThat(page.locator(".map-popup").textContent()).doesNotContain("private A", "private B");
+        // Deliberately opened #51 details now show the current user-facing description;
+        // comparison evidence must still never export raw before/after description values.
+        assertThat(page.locator(".map-popup .auction-change").textContent()).doesNotContain("private A", "private B");
         fixture.publish(t.plusSeconds(2), fixture.candidate(5601, "private A"), fixture.candidate(5602, "private A"));
         page.evaluate("window.__auctionMap.refreshNow()"); ready(page);
         assertThat(page.locator(".map-popup .review-reasons").textContent()).contains("враћене на почетне");

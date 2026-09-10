@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="sr">
+<head>
+    <meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>Опис и детаљи аукције</title>
+    <link rel="stylesheet" href="/auction-details.css"/>
+</head>
+<body class="standalone-details">
+<main>
+    <a href="/" th:href="${backUrl}">Назад на резултате</a>
+    <article aria-label="Детаљи аукције">
+        <h1 th:text="${detail.category}"></h1>
+        <p th:text="${'Број аукције: ' + (detail.auctionNumber ?: 'није наведен')}"></p>
+        <dl>
+            <dt>Место</dt><dd th:text="${detail.placeName ?: 'Није наведено'}"></dd>
+            <dt>Општина</dt><dd th:text="${detail.municipality ?: 'Није наведена'}"></dd>
+            <dt>Почетна цена аукције</dt><dd th:text="${detail.startingPrice != null ? #numbers.formatDecimal(detail.startingPrice, 1, 'POINT', 2, 'COMMA') + ' РСД' : 'Цена није наведена'}"></dd>
+            <dt>Процена аукције</dt><dd th:text="${detail.estimatedPrice != null ? #numbers.formatDecimal(detail.estimatedPrice, 1, 'POINT', 2, 'COMMA') + ' РСД' : 'Није наведена'}"></dd>
+            <dt>Почетак (Београд)</dt><dd th:text="${detail.startTime == null ? 'Није наведен' : #temporals.format(detail.startTime.atZone(displayZone), 'dd.MM.yyyy. HH:mm XXX')}"></dd>
+            <dt>Завршетак (Београд)</dt><dd th:text="${detail.endTime == null ? 'Непознат завршетак' : #temporals.format(detail.endTime.atZone(displayZone), 'dd.MM.yyyy. HH:mm XXX')}"></dd>
+            <dt>Објављено (Београд)</dt><dd th:text="${detail.publicationTime == null ? 'Није наведено' : #temporals.format(detail.publicationTime.atZone(displayZone), 'dd.MM.yyyy. HH:mm XXX')}"></dd>
+            <dt>Изворни статус</dt><dd th:text="${detail.statusLabel}"></dd>
+            <dt>Прва продаја</dt><dd th:text="${detail.firstSale ? 'Да' : 'Не'}"></dd>
+        </dl>
+        <p>Цена се односи на аукцију, не на појединачну парцелу/објекат. Обим продаје проверите у опису.</p>
+        <p>Изворни статус је ток поступка на порталу, не временски опсег нити локална провера геометрије. Задржани подаци нису потврда тренутне доступности.</p>
+        <h2>Опис из локалног каталога</h2>
+        <p class="auction-description" th:text="${detail.description ?: 'Пун опис није наведен у локалном каталогу.'}"></p>
+        <h2>Кратак опис огласа</h2>
+        <p class="auction-description" th:text="${detail.shortDescription ?: 'Кратак опис није наведен.'}"></p>
+        <a th:href="${detail.detailUrl}" target="_blank" rel="noopener noreferrer">Отвори на порталу еАукција</a>
+    </article>
+</main>
+</body>
+</html>

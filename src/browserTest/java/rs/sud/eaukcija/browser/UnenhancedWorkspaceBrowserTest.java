@@ -47,6 +47,26 @@ class UnenhancedWorkspaceBrowserTest extends PostgisBrowserFixture {
     }
 
     @Test
+    void fullDescriptionAndSecondaryFieldsAreNativeKeyboardAccessibleWithoutHoverOrJavaScript() {
+        String text = "<img src=https://evil.invalid/x>\n" + "Њива Čačak ".repeat(250) + "КРАЈ";
+        jdbc.update("UPDATE auctions SET description=?, status='Closed' WHERE id=34001", text);
+        Page page = browser.page(); page.setViewportSize(390, 844);
+        page.navigate(applicationUri() + "?timeScope=all&sortBy=auctionNumber&sortDir=desc");
+        assertThat(page.locator("thead th:visible").count()).isEqualTo(5);
+        page.locator("#table-secondary").press("Space");
+        assertThat(page.locator("thead th:visible").count()).isEqualTo(8);
+        assertThat(page.locator("tbody").textContent()).contains("Затворено на извору");
+        page.locator(".table-select").press("Enter"); page.waitForURL("**/auctions/34001?**");
+        assertThat(page.locator(".auction-description").first().textContent()).isEqualTo(text);
+        assertThat(page.locator("article img").count()).isZero();
+        assertThat(page.evaluate("document.documentElement.scrollWidth <= innerWidth")).isEqualTo(true);
+        page.getByText("Назад на резултате").press("Enter");
+        page.waitForURL("**sortBy=auctionNumber**");
+        assertThat(page.url()).contains("timeScope=all", "sortDir=desc");
+        browser.network().assertOnlyLocalhostRequests();
+    }
+
+    @Test
     void theSingleGetFormAndScrollableTableRemainUsableWithoutJavaScript() {
         Page page = browser.page();
         page.setViewportSize(683, 384);

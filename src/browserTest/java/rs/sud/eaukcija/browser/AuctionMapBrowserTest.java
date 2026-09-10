@@ -180,7 +180,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         assertThat(page.url()).contains("auction=34001").doesNotContain("%3Cimg", "onerror");
         assertThat(page.locator(".map-popup").textContent())
                 .contains("<img src=x onerror=window.__popupXss=true>")
-                .contains("RSD", "Парцела", "Проверена граница", "Verified");
+                .contains("RSD", "Парцела", "Проверена граница", "Проверено на извору");
         assertThat(page.locator(".map-popup img").count()).isZero();
         assertThat(page.evaluate("window.__popupXss ?? null")).isNull();
         Locator source = page.locator(".map-popup a[href^='https://eaukcija.sud.rs']");
@@ -467,7 +467,7 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         page.waitForFunction("window.__auctionMap.getDiagnostics().lastFeatureCount === 1");
         page.locator(".map-result-button").press("Enter");
         assertThat(page.locator(".map-popup").textContent())
-                .contains("Није наведен", "RSD", "Verified")
+                .contains("Није наведен", "RSD", "Проверено на извору")
                 .doesNotContain("USD");
 
         browser.network().assertOnlyLocalhostRequests();

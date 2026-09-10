@@ -55,8 +55,8 @@ public class MapAuctionService {
     }
 
     private static MapGeoJsonResponse.Feature toFeature(MapAuctionRow row, MapAuctionRequest request) {
-        String title = safeText(row.auctionNumber(), "Е-аукција " + row.auctionId());
-        String status = safeText(row.sourceStatus(), "Unknown");
+        String title = rs.sud.eaukcija.presentation.AuctionPresentation.category(row.propertyKind());
+        String status = safeText(row.sourceStatus(), null);
         String kind = safeText(row.propertyKind(), null); // Unknown raw category is not inferred taxonomy.
         return new MapGeoJsonResponse.Feature(
                 "Feature",
@@ -72,7 +72,10 @@ public class MapAuctionService {
                         status,
                         kind,
                         row.precision().name(),
-                        detailUrl(row.auctionId())));
+                        detailUrl(row.auctionId()),
+                        safeText(row.auctionNumber(), null),
+                        safeText(row.municipality(), null),
+                        safeText(row.placeName(), null)));
     }
 
     private static String detailUrl(long auctionId) {
@@ -80,31 +83,7 @@ public class MapAuctionService {
     }
 
     private static String safeText(String value, String fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        StringBuilder cleaned = new StringBuilder(Math.min(value.length(), 256));
-        boolean previousWhitespace = false;
-        for (int offset = 0; offset < value.length() && cleaned.length() < 256;) {
-            int codePoint = value.codePointAt(offset);
-            offset += Character.charCount(codePoint);
-            if (Character.isISOControl(codePoint) || Character.getType(codePoint) == Character.FORMAT) {
-                continue;
-            }
-            if (Character.isWhitespace(codePoint)) {
-                if (!previousWhitespace && !cleaned.isEmpty()) {
-                    cleaned.append(' ');
-                }
-                previousWhitespace = true;
-            } else {
-                cleaned.appendCodePoint(codePoint);
-                previousWhitespace = false;
-            }
-        }
-        String normalized = cleaned.toString().trim();
-        if (normalized.isEmpty()) {
-            return fallback;
-        }
-        return normalized;
+        String safe = rs.sud.eaukcija.presentation.AuctionPresentation.text(value, 256);
+        return safe == null ? fallback : safe;
     }
 }

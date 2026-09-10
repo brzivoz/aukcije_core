@@ -68,7 +68,7 @@ if (workspace) {
         document.querySelector('.table-scroll').focus({preventScroll: true});
     });
 
-    for (const id of ['map-reference', 'map-counts', 'refresh-details', 'advanced-filters', 'filter-help']) {
+    for (const id of ['map-reference', 'map-counts', 'refresh-details', 'advanced-filters', 'filter-help', 'comparison-tools']) {
         const details = document.getElementById(id);
         details.open = remembered(id);
         details.addEventListener('toggle', () => remember(id, details.open));
@@ -88,6 +88,7 @@ if (workspace) {
     // Reparent once, never clone/recreate: the side form shares the view's height,
     // while counts/warnings retain their full width when the panel opens.
     document.getElementById('workspace-views').prepend(form);
+    toolbar.append(document.getElementById('comparison-tools'));
     setMode('results');
     setFilters(remembered('filters'), {persist: false});
     toolbar.hidden = false;

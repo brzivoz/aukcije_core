@@ -34,8 +34,13 @@ class AuctionControllerLocationPresentationTest {
     @MockitoBean private rs.sud.eaukcija.history.SourceHistoryService history;
     @MockitoBean private AuctionSearchRepository search;
     @MockitoBean private SyncService syncService;
+    @MockitoBean private rs.sud.eaukcija.history.CatalogueChangesService changes;
 
     @BeforeEach void page() {
+        given(changes.prepare(any())).willAnswer(call -> {
+            AuctionFilters filters = call.getArgument(0);
+            return filters.withChanges(filters.changes().resolved(new ChangeCriteria.Window(null, null, null, null)));
+        });
         given(search.page(any(), anyLong())).willReturn(new PageImpl<>(List.of(), PageRequest.of(0, 25), 0));
     }
     @Test void listUiLabelsOnlyPublishableWinnersAndShowsTheHonestyNotice() throws Exception {

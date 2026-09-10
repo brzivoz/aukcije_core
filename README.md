@@ -18,7 +18,8 @@ see the [epics](../../issues?q=is%3Aissue+label%3Aepic).
 |---|---|
 | eAukcija ingest (complete durable runs) | working (#17) |
 | Deterministic enrichment reprocessing | working (single-threaded, restart-safe, #29) |
-| Shared table/map filters | working (#44/#57; explicit Not ended / Ended / All, retained raw categories, individual RGZ parcel-size presets, unified search/precision/counts/URL) |
+| Shared table/map filters | working (#44/#56/#57; shared current membership, Changes since, Not ended / Ended / All, categories, parcel size, search/precision/counts/URL) |
+| Comparison checkpoints and auction reviews | working (#56; browser-local displayed-publication checkpoints, frozen Previous visit, exact reviewed revisions and explicit changed/unavailable evidence) |
 | Property reference extraction | working (#19/#55; full-description v3, independent quality evaluation pending) |
 | Official Address Registry centroid extract | working (small immutable artifact, #36) |
 | Canonical KO dictionary + normalized index | working (immutable artifact, #14) |
@@ -128,7 +129,8 @@ GET  /api/locations/{id}    best selected location with explicit precision
 GET  /api/locations/{id}/refinement per-reference finer-tier reasons and Serbian explanations
 GET  /api/operator/location-refinement loopback-only processing/precision/fallback counts
 GET  /api/map/auctions      shared-filter GeoJSON subset for one WGS84 viewport
-GET  /api/auctions/view     atomic table/map/count/options refresh at one temporal cutoff
+GET  /api/auctions/view     atomic table/map/count/options/change-evidence refresh
+POST /api/auctions/reviews  bounded read-only per-auction revision comparisons (no mutation)
 GET  /api/map/status        retained map-data version and freshness state
 GET  /api/basemap/status    active immutable basemap version and health
 GET  /api/operator/status   loopback-only persisted pipeline/readiness evidence
@@ -174,6 +176,43 @@ auction once; only qualifying parcels appear on the map. Category is independent
 Unknown/stale/invalid areas are not zero and remain available only with All sizes;
 coverage is incomplete. Filtering uses retained local evidence, never a new RGZ
 request. Text search such as `< 8ar` remains literal.
+
+**Промене од…** (#56) offers Any time, rolling Last 24 hours / 7 days, chosen
+Belgrade date/time, and browser-local Previous visit / My checkpoint. New means
+first reliable successful observation by this application, not newly published
+at eAukcija; legacy bootstrap is not New. New/Updated are disjoint, meaningful
+Monday changes survive unchanged Tuesday fetches, and A → B → A is explained
+as reverted activity. Live-price-only ticks are a separate opt-in. Parser/resolver
+changes do not make source-update badges. Ordinary current criteria and end-time
+scope still intersect changes; this is not historical catalogue/map replay.
+Chosen times become UTC links; DST gaps fail and overlaps require an explicit
+UTC offset. Relative links stay relative. Unavailable/foreign/future history
+retains normal results with an explanation, not a false zero-change count.
+
+**Поређење / преглед** in the compact toolbar provides an explicit comparison
+checkpoint and **Потврди преглед** for an auction's exact displayed revision.
+Opening a card is not acknowledgement; a checkpoint is not “everything reviewed”.
+They store the coherent displayed source publication and server evaluation time,
+never a status poll, mapDataVersion or client-clock baseline. Previous visit is
+frozen for the tab session, including reload; a new independent tab/session uses
+the preceding successful display. Personal Apply resolves to non-personal UTC/
+publication coordinates, so copied links preserve meaning without sharing local IDs.
+
+**Промене прегледаних аукција** uses each acknowledged auction's own baseline in
+an explicitly relaxed-scope panel, including ended/absence/reopened and no-longer-
+matching states. It distinguishes never reviewed, reviewed/unchanged and changed
+since reviewed; elapsed end time needs no source refetch. Retained/unavailable
+states never invent availability or geometry. Acknowledgements/checkpoint are
+**on this browser**, bounded to 200 reviews / 256 KiB with Web Locks for cross-tab
+writes. Limits/storage failures do not silently evict or claim a save: export a
+local recovery copy, deliberately clear and retry. Clear Filters never clears
+reviews/checkpoint. No-JS users retain date-based GET filtering and an explicit
+personal-storage limitation. Evidence uses safe field names/reasons, not raw
+snapshots/descriptions. See [API comparison contract](documentation/MAP_API.md#changes-since-and-reviewed-revisions-56)
+and [storage/visit/reset semantics](documentation/BROWSER_AND_FRONTEND.md#comparisons-and-local-review-state-56).
+Run `./gradlew comparisonStorageTest` (Node 20+, no npm dependencies), the ordinary
+Java/PostGIS `test` task, and `browserTest --tests '*AuctionComparisonsBrowserTest'`.
+See [#56 verification](documentation/2026-09-09-issue-56-verification.md) for results and the pre-existing missing-corpus limitation.
 
 Map transports additionally require `bbox=minLon,minLat,maxLon,maxLat` and
 optionally `limit`. Panning only changes the mapped subset, not table criteria;
@@ -456,7 +495,8 @@ plus versioned property-reference runs, memberships, current selection,
 source/input lineage, quality metrics, and reviewed-correction-safe replay.
 V29 adds ordered successful source publications, exact source-delta and safe
 review classifications, lifecycle/absence projections and append-only transitions,
-and bounded read-only comparison contracts. See
+and bounded read-only comparison contracts. V30 adds sparse NEW/meaningful-activity
+indexes for the shared Changes since filter. See
 [source history operations](documentation/SOURCE_CHANGE_HISTORY_OPERATIONS.md).
 V18 adds immutable per-reference extracted-KO results, structured/text
 reconciliation, current pointers, population-run membership, and enrichment

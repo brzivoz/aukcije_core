@@ -9,9 +9,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import rs.sud.eaukcija.map.InvalidMapRequestException;
 
 /** Shared field-specific errors; the legacy code is retained for API compatibility. */
-@RestControllerAdvice(assignableTypes = {MapAuctionController.class, AuctionController.class, AuctionViewController.class})
+@RestControllerAdvice(assignableTypes = {MapAuctionController.class, AuctionController.class, AuctionViewController.class, AuctionReviewController.class})
 @Profile("!local-h2")
 public class MapApiExceptionHandler {
+
+    @ExceptionHandler(rs.sud.eaukcija.history.SourceHistoryService.BoundaryException.class)
+    ProblemDetail invalidBoundary(rs.sud.eaukcija.history.SourceHistoryService.BoundaryException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.code());
+        problem.setProperty("code", exception.code());
+        return problem;
+    }
 
     @ExceptionHandler(InvalidMapRequestException.class)
     ProblemDetail invalidRequest(InvalidMapRequestException exception) {

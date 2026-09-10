@@ -44,6 +44,15 @@ class MapAuctionControllerTest {
     private rs.sud.eaukcija.history.SourceHistoryService history;
     @MockitoBean
     private rs.sud.eaukcija.repository.AuctionRepository auctions;
+    @MockitoBean
+    private rs.sud.eaukcija.history.CatalogueChangesService changes;
+
+    @org.junit.jupiter.api.BeforeEach void comparisonMetadata() {
+        when(changes.prepare(any())).thenAnswer(call -> {
+            var filters = (rs.sud.eaukcija.filter.AuctionFilters) call.getArgument(0);
+            return filters.withChanges(filters.changes().resolved(new rs.sud.eaukcija.filter.ChangeCriteria.Window(null, null, null, null)));
+        });
+    }
 
     @Test
     void exposesTheGeoJsonContractAndLimitMetadata() throws Exception {

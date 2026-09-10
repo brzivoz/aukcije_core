@@ -56,6 +56,7 @@ class AutoEnabledRgzBrowserTest {
     @RegisterExtension final BrowserHarnessExtension browser = new BrowserHarnessExtension();
     @LocalServerPort int port;
     @Autowired SyncService source;
+    @Autowired com.fasterxml.jackson.databind.ObjectMapper json;
 
     @AfterAll static void close() throws Exception { FIXTURE.close(); }
 
@@ -73,12 +74,18 @@ class AutoEnabledRgzBrowserTest {
         AtomicBoolean initialEmptyView = new AtomicBoolean(true);
         page.route("**/api/auctions/view?**", route -> {
             if (initialEmptyView.get()) {
-                route.fulfill(new FulfillOptions().setContentType("application/geo+json").setBody("""
-                        {"map":{"type":"FeatureCollection","features":[],"numberReturned":0,"limit":1000,"truncated":false,
-                         "counts":{"filteredAuctionCount":0,"unmappedAuctionCount":0,"mappedAuctionCountInViewport":0,"featureCountInViewport":0}},
-                         "query":"timeScope=not-ended&sortBy=startingPrice&sortDir=asc&page=0",
-                         "resultsHtml":"<section id='shared-results'></section>"}
-                        """));
+                // Retain the real coherent source frame/table; simulate geometry not yet published.
+                var response = route.fetch();
+                try {
+                    var view = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(response.body());
+                    var map = (com.fasterxml.jackson.databind.node.ObjectNode) view.path("map");
+                    map.putArray("features"); map.putObject("evidence"); map.put("numberReturned", 0); map.put("returnedAuctionCount", 0);
+                    var counts = (com.fasterxml.jackson.databind.node.ObjectNode) map.path("counts");
+                    counts.set("unmappedAuctionCount", counts.path("filteredAuctionCount"));
+                    counts.put("mappedAuctionCountInViewport", 0); counts.put("featureCountInViewport", 0);
+                    route.fulfill(new FulfillOptions().setContentType("application/geo+json").setBody(json.writeValueAsString(view)));
+                } catch (java.io.IOException e) { throw new IllegalStateException(e); }
+                finally { response.dispose(); }
             } else route.resume();
         });
         page.navigate("http://localhost:" + port + "/");

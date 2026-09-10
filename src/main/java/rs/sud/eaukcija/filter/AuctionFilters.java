@@ -17,10 +17,22 @@ public record AuctionFilters(
         List<String> municipalities, String placeName, String category, String status,
         BigDecimal minPrice, BigDecimal maxPrice, Boolean firstSale, String search,
         LocationPrecision precision, ParcelSize parcelSize, LocalDate from, LocalDate to, String timeScope,
-        String sortBy, String sortDir, int page, Long auction, Instant asOf) {
+        String sortBy, String sortDir, int page, Long auction, Instant asOf, ChangeCriteria changes) {
 
     public AuctionFilters {
         municipalities = municipalities == null ? List.of() : List.copyOf(municipalities);
+        changes = changes == null ? ChangeCriteria.ANY : changes;
+    }
+    public AuctionFilters(List<String> municipalities, String placeName, String category, String status,
+                          BigDecimal minPrice, BigDecimal maxPrice, Boolean firstSale, String search,
+                          LocationPrecision precision, ParcelSize parcelSize, LocalDate from, LocalDate to, String timeScope,
+                          String sortBy, String sortDir, int page, Long auction, Instant asOf) {
+        this(municipalities, placeName, category, status, minPrice, maxPrice, firstSale, search, precision, parcelSize,
+                from, to, timeScope, sortBy, sortDir, page, auction, asOf, ChangeCriteria.ANY);
+    }
+    public AuctionFilters withChanges(ChangeCriteria value) {
+        return new AuctionFilters(municipalities, placeName, category, status, minPrice, maxPrice, firstSale, search,
+                precision, parcelSize, from, to, timeScope, sortBy, sortDir, page, auction, asOf, value);
     }
 
     public static final ZoneId ZONE = ZoneId.of("Europe/Belgrade");
@@ -49,6 +61,7 @@ public record AuctionFilters(
         put(values, "from", from); put(values, "to", to);
         put(values, "timeScope", timeScope); put(values, "sortBy", sortBy); put(values, "sortDir", sortDir);
         put(values, "page", page); put(values, "auction", auction);
+        changes.parameters(values);
         return values;
     }
 
@@ -68,6 +81,11 @@ public record AuctionFilters(
                     ? rs.sud.eaukcija.spatial.LocationPrecisionPresentation.labelSr(precision)
                     : key.equals("parcelSize") ? parcelSize.label() : value);
         });
+        if (changes.active()) {
+            active.put("Промене од", changes.label());
+            active.put("Врста промена", changes.kindLabel());
+            if (changes.liveBidding()) active.put("Лицитирање", "Укључене промене текуће цене");
+        }
         return active;
     }
     public String query() { return query(parameters()); }

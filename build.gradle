@@ -128,7 +128,14 @@ tasks.named('test') {
     }
 }
 
+tasks.register('comparisonStorageTest', Exec) {
+    description = 'Offline browser-local comparison state tests (Node 20+)'
+    inputs.files('src/main/resources/static/comparison-storage.mjs', 'src/test/js/comparison-storage.test.mjs')
+    commandLine 'node', '--test', 'src/test/js/comparison-storage.test.mjs'
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('comparisonStorageTest')
     dependsOn tasks.named('basemapTest')
     dependsOn 'propertyReferenceCorpusCheck'
 }

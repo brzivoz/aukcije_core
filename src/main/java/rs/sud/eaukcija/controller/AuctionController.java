@@ -64,6 +64,9 @@ public class AuctionController {
                         HttpServletResponse response) {
         var filters = filterParser.parse(parameters, Set.of());
         response.setHeader("Cache-Control", "no-store, private");
+        // Native datetime-local is only an input adapter. Even without JS, the resulting bookmark is UTC.
+        if (filters.changes().since().equals("date") && parameters.getFirst("sinceLocal") != null
+                && !parameters.getFirst("sinceLocal").isBlank()) return "redirect:/?" + filters.query();
         model.addAllAttributes(results.model(filters, null));
         var options = filterParser.options();
         model.addAttribute("municipalities", options.get("municipality"));

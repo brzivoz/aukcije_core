@@ -1184,7 +1184,8 @@ class AuctionMapBrowserTest extends PostgisBrowserFixture {
         return """
                 window.__viewFixture = (map, url) => {
                   url.searchParams.delete('bbox'); url.searchParams.delete('limit');
-                  return {map: {...map, counts: {
+                  const sourceFrame = JSON.parse(document.getElementById('shared-results').dataset.sourceFrame);
+                  return {map: {...map, sourceFrame, counts: {
                     filteredAuctionCount: map.features.length, unmappedAuctionCount: 0,
                     mappedAuctionCountInViewport: map.features.length, featureCountInViewport: map.features.length
                   }}, query: url.searchParams.toString(),

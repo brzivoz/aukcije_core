@@ -16,16 +16,22 @@ public class MapAuctionService {
 
     private final MapAuctionRepository repository;
     private final SourceHistoryService history;
+    private final rs.sud.eaukcija.history.CatalogueChangesService changes;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    public MapAuctionService(MapAuctionRepository repository, SourceHistoryService history,
+                             rs.sud.eaukcija.history.CatalogueChangesService changes) {
+        this.repository = repository; this.history = history; this.changes = changes;
+    }
     public MapAuctionService(MapAuctionRepository repository, SourceHistoryService history) {
-        this.repository = repository;
-        this.history = history;
+        this(repository, history, null);
     }
 
     @org.springframework.transaction.annotation.Transactional(readOnly = true,
             isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public MapGeoJsonResponse findAuctions(MapAuctionRequest request) {
-        var sourceFrame = history.capture(request.filters().asOf());
+        if (changes != null) request = new MapAuctionRequest(request.boundingBox(), changes.prepare(request.filters()), request.limit());
+        var sourceFrame = changes == null ? history.capture(request.filters().asOf()) : request.filters().changes().window().upper();
         List<MapAuctionRow> rows = repository.findWithin(request);
         boolean truncated = rows.size() > request.limit();
         int returned = Math.min(rows.size(), request.limit());
@@ -36,13 +42,16 @@ public class MapAuctionService {
         MapGeoJsonResponse.Selection selection = null;
         if (request.filters().auction() != null) {
             String selectedState = repository.selectionState(request);
+            long selectedId = request.filters().auction();
             if ("VISIBLE".equals(selectedState) && features.stream().noneMatch(
-                    f -> f.properties().auctionId() == request.filters().auction())) selectedState = "LIMIT";
+                    f -> f.properties().auctionId() == selectedId)) selectedState = "LIMIT";
             selection = new MapGeoJsonResponse.Selection(request.filters().auction(), selectedState);
         }
         return new MapGeoJsonResponse("FeatureCollection", List.copyOf(features), returned, request.limit(), truncated,
                 request.filters().asOf(), request.filters().timeScope(), repository.counts(request),
-                features.stream().map(f -> f.properties().auctionId()).distinct().count(), selection, sourceFrame);
+                features.stream().map(f -> f.properties().auctionId()).distinct().count(), selection, sourceFrame,
+                changes == null ? java.util.Map.of() : changes.display(features.stream().map(f -> f.properties().auctionId()).toList(), request.filters()),
+                changes == null ? null : changes.summary(request.filters()));
     }
 
     private static MapGeoJsonResponse.Feature toFeature(MapAuctionRow row, MapAuctionRequest request) {

@@ -58,7 +58,11 @@ assertion. This is the single offline-network mechanism #25 and #27 must reuse.
 
 ## Frontend build: plain vendored ES modules
 
-The application keeps a no-Node, no-bundler frontend. Browser code is plain
+The application keeps a no-Node-runtime, no-bundler frontend. #56 adds only a
+Node 20+ built-in test runner for the pure storage state machine
+(`./gradlew comparisonStorageTest`, also in `check`; CI uses Node 22). There is
+no npm install, package dependency or asset build. Ordinary `test` and application
+startup do not require Node. Browser code is plain
 JavaScript/ES modules served by Spring Boot. A bundler would add a second build
 toolchain without current tree-shaking, transpilation, or multi-entry needs;
 MapLibre GL JS v6 publishes browser-ready modules, and PMTiles publishes a
@@ -125,6 +129,97 @@ Raw category/status options and validators consume safe retained values plus
 auctions, but the map-style assertion deliberately excludes it: NONE must never
 invent a pin. #28 extends these same models for normalized taxonomy, KO and
 richer counterpart/camera navigation; it must not introduce another filter form.
+
+## Comparisons and local review state (#56)
+
+The one form adds **Промене од…**, New/Updated selection and explicitly labelled
+live-bidding-only opt-in. Chosen civil times are validated in Europe/Belgrade on
+the server; gaps fail and overlaps require an explicit offset. Native GET returns
+a canonical UTC URL; relative 24-hour/7-day bookmarks stay relative. Chips show
+applied mode, and the resolved lower time/count/coverage notice remains beside
+map controls. Applying resets page; sorting/paging/selection preserve comparison.
+Removing the comparison chip removes its boundary coordinates. Reset clears
+criteria/drafts, **not checkpoints or review acknowledgements**. A background
+refresh uses applied state, including the applied bidding opt-in, never drafts.
+Only an unchanged submitted comparison draft is canonicalized on return.
+
+`auction-comparisons.mjs` enhances the existing shell with a keyboard-operable
+**Поређење / преглед** disclosure, in the compact toolbar (no default extra row).
+It does not own a second catalogue filter. `comparison-storage.mjs` manages one
+origin-local record, `eaukcija.comparisons.v1`: one explicit checkpoint, last
+successfully displayed source frame, and at most **200 acknowledgements / 256 KiB**.
+The page says **На овом прегледачу**: no account, server mutation, cross-device
+sync, saved search, alert or acknowledgement via opening a card. These IDs are
+separate from `auction` selection and parser/reference review flags.
+
+* **Користи ове податке као моју тачку поређења** captures the committed publication
+  and server evaluation from the coherent view actually displayed. Replace/clear
+  are deliberate confirmed actions. Opening, refreshing, panning, filtering,
+  pagination and reset never advance or delete this explicit checkpoint. It is a
+  catalogue boundary, not “Mark everything reviewed”. No mapDataVersion, status
+  poll, in-flight result or client wall-clock baseline is substituted.
+* On an upgraded catalogue with no ordered source publication yet, the comparison
+  notice explicitly asks for **Освежи све податке**. Page/map reload is not source
+  ingestion. A first successful refresh enables capturing a checkpoint, not a
+  retroactive seven-day history; use My checkpoint for subsequent changes until
+  the selected date preset has enough retained coverage.
+* **Previous visit** means the preceding successfully displayed frame as of the
+  first initialization of this tab's sessionStorage record
+  `eaukcija.comparison-visit.v1`. It is frozen, including a missing first-use
+  baseline, throughout this tab session. Reload/back/forward do not start another
+  visit. An independent new tab/session captures the then-last successful display;
+  a duplicated/opener-cloned tab that inherits sessionStorage shares that visit's
+  baseline. Browser session restoration can also preserve it. Successful visible
+  display is persisted immediately, not on unload. Out-of-order older tab
+  responses cannot regress the shared last-display sequence/evaluation. Hidden
+  initial tables/in-flight map views are not checkpoint/display evidence; showing
+  the native table fallback or completing a coherent map/table view is.
+* Personal preset names are resolved **on explicit Apply** into an ordinary
+  publication coordinate + UTC evaluation instant. Copied links, reload and
+  history mean the same boundary without requiring another browser's storage.
+  First use/cleared/blocked storage never means “since now” or “zero changes”:
+  normal browsing/date GET remain available with an explicit explanation.
+* **Потврди преглед** stores stable identity, exact displayed Review (ordered
+  revision, policy and server evaluation time), and a separate acknowledgement
+  clock. Re-acknowledgement/clear are explicit. An action begun before a refresh
+  keeps its older displayed revision, including Space/pointer activation races.
+  Unchanged observations and representation-only changes remain reviewed;
+  meaningful A → B → A is still changed. Effective end-time comparison uses
+  displayed server evaluation, not the browser acknowledgement clock.
+* **Промене прегледаних аукција** is a separate explicitly relaxed-scope panel,
+  not a hidden broadening of ordinary map/table search. It asks the bounded
+  read-only POST batch for local reviewed IDs and their individual baselines,
+  including ended/absence/reopened/no-longer-matching states. Never-reviewed
+  discoveries do not enter it. It distinguishes changed/unchanged/unavailable,
+  labels retained-data reasons, and fabricates neither availability nor geometry.
+  Ordinary search retains its existing Not ended semantics. No per-card N+1
+  requests, unbounded URL, raw description/snapshot download or enrichment feed.
+* Same-origin Web Locks serialize storage read-modify-write and capacity checks
+  across tabs. Storage events update local review feedback but never apply
+  criteria or move a frozen previous/checkpoint boundary. Without working
+  storage/sessionStorage/Web Locks (secure context: HTTPS or localhost), personal persistence degrades explicitly;
+  date/ordinary filters and the shell still work.
+* At capacity or quota failure, no acknowledgement is silently evicted or claimed
+  saved. Export the local JSON recovery copy, deliberately clear individual/all
+  acknowledgements and retry. Export is local download only; there is no automatic
+  import/trust of unknown revisions. Corrupt/unknown-version/oversized state is
+  left untouched for export; recovery clear explicitly warns that it removes
+  the whole unusable local comparison record/session. Normal Clear all reviews
+  preserves checkpoint and criteria. Browser site-data clearing remains external.
+
+No-JS users retain native date GET/table filtering with an explicit personal-state
+limitation. Failed refresh/comparison retains last-good evidence, labels it stale
+or unavailable, and never says the user is caught up. Empty/unmapped/limited and
+excluded-ended messages remain distinct. Evidence is rendered as text or escaped
+Thymeleaf; #11 exposes field codes rather than raw before/after description values.
+
+Verification: `ChangesSinceParserTest`, `CatalogueChangesIntegrationTest` (real
+promotion/PostGIS, 600 identities and indexed 200-review batches),
+`AuctionComparisonsBrowserTest`, and `src/test/js/comparison-storage.test.mjs`.
+The browser fixtures exercise native GET, UTC/copy/history, checkpoint/review
+races, frozen visits, narrow keyboard layouts and draft-safe refresh; all runtime
+requests are offline/localhost-only. Existing compact-shell/filter tests remain
+part of the regression suite. See [API boundaries/privacy](MAP_API.md#changes-since-and-reviewed-revisions-56).
 
 ## Map-first desktop workspace (#45)
 

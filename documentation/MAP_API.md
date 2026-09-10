@@ -18,7 +18,9 @@ GET /api/map/auctions?bbox=18,41,24,47&category=Викендица&timeScope=end
 
 Shared fields: `municipality`, `placeName`, `category`, `status`, `search`,
 `minPrice`, `maxPrice`, `firstSale`, `precision`, `parcelSize`, `timeScope`, `from`, `to`,
-`sortBy`, `sortDir`, `page`, `auction`. Sort/page never limit map membership.
+`sortBy`, `sortDir`, `page`, `auction`, `since`, `sinceAt`, `publication`,
+`changeKind`, `liveBidding`. Native civil-time input adapters are `sinceLocal`
+and `sinceOffset`. Sort/page never limit map membership.
 `municipality` alone can repeat: `municipality=Ада&municipality=Чачак` matches
 any selected municipality (case-insensitive), intersected with other criteria.
 Names come from the bundled 168-name RGZ extract plus safe retained labels,
@@ -89,6 +91,120 @@ Example (houses with any parcel above 15 ar, not houses above 1,500 m² floor ar
 ```text
 GET /api/auctions/view?bbox=20.2,44.6,20.8,44.9&category=Кућа&parcelSize=over-15&timeScope=not-ended
 ```
+
+## Changes since and reviewed revisions (#56)
+
+All three GET routes (`/`, `/api/auctions/view`, `/api/map/auctions`) use the
+same server predicate: **current membership intersected with activity**. This is
+not historical price/category/search membership or geometry replay. End-date
+scope remains independent; recently changed does not mean not-ended or bidding-open.
+
+| Parameter | Contract |
+|---|---|
+| `since` | Blank/absent = Any time; `24h`, `7d`, `date`, `publication`. Personal names `previous`/`checkpoint` are rejected server-side. |
+| `sinceAt` | Required ISO instant for `date`/`publication`, years 0001–9998; canonical UTC. For publication comparisons this is the displayed **server evaluation time**, not acknowledgement time. |
+| `sinceLocal` | Native `datetime-local` civil input in Europe/Belgrade for `since=date`. Overrides the hidden prior `sinceAt` draft. Successful native GET redirects to the canonical UTC URL. |
+| `sinceOffset` | Explicit `+02:00` / `+01:00` selection when a civil time overlaps (encode `+` as `%2B`). A gap or a wrong offset is a field-specific 400, never guessed. |
+| `publication` | Required with `since=publication`: `lineageUUID:sequence:runUUID`; `lineageUUID:0:origin` explicitly means the start of ordered history, not pre-history coverage. |
+| `changeKind` | Blank/absent = New and updated; `new` / `updated`. Buckets are disjoint. |
+| `liveBidding` | Blank/false = excluded; `true` includes LIVE_BIDDING_ONLY separately labelled price ticks. Starting price is substantive by default. |
+
+Relative presets subtract exactly 86,400 / 604,800 seconds from the **one** server
+evaluation instant for the shared refresh, not Belgrade calendar days. They remain
+relative in bookmarks; fixed comparisons carry a UTC instant and, for personal
+baselines resolved before submission, a non-personal publication coordinate.
+No local-storage key or reviewed-ID collection is accepted in search URLs.
+Publication order and evaluation are independent coordinates: a committed
+publication can be captured just after `asOf` was selected. It is not rejected
+merely because its recorded time is later than that evaluation; future validation
+checks committed reference availability/order and lower evaluation ≤ upper evaluation.
+
+`NEW` requires #11's first reliable successful local observation in `(lower,
+upper]`, not the source's publication date. Known legacy baseline establishment
+is not NEW. An identity discovered in the interval remains NEW even after updates.
+`UPDATED` requires a known baseline and intervening SUBSTANTIVE activity (or
+explicit live-price opt-in). Monday's update survives Tuesday's unchanged fetch;
+A → B → A remains activity and is explained as reverted when comparable final
+values equal the baseline. Representation-only, baseline/policy maintenance,
+parser/resolver/dataset changes and improved map locations are not substantive
+source-update badges. Global filtering does not treat an elapsed end as a source
+edit; the explicit reviewed view explains effective-time/lifecycle activity.
+
+Each map response adds `comparison` (null for Any time): mode, kind, live opt-in,
+resolved lower reference/time, `problem`, localized `notice`, and disjoint
+`newCount`/`updatedCount` **within applied current criteria and bucket selection**.
+An unavailable comparison returns **normal current results**, a stable problem
+code and null change counts, never a misleading zero-change result. Invalid
+syntax is a 400. Unknown run/sequence, foreign lineage, future/evaluation-reversed
+boundaries and dates before the earliest supported publication are not moved to
+latest; the notice instructs choosing a supported date or removing the criterion.
+`PARTIAL_PRE_HISTORY` remains visible; explicit origin never turns legacy identities
+into NEW. Full restores retain compatible references; a restored branch reusing a
+sequence but not its run UUID is unavailable. `incompleteEvidence` separately
+warns about baseline/policy-maintenance gaps within an otherwise valid interval;
+qualifying counts are not presented as proof of zero source activity in those gaps.
+
+`evidence` is keyed by the bounded returned auction IDs and contains exact
+`review` references (auction ID, revision coordinate, displayed evaluation time,
+comparison policy), textual badge, safe field codes/reasons, reverted activity,
+separate substantive/live/lifecycle counts, end-time evidence and coverage.
+Values are **not** source snapshot exports: descriptions/executor text are never
+returned here. The UI honestly gives field names/unknown evidence rather than
+inventing before/after values. Already-public lifecycle end instants can be shown
+as the **last recorded** before → after deadline, not an inferred net description
+change. HTML remains the same escaped table projection.
+History probes are indexed and batched at at most 200 identities; no per-card
+history calls or browser catalogue download. V30 adds sparse meaningful/NEW and comparison-gap indexes.
+
+### Initializing comparison history on an existing catalogue
+
+Applying V29/V30 does not create ordered publications for old syncs. Until the
+first fully successful source refresh, an existing catalogue can legitimately
+have `sourceFrame.publication.sequence=0` with no earliest publication. The UI
+instructs running **Освежи све податке**; reloading/panning the map only reads data
+and cannot initialize source history. No source fetch is triggered by selecting
+a comparison filter.
+
+After that successful refresh, capture **Моја тачка** to compare subsequent
+changes immediately. The full Last 7 days preset still requires a supported
+publication at or before its seven-day lower boundary (Last 24 hours similarly
+requires a day-old boundary). Refreshing again cannot reconstruct earlier
+history, and the application never silently shortens the selected period. A
+retained legacy lifecycle without an observed source revision is unavailable for
+Mark reviewed; it must not create an acknowledgement with a missing policy.
+
+### Read-only review batch
+
+```text
+POST /api/auctions/reviews
+Content-Type: application/json
+{"frame": <displayed sourceFrame>, "reviews": [<stored exact Review>, ...], "liveBidding": false}
+```
+
+This is a read, **not a mutation**, with `Cache-Control: no-store, private`.
+Maximum 200 distinct positive identities and a 96 KiB body, bounded *before* JSON
+parsing. Invalid shapes/duplicates/limits return 400. The response echoes the
+validated displayed frame and returns `evidence`, including `reviewState`:
+`UNCHANGED`, `CHANGED` or `UNAVAILABLE` for each submitted identity. Unreviewed
+identities are not requested/included. Unknown auction/revision, unsupported
+policy, foreign lineage, future lower bounds or missing retained evidence yield
+per-identity UNAVAILABLE; an invalid upper frame rejects the batch. A historical
+upper reference is supported for **evidence only**. Current catalogue hydration
+is never combined with that older reference.
+
+The batch compares each identity's own baseline, including ended and no-longer-
+matching auctions. The browser explicitly labels this relaxed scope and renders
+retained identity/reasons without inventing availability or geometry. Elapsed
+end time uses the displayed evaluation instant even with no new publication;
+a later audit of an already acknowledged effective end is not another unseen
+transition. Absence/reopening evidence remains distinct from legal source status.
+
+The atomic view captures table/map/count/evidence and `sourceFrame` in one
+REPEATABLE_READ transaction. The browser verifies the table and map frames before
+accepting them; failures retain the previous coherent view and do not advance
+checkpoints or infer that the user is caught up. A submitted checkpoint/action
+uses the displayed reference, never an in-flight refresh or status poll.
+See [browser storage/reset semantics](BROWSER_AND_FRONTEND.md#comparisons-and-local-review-state-56).
 
 ## GeoJSON response
 

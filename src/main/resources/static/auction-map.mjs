@@ -2,6 +2,7 @@ import {NavigationControl, Popup} from './vendor/maplibre-gl/6.1.0/maplibre-gl.m
 import {createLocalBasemap} from './basemap-map.mjs';
 import {createMunicipalitySelect} from './municipality-select.mjs';
 import {createFilterPresentation} from './auction-filter-presentation.mjs';
+import {createComparisonUI, COMPARISON_FIELDS} from './auction-comparisons.mjs';
 
 const POINT_SOURCE = 'auction-points';
 const AREA_SOURCE = 'auction-areas';
@@ -62,7 +63,7 @@ const PRECISIONS = Object.freeze({
 });
 
 const FILTER_FIELDS = Object.freeze(['municipality', 'placeName', 'category', 'status',
-    'minPrice', 'maxPrice', 'firstSale', 'search', 'precision', 'parcelSize', 'from', 'to', 'timeScope']);
+    'minPrice', 'maxPrice', 'firstSale', 'search', 'precision', 'parcelSize', 'from', 'to', 'timeScope', ...COMPARISON_FIELDS]);
 
 const elements = {
     filterForm: document.getElementById('shared-filters'),
@@ -153,6 +154,7 @@ if (document.querySelector('.auction-map-panel')?.dataset.mapTestHooks === 'true
     window.__auctionMap = publicApi;
 }
 
+const comparisons = createComparisonUI({form: elements.filterForm});
 const filterPresentation = createFilterPresentation({
     form: elements.filterForm, fields: FILTER_FIELDS, appliedQuery: () => state.lastUsableQuery,
     removeCriterion: (name, value) => {
@@ -163,6 +165,11 @@ const filterPresentation = createFilterPresentation({
             municipalitySelect.setValues(new FormData(elements.filterForm).getAll(name).filter(item => item !== value));
         } else {
             query.delete(name);
+            if (name === 'since') {
+                for (const key of ['sinceAt', 'sinceLocal', 'sinceOffset', 'publication']) {
+                    query.delete(key); elements.filterForm.elements.namedItem(key).value = '';
+                }
+            }
             if (name === 'timeScope') query.set(name, 'not-ended');
             elements.filterForm.elements.namedItem(name).value = query.get(name) || '';
         }
@@ -337,6 +344,7 @@ function bindFilterControls() {
             }
         }
         query.set('page', '0');
+        state.comparisonSubmission = {query: query.toString(), draft: comparisons.snapshotDraft()};
         navigateFilters(query, false);
     });
     for (const name of ['from', 'to']) {
@@ -411,6 +419,8 @@ function restoreFilterControls() {
         if (field === 'municipality') municipalitySelect.setValues(state.appliedQuery.getAll(field));
         else elements.filterForm.elements.namedItem(field).value = state.appliedQuery.get(field) || '';
     }
+    comparisons.restore(state.appliedQuery);
+    state.comparisonSubmission = null;
     document.getElementById('map-to-filter').setCustomValidity('');
     filterPresentation.update();
 }
@@ -542,6 +552,8 @@ async function loadViewport({quiet = false} = {}) {
                     ? 'Освежавање видљивог дела карте; претходни резултати остају приказани…'
                     : 'Учитавање аукција у видљивом делу карте…');
 
+    const comparisonSubmission = state.comparisonSubmission?.query === state.appliedQuery.toString() ? state.comparisonSubmission : null;
+    const appliedLive = state.appliedQuery.get('liveBidding') === 'true';
     try {
         const response = await fetch(viewportUrl(), {
             headers: {'Accept': 'application/geo+json'},
@@ -559,6 +571,10 @@ async function loadViewport({quiet = false} = {}) {
         // never source description text from GeoJSON. The form is deliberately not replaced.
         const fragment = new DOMParser().parseFromString(view.resultsHtml, 'text/html').querySelector('#shared-results');
         if (!fragment) throw new Error('INVALID_VIEW_RESPONSE');
+        const tableFrame = JSON.parse(fragment.dataset.sourceFrame || 'null');
+        if (!tableFrame || !collection.sourceFrame || JSON.stringify(tableFrame) !== JSON.stringify(collection.sourceFrame)) throw new Error('MIXED_SOURCE_FRAME');
+        const reviewResult = await comparisons.loadReviews(collection.sourceFrame, controller.signal, appliedLive);
+        if (sequence !== state.requestSequence || controller.signal.aborted) return;
         replaceTableResults(fragment);
         refreshOptions(view.options);
         if (view.catalogue) {
@@ -572,6 +588,8 @@ async function loadViewport({quiet = false} = {}) {
         state.lastUsableQuery = new URLSearchParams(canonical);
         state.invalidFilter = false;
         replaceUrl(canonical);
+        if (comparisonSubmission && comparisonSubmission.draft === comparisons.snapshotDraft()) comparisons.restore(canonical);
+        state.comparisonSubmission = null;
         filterPresentation.update();
         elements.filterForm.querySelectorAll('[aria-invalid]').forEach(control => {
             control.removeAttribute('aria-invalid');
@@ -584,6 +602,7 @@ async function loadViewport({quiet = false} = {}) {
         diagnostics.lastFeatureCount = collection.features.length;
         diagnostics.truncated = collection.truncated === true;
         updateSources(collection.features);
+        comparisons.accept(collection.sourceFrame, collection.evidence || {}, reviewResult, appliedLive);
         renderResults(collection.features);
         elements.limitWarning.hidden = !collection.truncated;
 
@@ -611,6 +630,7 @@ async function loadViewport({quiet = false} = {}) {
             return;
         }
         diagnostics.lastError = errorName(error);
+        comparisons.stale();
         const retained = state.features.length
                 ? ` Претходних ${state.features.length} резултата остаје приказано.`
                 : '';
@@ -627,12 +647,15 @@ async function loadViewport({quiet = false} = {}) {
                     `Захтев приказа није прихваћен${field}${detail}.${retained} Промените приказ или филтер.`);
             filterPresentation.update();
             if (FILTER_FIELDS.includes(error.field)) {
-                const control = elements.filterForm.elements.namedItem(error.field);
+                // Canonical UTC/reference coordinates are hidden adapters; reveal the civil/preset control.
+                const field = error.field === 'sinceAt' ? (elements.filterForm.elements.namedItem('since').value === 'date' ? 'sinceLocal' : 'since')
+                    : error.field === 'publication' ? 'since' : error.field;
+                const control = elements.filterForm.elements.namedItem(field);
                 if (control instanceof HTMLElement) {
                     control.setAttribute('aria-invalid', 'true');
                     control.setAttribute('aria-errormessage', 'filter-state');
                 }
-                window.dispatchEvent(new CustomEvent('eaukcija:reveal-filter', {detail: {field: error.field}}));
+                window.dispatchEvent(new CustomEvent('eaukcija:reveal-filter', {detail: {field}}));
             }
         } else {
             setMapState(
@@ -653,6 +676,8 @@ function replaceTableResults(fragment) {
     const focused = previous.contains(document.activeElement) ? document.activeElement : null;
     const sortIndex = [...previous.querySelectorAll('th a')].indexOf(focused);
     const auctionId = focused?.matches('.table-select') ? focused.dataset.auctionId : null;
+    const reviewAction = focused?.matches('.mark-reviewed, .clear-reviewed') ? focused.className : null;
+    const reviewId = focused?.closest('tr[data-auction-id]')?.dataset.auctionId;
     previous.replaceWith(fragment);
     const scroll = fragment.querySelector('.table-scroll');
     if (scroll) scroll.scrollLeft = scrollLeft;
@@ -660,7 +685,11 @@ function replaceTableResults(fragment) {
         const next = sortIndex >= 0 ? fragment.querySelectorAll('th a')[sortIndex]
             : validAuctionId(auctionId) ? fragment.querySelector(`.table-select[data-auction-id="${auctionId}"]`)
                 : null;
-        (next || scroll)?.focus({preventScroll: true});
+        if (reviewAction) queueMicrotask(() => {
+            const action = fragment.querySelector(`tr[data-auction-id="${reviewId}"] .${reviewAction}`);
+            (action && !action.disabled ? action : scroll)?.focus({preventScroll: true});
+        });
+        else (next || scroll)?.focus({preventScroll: true});
     }
 }
 
@@ -1229,6 +1258,7 @@ function renderResults(features) {
         button.append(title, meta);
         bindFeatureSelection(button, feature, {moveMap: true});
         item.append(button);
+        comparisons.decorate(item, feature.properties.auctionId, undefined, {compact: true});
         elements.resultList.append(item);
     }
     // Preserve the same logical keyboard position, not a global focus transfer.
@@ -1470,6 +1500,7 @@ function showPopup(feature) {
     view.status.textContent = statusLabel(feature.properties.sourceStatus);
     view.precision.textContent = precisionLabel(feature);
     view.explanation.textContent = precisionExplanation(feature);
+    comparisons.decorate(view.content, feature.properties.auctionId);
     refreshRefinementExplanation(view, feature);
     view.sourceLink = updateSourceLink(view.content, view.sourceLink, feature, 'Отвори на порталу еАукција');
     view.mapsLink = updateMapsLink(view.content, view.mapsLink, feature);

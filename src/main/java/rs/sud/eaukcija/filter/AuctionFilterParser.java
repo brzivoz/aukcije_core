@@ -74,7 +74,7 @@ public class AuctionFilterParser {
         List<String> municipalities = List.of();
         for (var entry : input.entrySet()) {
             String key = entry.getKey();
-            if (!FIELDS.contains(key) && !ALIASES.containsKey(key) && !transportFields.contains(key))
+            if (!FIELDS.contains(key) && !ChangeCriteria.PARAMETERS.contains(key) && !ALIASES.containsKey(key) && !transportFields.contains(key))
                 throw invalid(key, "unsupported query parameter");
             if (key.equals("municipality")) {
                 municipalities = parseMunicipalities(entry.getValue());
@@ -133,8 +133,10 @@ public class AuctionFilterParser {
         int page = (int) integer("page", values.get("page"), 0, 1_000_000, 0);
         Long selected = values.get("auction") == null ? null
                 : integer("auction", values.get("auction"), 1, Long.MAX_VALUE, 0);
+        var evaluatedAt = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         return new AuctionFilters(municipalities, values.get("placeName"), category, status,
-                min, max, first, values.get("search"), precision, parcelSize, from, to, scope, sort, dir, page, selected, clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
+                min, max, first, values.get("search"), precision, parcelSize, from, to, scope, sort, dir, page, selected,
+                evaluatedAt, ChangeCriteria.parse(values));
     }
 
     private List<String> parseMunicipalities(List<String> rawValues) {

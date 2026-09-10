@@ -48,7 +48,25 @@ public final class AuctionFilterSql {
             clauses.add("EXISTS (SELECT 1 FROM winners w WHERE w.auction_id = a.id AND " + property.sql() + ")");
             p.addValues(property.parameters().getValues());
         }
+        if (f.changes().active() && f.changes().window() == null) throw new IllegalStateException("Unresolved comparison boundary");
+        if (f.changes().usable()) {
+            clauses.add(changePredicate(f.changes()));
+            p.addValue("changeLower", f.changes().window().lower().sequence());
+            p.addValue("changeUpper", f.changes().window().upper().publication().sequence());
+        }
         return new Predicate(clauses.isEmpty() ? "TRUE" : String.join(" AND ", clauses), p);
+    }
+
+    /** Activity, not latest delta or net hash equality. NEW takes precedence over UPDATED. */
+    private static String changePredicate(ChangeCriteria c) {
+        String isNew = "EXISTS (SELECT 1 FROM sync_run_auction_observations co WHERE co.auction_id=a.id"
+                + " AND co.publication_id > :changeLower AND co.publication_id <= :changeUpper AND co.content_delta='NEW')";
+        String updated = "(NOT " + isNew
+                + " AND EXISTS (SELECT 1 FROM sync_run_auction_observations co WHERE co.auction_id=a.id AND co.publication_id <= :changeLower)"
+                + " AND EXISTS (SELECT 1 FROM sync_run_auction_observations co WHERE co.auction_id=a.id"
+                + " AND co.publication_id > :changeLower AND co.publication_id <= :changeUpper"
+                + " AND co.comparison_kind IN (" + (c.liveBidding() ? "'SUBSTANTIVE','LIVE_BIDDING_ONLY'" : "'SUBSTANTIVE'") + ")))";
+        return c.kind().equals("new") ? isNew : c.kind().equals("updated") ? updated : "(" + isNew + " OR " + updated + ")";
     }
 
     /** Matching map features, table tiers, auction membership and selection use the same w alias. */

@@ -18,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** Bounded, read-only backend contract for #56. No historical geometry/search replay. */
 @Service
 @Profile("!local-h2")
-@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ, noRollbackFor = SourceHistoryService.BoundaryException.class)
 public class SourceHistoryService {
     public static final int MAX_PAGE = 200;
     private final JdbcTemplate jdbc;
@@ -251,7 +251,8 @@ public class SourceHistoryService {
                 earliest.isEmpty() ? null : earliest.get(0).earliestPublishedAt(), legacy ? "PARTIAL_PRE_HISTORY" : "COMPLETE_SINCE_EMPTY");
     }
     private UUID lineage() { return jdbc.queryForObject("SELECT lineage FROM source_history_lineage WHERE singleton", UUID.class); }
-    private Instant validate(Reference ref) {
+    /** Validates the full lineage/sequence/run coordinate without moving it. */
+    public Instant validate(Reference ref) {
         if (ref == null || ref.lineage() == null || ref.sequence() < 0) throw new BoundaryException("INVALID_REFERENCE");
         if (!lineage().equals(ref.lineage())) throw new BoundaryException("FOREIGN_LINEAGE");
         if (ref.sequence() == 0 && ref.runId() == null) return null;

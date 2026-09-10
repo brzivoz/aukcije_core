@@ -164,6 +164,28 @@
         <span>Примењено:</span><div id="applied-filter-chips"></div>
         <button type="button" id="applied-filter-reset">Ресетуј</button>
     </div>
+    <details id="comparison-tools">
+        <summary>Поређење / преглед</summary>
+        <div class="comparison-content">
+        <p><strong>На овом прегледачу</strong></p>
+        <p>Тачка поређења је граница каталога, не потврда да сте прегледали све аукције, странице или област карте. Претходна посета такође није потврда прегледа.</p>
+        <p id="displayed-publication"></p>
+        <p id="checkpoint-state">Локалне радње захтевају JavaScript.</p>
+        <button type="button" id="checkpoint-save" disabled>Користи ове податке као моју тачку поређења</button>
+        <button type="button" id="checkpoint-clear" disabled>Обриши моју тачку</button>
+        <p id="previous-visit-state"></p>
+        <button type="button" id="reviewed-toggle" disabled aria-expanded="false" aria-controls="reviewed-results">Промене прегледаних аукција</button>
+        <button type="button" id="reviews-export" disabled>Извези локалне потврде (опоравак)</button>
+        <button type="button" id="reviews-clear" disabled>Обриши све потврде прегледа</button>
+        <p>До 200 потврда / 256 KiB, без аутоматског брисања. На граници извезите копију и намерно обришите потврде. Ресетовање филтера их не брише.</p>
+        <section id="reviewed-results" hidden aria-label="Промене прегледаних аукција">
+            <p>Проширен опсег: само изричито прегледане аукције, БЕЗ садашњих филтера и ограничења завршетка. Задржани подаци нису доказ тренутне доступности. Овде нема историјске геометрије.</p>
+            <p id="reviewed-status" role="status" tabindex="-1"></p><ol id="reviewed-list"></ol>
+        </section>
+        </div>
+    </details>
+    <p id="map-comparison-summary" role="status"></p>
+    <p id="comparison-feedback" role="status" aria-live="polite"></p>
     <div id="workspace-body">
     <div th:replace="~{auction-filters :: filters}"></div>
 
@@ -236,7 +258,14 @@
         </div>
 
     <div id="table-view">
-    <section id="shared-results" th:fragment="results" th:attr="data-as-of=${filters.asOf}">
+    <section id="shared-results" th:fragment="results" th:attr="data-as-of=${filters.asOf},data-source-frame=${sourceFrameJson}">
+    <div id="comparison-summary" th:if="${filters.changes.active()}">
+        <p th:text="${comparisonNotice}"></p>
+        <p th:if="${filters.changes.usable()}">
+            <span th:text="${'Промене од: ' + #temporals.format(filters.changes.window.lowerTime.atZone(displayZone), 'dd.MM.yyyy. HH:mm:ss XXX') + ' (Београд) · ' + filters.changes.kindLabel()}"></span>
+            · Нове: <strong th:text="${newCount}"></strong> · Измењене: <strong th:text="${updatedCount}"></strong>
+        </p>
+    </div>
     <p id="active-criteria" role="status">Примењено:
         <strong th:text="${filters.timeScopeLabel()}"></strong>
         <span th:each="entry : ${filters.activeCriteria()}"
@@ -275,6 +304,15 @@
                    th:href="'https://eaukcija.sud.rs/#/aukcije/' + ${a.id}"
                    th:text="${a.auctionNumber}" target="_blank" rel="noopener noreferrer"></a>
                 <button type="button" class="table-select" th:attr="data-auction-id=${a.id}">Изабери на карти</button>
+                <div class="auction-change" th:with="e=${evidence.get(a.id)}">
+                    <strong class="change-badge" th:if="${e != null and e.bucket != null}" th:text="${e.badge()}"></strong>
+                    <details th:if="${e != null and !e.explanation().isEmpty()}"><summary>Докази промена / стање</summary><p th:text="${e.explanation()}"></p></details>
+                    <span class="review-state" th:attr="data-review-id=${a.id}">Преглед није потврђен</span>
+                    <p class="review-reasons" hidden th:attr="data-review-id=${a.id},data-compact='false'"></p>
+                    <button type="button" class="mark-reviewed" disabled th:if="${reviewJson.containsKey(a.id)}"
+                            th:attr="data-review=${reviewJson.get(a.id)},aria-label=${'Потврди преглед аукције ' + a.id}">Потврди преглед</button>
+                    <button type="button" class="clear-reviewed" disabled th:attr="data-review-id=${a.id},aria-label=${'Обриши потврду прегледа аукције ' + a.id}">Обриши потврду</button>
+                </div>
             </td>
             <td class="desc-cell" th:text="${a.shortDescription}"></td>
             <td th:text="${a.municipality ?: '—'}"></td>

@@ -1,3 +1,5 @@
+import {civilParts} from './comparison-storage.mjs';
+
 /** Read-only projection of the shared view's applied query; drafts remain native controls. */
 export function createFilterPresentation({form, fields, appliedQuery, removeCriterion, reset}) {
     const chips = document.getElementById('applied-filter-chips');
@@ -6,11 +8,23 @@ export function createFilterPresentation({form, fields, appliedQuery, removeCrit
         municipality: 'Општина', placeName: 'Место', category: 'Категорија', status: 'Изворни статус',
         minPrice: 'Мин. РСД', maxPrice: 'Макс. РСД', firstSale: 'Прва продаја', search: 'Претрага',
         precision: 'Прецизност', parcelSize: 'Површина парцеле',
-        from: 'Завршетак од', to: 'Завршетак до', timeScope: 'Временски опсег'
+        from: 'Завршетак од', to: 'Завршетак до', timeScope: 'Временски опсег',
+        since: 'Промене од', changeKind: 'Врста промена', liveBidding: 'Лицитирање',
+        sinceLocal: 'Датум/време (Београд)', sinceOffset: 'UTC помак', sinceAt: 'Тачка поређења', publication: 'Публикација'
     };
     let rendered = null;
+    const chipFields = fields.filter(name => !['sinceAt', 'publication', 'sinceLocal', 'sinceOffset'].includes(name));
     function values(query, name) {
-        const raw = query.getAll(name).map(value => value.trim()).filter(Boolean);
+        if (['sinceLocal', 'sinceOffset'].includes(name)) {
+            if (query.get('since') !== 'date') return [];
+            if (query instanceof URLSearchParams) {
+                const parts = civilParts(query.get('sinceAt'));
+                return [name === 'sinceLocal' ? parts.local : parts.offset].filter(Boolean);
+            }
+        }
+        if (name === 'sinceAt' && query.get('since') === 'date') return [];
+        if (name === 'publication' && query.get('since') !== 'publication') return [];
+        const raw = query.getAll(name).map(value => name === 'sinceLocal' && value.length === 16 ? value + ':00' : value.trim()).filter(Boolean);
         if (name === 'timeScope' && !raw.length) return ['not-ended'];
         return [...new Set(raw.map(value => {
             // RSD allows 17 integer digits: never round a chip/draft through IEEE-754.
@@ -32,17 +46,17 @@ export function createFilterPresentation({form, fields, appliedQuery, removeCrit
         document.getElementById('filter-dirty-indicator').hidden = !dirty;
         document.getElementById('filter-draft-state').textContent = dirty
             ? 'Непримењене измене. Карта и табела користе приказане примењене филтере.' : '';
-        const active = fields.filter(name => values(query, name).length).length;
+        const active = chipFields.filter(name => values(query, name).length).length;
         document.getElementById('filter-active-count').textContent = `· ${active}`;
         const advancedCount = fields.filter(name => advanced.querySelector(`[name="${name}"]`) && values(query, name).length).length;
         document.getElementById('advanced-filter-count').textContent = advancedCount ? `· ${advancedCount} примењено` : '';
         // Polls must not replace a focused chip or re-announce an unchanged summary.
-        const key = JSON.stringify(fields.map(name => [name, values(query, name), values(query, name).map(value => caption(name, value))]));
+        const key = JSON.stringify(chipFields.map(name => [name, values(query, name), values(query, name).map(value => caption(name, value))]));
         if (key === rendered) return;
         rendered = key;
         const focused = chips.contains(document.activeElement);
         chips.replaceChildren();
-        for (const name of ['timeScope', ...fields.filter(name => name !== 'timeScope')]) {
+        for (const name of ['timeScope', ...chipFields.filter(name => name !== 'timeScope')]) {
             for (const value of values(query, name)) {
                 const text = caption(name, value);
                 const chip = document.createElement('button');

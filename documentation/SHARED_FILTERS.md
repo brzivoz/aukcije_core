@@ -1,4 +1,12 @@
-# Shared auction filters (#44, #57)
+# Shared auction filters (#44, #56, #57)
+
+#56 extends this same model with `since`, `sinceAt`, `publication`, `changeKind`
+and `liveBidding` (native civil adapters: `sinceLocal`, `sinceOffset`). See the
+[comparison API/coverage contract](MAP_API.md#changes-since-and-reviewed-revisions-56)
+and [browser-local checkpoint/visit/review semantics](BROWSER_AND_FRONTEND.md#comparisons-and-local-review-state-56).
+These intersect current membership, never replay historical filters. Clear Filters
+removes comparison criteria but does not clear checkpoints/acknowledgements.
+The explicitly labelled reviewed-auction panel is the only relaxed-scope view.
 
 ## Using the page
 

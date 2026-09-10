@@ -88,7 +88,8 @@ class DatabaseLifecycleIntegrationTest {
                         "V26__honest_parser_quality_evidence.sql",
                         "V27__registry_precise_selection_guards.sql",
                         "V28__versioned_invalid_cache_reevaluation.sql",
-                        "V29__source_publication_history_and_lifecycle.sql");
+                        "V29__source_publication_history_and_lifecycle.sql",
+                        "V30__catalogue_comparison_indexes.sql");
     }
 
     @Test

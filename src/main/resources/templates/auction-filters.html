@@ -15,6 +15,39 @@
                 <option value="all" th:selected="${filters.timeScope == 'all'}">Све</option>
             </select>
         </div>
+        <div class="filter-group"><label for="changes-since">Промене од…</label>
+            <select id="changes-since" name="since">
+                <option value="" th:selected="${!filters.changes.active()}">Било када</option>
+                <option value="24h" th:selected="${filters.changes.since == '24h'}">Последња 24 сата</option>
+                <option value="7d" th:selected="${filters.changes.since == '7d'}">Последњих 7 дана</option>
+                <option value="date" th:selected="${filters.changes.since == 'date'}">Изабрани датум/време</option>
+                <option value="publication" th:if="${filters.changes.since == 'publication'}" selected>Сачувана тачка поређења</option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="change-kind">Врста промена</label>
+            <select id="change-kind" name="changeKind">
+                <option value="" th:selected="${filters.changes.kind == ''}">Нове и измењене</option>
+                <option value="new" th:selected="${filters.changes.kind == 'new'}">Само нове</option>
+                <option value="updated" th:selected="${filters.changes.kind == 'updated'}">Само измењене</option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="since-local">Изабрани датум/време (Београд)</label>
+            <input type="datetime-local" step="any" id="since-local" name="sinceLocal" th:value="${filters.changes.civilTime()}"/>
+            <label for="since-offset">UTC помак (обавезан када се време понавља)</label>
+            <select id="since-offset" name="sinceOffset">
+                <option value="">Аутоматски само ако је недвосмислено</option>
+                <option value="+02:00" th:selected="${filters.changes.offset() == '+02:00'}">UTC+02:00 (летње)</option>
+                <option value="+01:00" th:selected="${filters.changes.offset() == '+01:00'}">UTC+01:00 (зимско)</option>
+            </select>
+        </div>
+        <div class="filter-group"><label for="live-bidding">Промене само текуће цене лицитирања</label>
+            <select id="live-bidding" name="liveBidding">
+                <option value="" th:selected="${!filters.changes.liveBidding}">Искључене</option>
+                <option value="true" th:selected="${filters.changes.liveBidding}">Укључене — лицитирање</option>
+            </select>
+        </div>
+        <input type="hidden" name="sinceAt" th:value="${filters.changes.at}"/>
+        <input type="hidden" name="publication" th:value="${filters.changes.publication == null ? '' : T(rs.sud.eaukcija.filter.ChangeCriteria).encode(filters.changes.publication)}"/>
         <fieldset class="filter-group municipality-group">
             <legend id="municipality-label">Општине</legend>
             <details id="municipality-filter" class="municipality-select">
@@ -100,6 +133,8 @@
             на карти су само одговарајуће парцеле. Непознате површине остају само под „Све површине”.
             Категорија се бира независно — и кућа или стан могу имати парцелу.</p>
     </details>
+    <p>Периоди од 24 сата и 7 дана су протекло време, не календарски дани. Промене не значе да је аукција отворена за лицитирање.</p>
+    <noscript><p>Локална тачка поређења, претходна посета и потврде прегледа захтевају JavaScript и складиште овог прегледача. Датумско GET поређење и остали филтери раде без њих.</p></noscript>
     <details id="filter-help"><summary>Како се примењују датуми и временски опсег?</summary>
     <p id="map-default-time-note" class="map-default-note">Подразумевано: нису завршене (познат завршетак после тренутка провере),
         не нужно отворене за лицитирање. Датуми завршетка и временски опсег се укрштају.
